@@ -5,13 +5,18 @@ import bokeh
 import bokeh.plotting
 
 from compyct.paramsets import ParamSet, spicenum_to_float, ParamPlace
-
+from compyct.python_models import python_compact_models
 
 class SimTemplate():
     def __init__(self, model_paramset=None):
-        self.model_name=model_paramset.model+"_standin"
-        self.model_paramset: ParamSet=model_paramset.copy()
         self._tf=None
+        if model_paramset is not None:
+            self.set_paramset(model_paramset)
+
+    def set_paramset(self,model_paramset):
+        assert self._tf is None, "Can't change paramset after creating netlist"
+        self.model_name=model_paramset.model+"_standin"
+        self.model_paramset=model_paramset.copy()
         
     def get_netlist_str(self):
         raise NotImplementedError
@@ -146,13 +151,28 @@ class MultiSweepSimTemplate(SimTemplate):
         self._update_cds_with_parsed_result(
             cds=self._sources[vizid][0],parsed_result=parsed_result)
 
+    def parsed_results_to_vector(self, parsed_results, roi):
+        if roi is None: return np.array([])
+        arr=[]
+        for k, v in parsed_results.items():
+            if k in roi:
+                arr.append(parsed_results[roi[k]])
+        return self._rescale_vector(np.array(arr))
+        
+    def _rescale_vector(self,arr):
+        raise NotImplementedError
+
 class DCIdVdTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args,
-                 vg_values=[0,.6,1.2,1.8], vd_range=(0,1.8), **kwargs):
-        super().__init__( 
-                         outer_variable='VG', inner_variable='VD',ynames=['ID/W [uA/um]'],
+                 vg_values=[0,.6,1.2,1.8], vd_range=(0,.1,1.8), **kwargs):
+        super().__init__(outer_variable='VG', inner_variable='VD',
+                         ynames=['ID/W [uA/um]'],
                          *args, **kwargs)
+        
+        num_vd=(vd_range[2]-vd_range[0])/vd_range[1]
+        assert abs(num_vd-int(num_vd))<1e-3, f"Make sure the IdVd range gives even steps {str(vd_range)}"
+        
         self.vg_values=vg_values
         self.vd_range=vd_range
     
@@ -170,7 +190,7 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
         for i_vg,vg in enumerate(self.vg_values,start=1):
             analysis_part+=f"tovgnum{i_vg} alter param=vg value={vg}\n"
             analysis_part+=f"dcvgnum{i_vg} dc dev=VD param=dc "\
-                                f"start={self.vd_range[0]} stop={self.vd_range[1]}\n"
+                                f"start={self.vd_range[0]} step={self.vd_range[1]} stop={self.vd_range[2]}\n"
         return analysis_part
 
     def parse_return(self,result):
@@ -191,14 +211,20 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
     def generate_figures(self,*args,**kwargs):
         kwargs['y_axis_type']=kwargs.get('y_axis_type','linear')
         return super().generate_figures(*args,**kwargs)
+
+    def _rescale_vector(self,arr):
+        return arr
         
 class DCIdVgTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args,
-                 vd_values=[.05,1.8], vg_range=(0,1.8), **kwargs):
+                 vd_values=[.05,1.8], vg_range=(0,.03,1.8), **kwargs):
         super().__init__(outer_variable='VD', inner_variable='VG',
                          ynames=['ID/W [uA/um]'],
                          *args, **kwargs)
+        num_vg=(vg_range[2]-vg_range[0])/vg_range[1]
+        assert abs(num_vg-int(num_vg))<1e-3, f"Make sure the IdVg range gives even steps {str(vg_range)}"
+        
         self.vg_range=vg_range
         self.vd_values=vd_values
     
@@ -216,7 +242,7 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
         for i_vd,vd in enumerate(self.vd_values,start=1):
             analysis_part+=f"tovdnum{i_vd} alter param=vd value={vd}\n"
             analysis_part+=f"dcvdnum{i_vd} dc dev=VG param=dc"\
-                           f" start={self.vg_range[0]} stop={self.vg_range[1]}\n"
+                           f" start={self.vg_range[0]} step={self.vg_range[1]} stop={self.vg_range[2]}\n"
             
         return analysis_part
 
@@ -239,15 +265,23 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
         kwargs['y_axis_type']=kwargs.get('y_axis_type','log')
         return super().generate_figures(*args,**kwargs)
 
+    def _rescale_vector(self,arr):
+        return np.log10(np.abs(arr))
+
 class DCIVTemplate(SimTemplate):
     def __init__(self, *args,
-                 idvd_vg_values=[0,.6,1.2,1.8], idvd_vd_range=(0,1.8),
-                 idvg_vd_values=[.05,1.8], idvg_vg_range=(0,1.8), **kwargs):
+                 idvd_vg_values=[0,.6,1.2,1.8], idvd_vd_range=(0,.1,1.8),
+                 idvg_vd_values=[.05,1.8], idvg_vg_range=(0,.03,1.8), **kwargs):
         super().__init__(*args, **kwargs)
         self._dcidvg=DCIdVgTemplate(*args, **kwargs,
                                     vd_values=idvg_vd_values, vg_range=idvg_vg_range)
         self._dcidvd=DCIdVdTemplate(*args, **kwargs,
                                     vg_values=idvd_vg_values, vd_range=idvd_vd_range)
+        
+    def set_paramset(self,model_paramset):
+        super().set_paramset(model_paramset)
+        self._dcidvg.set_paramset(model_paramset)
+        self._dcidvd.set_paramset(model_paramset)
         
     def get_netlist_str(self):
         lines=self._dcidvg.get_netlist_str()
@@ -272,15 +306,23 @@ class DCIVTemplate(SimTemplate):
     def update_figures(self, parsed_result, vizid=None):
         self._dcidvg.update_figures(parsed_result['IdVg'],vizid=vizid)
         self._dcidvd.update_figures(parsed_result['IdVd'],vizid=vizid)
-        
+
+    def parsed_results_to_vector(self, parsed_results, roi):
+        return np.concatenate([
+            self._dcidvg.parsed_results_to_vector(parsed_results['IdVg'],roi['IdVg']),
+            self._dcidvd.parsed_results_to_vector(parsed_results['IdVd'],roi['IdVd'])])
 
 class CVTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args,
-                 vg_range=(0,1.8), freq='1M', **kwargs):
+                 vg_range=(0,.03,1.8), freq='1M', **kwargs):
         super().__init__(outer_variable=None, inner_variable='VG',
                          ynames=['Cgg [fF/um]'],
                          *args, **kwargs)
+        
+        num_vg=(vg_range[2]-vg_range[0])/vg_range[1]
+        assert abs(num_vg-int(num_vg))<1e-3, f"Make sure the IdVg range gives even steps {str(vg_range)}"
+        
         self.vg_range=vg_range
         self.freq=freq
 
@@ -294,7 +336,7 @@ class CVTemplate(MultiSweepSimTemplate):
         
     def get_analyses_str(self):
         analysis_part=f"cv ac dev=VG param=dc start={self.vg_range[0]}"\
-            f" stop={self.vg_range[1]} freq={self.freq}\n"
+            f" step={self.vg_range[1]} stop={self.vg_range[2]} freq={self.freq}\n"
         return analysis_part
         
     def parse_return(self,result):
@@ -311,14 +353,30 @@ class CVTemplate(MultiSweepSimTemplate):
 
 
 class MultiSimSesh():
-
     def __init__(self, simtemps: dict[str,SimTemplate]):
         self.simtemps: dict[str,SimTemplate]=simtemps
         self._sessions: dict[str,psp.Session]={}
+        
+    def __enter__(self):
+        print("Opening simulation session(s)")
+        assert len(self._sessions)==0, "Previous sessions exist somehow!!"
+        
+    def __exit__(self, exc_type, exc_value, traceback):
+        print("Closing sessions")
+        
+    def __del__(self):
+        if len(self._sessions):
+            print("Somehow deleted MultiSimSesh without closing sessions."\
+                  "  That's bad but I can try to handle it.")
+            self.__exit__(None,None,None)
+
+    def run_with_params(self, params={}):
+        raise NotImplementedError
+
+class SpectreMultiSimSesh(MultiSimSesh):
 
     def __enter__(self):
-        print("Opening spectre session(s)")
-        assert len(self._sessions)==0, "Previous sessions exist somehow!!"
+        super().__enter__()
         for simname,simtemp in self.simtemps.items():
             try:
                 sesh=psp.start_session(net_path=simtemp.get_netlist_file())
@@ -331,18 +389,15 @@ class MultiSimSesh():
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        print("Closing sessions")
-        for simname in list(self._sessions.keys()):
-            psp.stop_session(self._sessions.pop(simname))
-            
-    def __del__(self):
-        print("Somehow deleted MultiSimSesh without closing sessions."\
-              "  That's bad but I can try to handle it.")
-        self.__exit__(None,None,None)
+        try:
+            super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            for simname in list(self._sessions.keys()):
+                psp.stop_session(self._sessions.pop(simname))
 
     def run_with_params(self, params={}):
         results={}
-        import time
+        #import time
         for simname,sesh in self._sessions.items():
             #print(f"Running {simname}")
             simtemp=self.simtemps[simname]
@@ -353,3 +408,12 @@ class MultiSimSesh():
             results[simname]=simtemp.parse_return(psp.run_all(sesh))
             #print('done', time.time())
         return results
+        
+class PythonMultiSimSesh(MultiSimSesh):
+    def run_with_params(self,params={}):
+        results={}
+        for simname,simtemp in self.simtemps.items():
+            re_p_changed=simtemp.update_paramset_and_return_spectre_changes(params)
+            results[simname]=python_compact_models[simtemp.model_paramset.model].run_all()
+        return results
+            
