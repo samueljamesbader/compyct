@@ -8,9 +8,8 @@ from compyct.paramsets import ParamSet, spicenum_to_float, ParamPlace
 
 
 class SimTemplate():
-    def __init__(self, includes=[], model_paramset=None):
+    def __init__(self, model_paramset=None):
         self.model_name=model_paramset.model+"_standin"
-        self.includes=includes
         self.model_paramset: ParamSet=model_paramset.copy()
         self._tf=None
         
@@ -44,16 +43,16 @@ class SimTemplate():
             self._tf=NamedTemporaryFile(prefix=self.__class__.__name__,mode='w')
             self._tf.write(f"// {self.__class__.__name__}\n")
             self._tf.write(f"simulator lang = spectre\n")
-            for i in self.includes:
-                if type(i)==str:
-                    self._tf.write(
-                        f"{'ahdl_' if i.endswith('.va') else ''}include"\
-                            f" \"{i}\"\n")
-                else:
-                    self._tf.write(
-                        f"{'ahdl_' if i[0].endswith('.va') else ''}include"\
-                            f" \"{i[0]}\" {' '.join(i[1:])}\n")
             if self.model_paramset is not None:
+                for i in self.model_paramset.includes:
+                    if type(i)==str:
+                        self._tf.write(
+                            f"{'ahdl_' if i.endswith('.va') else ''}include"\
+                                f" \"{i}\"\n")
+                    else:
+                        self._tf.write(
+                            f"{'ahdl_' if i[0].endswith('.va') else ''}include"\
+                                f" \"{i[0]}\" {' '.join(i[1:])}\n")
                 self._tf.write(f"model {self.model_name} {self.model_paramset.model}\n")
                 paramlinedict={("modparam_"+k):self.model_paramset.get_value(k)
                                     for k in self.model_paramset}

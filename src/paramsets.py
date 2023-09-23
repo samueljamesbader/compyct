@@ -27,6 +27,7 @@ class ParamPlace(Enum):
     
 class ParamSet():
     _shared_paramdict=None
+    includes=[]
     
     def __init__(self,model,**kwargs):
         self.model=model
@@ -86,18 +87,24 @@ class ParamSet():
         
 class GuessedInstanceValueParamSet(ParamSet):
     _shared_paramdicts={}
-    def __init__(self, model, file, section,**kwargs):
+    def __init__(self, model, file, section="",**kwargs):
         super().__init__(model=model,**kwargs)
         self.file=file
         self.section=section
+        self.includes=[(str(file),"section="+section)]
         if (model,file,section) in GuessedInstanceValueParamSet._shared_paramdicts:
             return
+        in_section=""
         with open(file) as f:
             for l in f:
+                if l.startswith("section"):
+                    in_section=l.strip().split(" ")[1]
+                
                 if l.startswith(f"subckt {model}"):
-                    l=next(f).strip()
-                    assert l.startswith("parameters ")
-                    defaults=dict([eq.split("=") for eq in l.split()[1:]])
+                    if in_section==self.section:
+                        l=next(f).strip()
+                        assert l.startswith("parameters ")
+                        defaults=dict([eq.split("=") for eq in l.split()[1:]])
         GuessedInstanceValueParamSet._shared_paramdicts[(model,file,section)]=\
             {k:{'default':v,'units':'A.U.'} for k,v in defaults.items()}
     @property
@@ -112,7 +119,10 @@ class GuessedInstanceValueParamSet(ParamSet):
 class CMCParamSet(ParamSet):
     def __init__(self,model,vapath,**kwargs):
         super().__init__(model=model,**kwargs)
-        if self._shared_paramdict is not None: return
+        if self._shared_paramdict is not None:
+            return
+        self.includes=[str(vapath)]
+        
         with open(vapath,'r') as f:        
             # Collect the model parameter and instance parameter definition lines
             # Tweak them slightly so they can be read by csv reader with the macro
@@ -188,6 +198,7 @@ class CMCParamSet(ParamSet):
             case _:
                 print(f"Not sure what to do with macro {deets['macro']} for param {param}")
                 lower=None
+                upper=None
         if upper is not None and np.isinf(upper): upper=None
         if deets['macro']=='MPRnb':
             step=.1
@@ -199,20 +210,19 @@ class CMCParamSet(ParamSet):
         
 class MVSGParamSet(CMCParamSet):
     def __init__(self,**kwargs):
-        super().__init__(model='mvsg_cmc',vapath=\
-                         Path(os.environ['MODELFITPATH'])/\
-                              "standard_models/mvsg_cmc_3.0.0.va",
-                        **kwargs)
+        vapath=Path(os.environ['MODELFITPATH'])/\
+                    "standard_models/mvsg_cmc_3.0.0.va"
+        super().__init__(model='mvsg_cmc',vapath=vapath,**kwargs)
         
     def get_total_device_width(self):
         return spicenum_to_float(self.get_value('w'))*\
                 spicenum_to_float(self.get_value('ngf'))
+        
 class ASMHEMTParamSet(CMCParamSet):
     def __init__(self,**kwargs):
-        super().__init__(model='asmhemt',vapath=\
-                         Path(os.environ['MODELFITPATH'])/\
-                              "standard_models/asmhemt.va",
-                        **kwargs)
+        vapath=Path(os.environ['MODELFITPATH'])/\
+                    "standard_models/asmhemt.va"
+        super().__init__(model='asmhemt',vapath=vapath,**kwargs)
         
     def get_total_device_width(self):
         return spicenum_to_float(self.get_value('w'))*\
