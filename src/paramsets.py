@@ -211,7 +211,7 @@ class CMCParamSet(ParamSet):
 class MVSGParamSet(CMCParamSet):
     def __init__(self,**kwargs):
         vapath=Path(os.environ['MODELFITPATH'])/\
-                    "standard_models/mvsg_cmc_3.0.0.va"
+                    "standard_models/vacode/mvsg_cmc_3.0.0.va"
         super().__init__(model='mvsg_cmc',vapath=vapath,**kwargs)
         
     def get_total_device_width(self):
@@ -221,7 +221,7 @@ class MVSGParamSet(CMCParamSet):
 class ASMHEMTParamSet(CMCParamSet):
     def __init__(self,**kwargs):
         vapath=Path(os.environ['MODELFITPATH'])/\
-                    "standard_models/asmhemt.va"
+                    "standard_models/vacode/asmhemt.va"
         super().__init__(model='asmhemt',vapath=vapath,**kwargs)
         
     def get_total_device_width(self):

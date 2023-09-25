@@ -10,10 +10,10 @@ setup(
     author='Samuel James Bader',
     author_email='samuel.james.bader@gmail.com',
     description='Compact model fitting',
-    install_requires=['panel','numpy','scipy'],
-	extras_require={
-		'spectre':['pynut','pyspectre','pexpect'],
-		'verilogae':['verilogae'],
-	}
+    install_requires=['panel','numpy','scipy','verilogae'],
+    extras_require={
+        'spectre':['pynut','pyspectre','pexpect'],
+        'ngspice':['PySpice'],
+    }
 )
 
