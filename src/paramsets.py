@@ -6,10 +6,16 @@ import os
 from copy import copy as _copy
 import numpy as np
 
+from compyct import COMPYCT_VA_PATH, COMPYCT_OSDI_PATH
+
 def spicenum_to_float(spicenum):
     try:
         return float(spicenum)
     except:
+        assert spicenum[-1]!="M",\
+            f"'M' is an ambiguous unit between spice (case-insensitive)"\
+            f"and spectre (case-sensitive)"
+        spicenum=spicenum.lower().replace("meg","M")
         return float(spicenum[:-1])*\
             {'f':1e-15,'p':1e-12,'n':1e-9,
              'u':1e-6,'m':1e-3,'k':1e3,'M':1e6}\
@@ -17,7 +23,7 @@ def spicenum_to_float(spicenum):
         
 def float_to_spicenum(fl):
     ord=np.floor(np.log10(fl)/3)*3
-    si={-12:'p',-9:'n',-6:'u',-3:'m',0:'',3:'k',6:'M',9:'G'}[ord]
+    si={-12:'p',-9:'n',-6:'u',-3:'m',0:'',3:'k',6:'meg',9:'G'}[ord]
     return f'{(fl/10**ord):g}{si}'
 
 from enum import Enum
@@ -27,7 +33,9 @@ class ParamPlace(Enum):
     
 class ParamSet():
     _shared_paramdict=None
-    includes=[]
+    scs_includes=[]
+    va_includes=[]
+    osdi_includes=[]
     
     def __init__(self,model,**kwargs):
         self.model=model
@@ -91,7 +99,7 @@ class GuessedInstanceValueParamSet(ParamSet):
         super().__init__(model=model,**kwargs)
         self.file=file
         self.section=section
-        self.includes=[(str(file),"section="+section)]
+        self.scs_includes=[(str(file),"section="+section)]
         if (model,file,section) in GuessedInstanceValueParamSet._shared_paramdicts:
             return
         in_section=""
@@ -117,11 +125,17 @@ class GuessedInstanceValueParamSet(ParamSet):
         return ParamPlace.INSTANCE
 
 class CMCParamSet(ParamSet):
-    def __init__(self,model,vapath,**kwargs):
+    def __init__(self,model,vaname,**kwargs):
         super().__init__(model=model,**kwargs)
         if self._shared_paramdict is not None:
             return
-        self.includes=[str(vapath)]
+
+        vapath=Path(os.environ['COMPYCT_VA_PATH'])/vaname
+        self.__class__.scs_includes=[]
+        self.__class__.va_includes=\
+            [str(COMPYCT_VA_PATH/vaname)]
+        self.__class__.osdi_includes=\
+            [str(COMPYCT_OSDI_PATH/vaname.replace(".va",".osdi"))]
         
         with open(vapath,'r') as f:        
             # Collect the model parameter and instance parameter definition lines
@@ -210,9 +224,7 @@ class CMCParamSet(ParamSet):
         
 class MVSGParamSet(CMCParamSet):
     def __init__(self,**kwargs):
-        vapath=Path(os.environ['MODELFITPATH'])/\
-                    "standard_models/vacode/mvsg_cmc_3.0.0.va"
-        super().__init__(model='mvsg_cmc',vapath=vapath,**kwargs)
+        super().__init__(model='mvsg_cmc',vaname="mvsg_cmc_3.0.0.va",**kwargs)
         
     def get_total_device_width(self):
         return spicenum_to_float(self.get_value('w'))*\
@@ -220,9 +232,7 @@ class MVSGParamSet(CMCParamSet):
         
 class ASMHEMTParamSet(CMCParamSet):
     def __init__(self,**kwargs):
-        vapath=Path(os.environ['MODELFITPATH'])/\
-                    "standard_models/vacode/asmhemt.va"
-        super().__init__(model='asmhemt',vapath=vapath,**kwargs)
+        super().__init__(model='asmhemt',vaname="asmhemt.va",**kwargs)
         
     def get_total_device_width(self):
         return spicenum_to_float(self.get_value('w'))*\

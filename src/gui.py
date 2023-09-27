@@ -1,5 +1,6 @@
 import panel as pn
-from compyct import sim
+from compyct import templates
+from compyct.backends.backend import MultiSimSesh
 import bokeh.layouts
 
 def make_widget(model_paramset, param_name, center):
@@ -15,7 +16,7 @@ def make_widget(model_paramset, param_name, center):
                                  sizing_mode='stretch_width')
 
 class ManualOptimizer(pn.widgets.base.CompositeWidget):
-    def __init__(self, mss:sim.MultiSimSesh=None, model_paramset=None,
+    def __init__(self, mss:MultiSimSesh=None, model_paramset=None,
                  active_paramset={},meas_data=None, fig_layout_params={}):
         super().__init__(height=300,sizing_mode='stretch_width')
         self.mss=mss
@@ -34,9 +35,11 @@ class ManualOptimizer(pn.widgets.base.CompositeWidget):
             bokeh.layouts.gridplot([self._figs])]
         self._widget_updated()
 
+    def get_widget_params(self):
+        return {n:float(w.value) for n,w in self._widgets.items()}
+
     def _widget_updated(self,*args,**kwargs):
-        model_params={n:w.value for n,w in self._widgets.items()}
-        self.rerun_and_update(params=model_params)
+        self.rerun_and_update(params=self.get_widget_params())
         
     def rerun_and_update(self,params={}):
         new_results=self.mss.run_with_params(params=params)

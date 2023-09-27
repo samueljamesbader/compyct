@@ -1,11 +1,10 @@
 import numpy as np
-import pyspectre as psp
-from tempfile import NamedTemporaryFile
 import bokeh
 import bokeh.plotting
 
+from compyct.backends.backend import Netlister
+
 from compyct.paramsets import ParamSet, spicenum_to_float, ParamPlace
-from compyct.python_models import python_compact_models
 
 class SimTemplate():
     def __init__(self, model_paramset=None):
@@ -18,10 +17,6 @@ class SimTemplate():
         self.model_name=model_paramset.model+"_standin"
         self.model_paramset=model_paramset.copy()
         
-    def get_netlist_str(self):
-        raise NotImplementedError
-    def get_analyses_str(self):
-        raise NotImplementedError
     def parse_return(self, result):
         return result
 
@@ -43,61 +38,10 @@ class SimTemplate():
             cds.data=data
         return cds
         
-    def get_netlist_file(self):
-        if self._tf is None:
-            self._tf=NamedTemporaryFile(prefix=self.__class__.__name__,mode='w')
-            self._tf.write(f"// {self.__class__.__name__}\n")
-            self._tf.write(f"simulator lang = spectre\n")
-            if self.model_paramset is not None:
-                for i in self.model_paramset.includes:
-                    if type(i)==str:
-                        self._tf.write(
-                            f"{'ahdl_' if i.endswith('.va') else ''}include"\
-                                f" \"{i}\"\n")
-                    else:
-                        self._tf.write(
-                            f"{'ahdl_' if i[0].endswith('.va') else ''}include"\
-                                f" \"{i[0]}\" {' '.join(i[1:])}\n")
-                self._tf.write(f"model {self.model_name} {self.model_paramset.model}\n")
-                paramlinedict={("modparam_"+k):self.model_paramset.get_value(k)
-                                    for k in self.model_paramset}
-                self._tf.write(
-                    f"parameters "+\
-                    ' '.join([f'{k}={v}' for k,v in paramlinedict.items()])\
-                    +"\n")
-            instance_params={k:self.model_paramset.get_value(k)
-                                 for k in self.model_paramset
-                                     if self.model_paramset.get_place(k)\
-                                         ==ParamPlace.INSTANCE}
-            if len(instance_params):
-                self._tf.write(f"parameters "+\
-                                   ' '.join(f'instparam_{k}={v}'
-                                        for k,v in instance_params.items())+\
-                               "\n")
-            self._tf.write(self.get_netlist_str()+"\n")
-            if self.model_paramset is not None:                
-                self._tf.write(
-                    f"set_modparams altergroup {{\nmodel {self.model_name}"\
-                    f" {self.model_paramset.model} "+\
-                    " ".join((f"{k}=modparam_{k}" for k in self.model_paramset))\
-                    +"\n}\n")
-            self._tf.write(self.get_analyses_str()+"\n")
-            self._tf.flush()
-        return self._tf.name
-
-    def _get_instance_param_part(self):
-        return ' '.join(f'{k}=instparam_{k}' for k in self.model_paramset
-                        if self.model_paramset.get_place(k)==ParamPlace.INSTANCE)
-        
-    def get_spectre_names_for_param(self,param):
-        prefix={ParamPlace.MODEL.value:'mod',ParamPlace.INSTANCE.value:'inst'}\
-                    [self.model_paramset.get_place(param).value]+'param_'
-        return prefix+param
-        
-    def update_paramset_and_return_spectre_changes(self,new_values):
-        nv=self.model_paramset.update_and_return_changes(new_values)
-        return {self.get_spectre_names_for_param(k):v for k,v in nv.items()}
-        
+    # def _get_instance_param_part(self):
+    #     return ' '.join(f'{k}=instparam_{k}' for k in self.model_paramset
+    #                     if self.model_paramset.get_place(k)==ParamPlace.INSTANCE)
+            
 
 class MultiSweepSimTemplate(SimTemplate):
     def __init__(self, *args,
@@ -176,32 +120,31 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
         self.vg_values=vg_values
         self.vd_range=vd_range
     
-    def get_netlist_str(self):
-        setup_part:str=\
-            f"parameters vd=0 vg=0\n"+\
-            f"X0 (netd netg 0 0) {self.model_name} "+\
-                self._get_instance_param_part() + "\n"\
-            f"VD (netd 0) vsource dc=vd type=dc\n"\
-            f"VG (netg 0) vsource dc=vg type=dc\n"
-        return setup_part
-        
-    def get_analyses_str(self):
-        analysis_part:str=""
+    def get_schematic_listing(self,netlister:Netlister):
+            #netlister.nstr_param(params={'vg':0,'vd':0})+\
+        return [
+            netlister.nstr_modeled_xtor("inst",netd='netd',netg='netg',
+                                        nets=netlister.GND,netb=netlister.GND,dt=None),
+            netlister.nstr_VDC("D",netp='netd',netm=netlister.GND,dc=0),
+            netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=0)]
+
+    def get_analysis_listing(self,netlister:Netlister):
+        analysis_listing=[]
         for i_vg,vg in enumerate(self.vg_values,start=1):
-            analysis_part+=f"tovgnum{i_vg} alter param=vg value={vg}\n"
-            analysis_part+=f"dcvgnum{i_vg} dc dev=VD param=dc "\
-                                f"start={self.vd_range[0]} step={self.vd_range[1]} stop={self.vd_range[2]}\n"
-        return analysis_part
+            analysis_listing.append(netlister.astr_altervdc('G',vg))
+            analysis_listing.append(netlister.astr_sweepvdc('D',name=f'idvd_vgnum{i_vg}',
+                start=self.vd_range[0],step=self.vd_range[1],stop=self.vd_range[2]))
+        return analysis_listing
 
     def parse_return(self,result):
         parsed_result={}
         for i_vg,vg in enumerate(self.vg_values,start=1):
             for key in result:
-                if f'dcvgnum{i_vg}' in key:
+                if f'idvd_vgnum{i_vg}' in key:
                     df=result[key].copy()
-                    df['ID/W [uA/um]']=-df['VD:p']/\
+                    df['ID/W [uA/um]']=-df['vd#p']/\
                             self.model_paramset.get_total_device_width()
-                    df['IG/W [uA/um]']=-df['VG:p']/\
+                    df['IG/W [uA/um]']=-df['vg#p']/\
                             self.model_paramset.get_total_device_width()
                     parsed_result[vg]=df.rename(columns=\
                                 {'netd':'VD','netg':'VG'})\
@@ -227,34 +170,33 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
         
         self.vg_range=vg_range
         self.vd_values=vd_values
-    
-    def get_netlist_str(self):
-        setup_part:str=\
-            f"parameters vd=0 vg=0\n"\
-            f"X0 (netd netg 0 0) {self.model_name} "+\
-                self._get_instance_param_part() + "\n"\
-            f"VD (netd 0) vsource dc=vd type=dc\n"\
-            f"VG (netg 0) vsource dc=vg type=dc\n"
-        return setup_part
-        
-    def get_analyses_str(self):
-        analysis_part:str=""
-        for i_vd,vd in enumerate(self.vd_values,start=1):
-            analysis_part+=f"tovdnum{i_vd} alter param=vd value={vd}\n"
-            analysis_part+=f"dcvdnum{i_vd} dc dev=VG param=dc"\
-                           f" start={self.vg_range[0]} step={self.vg_range[1]} stop={self.vg_range[2]}\n"
-            
-        return analysis_part
 
+    def get_schematic_listing(self,netlister:Netlister):
+            #netlister.nstr_param(params={'vg':0,'vd':0})+\
+        return [
+            netlister.nstr_modeled_xtor("inst",netd='netd',netg='netg',
+                                        nets=netlister.GND,netb=netlister.GND,dt=None),
+            netlister.nstr_VDC("D",netp='netd',netm=netlister.GND,dc=0),
+            netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=0)]
+
+    def get_analysis_listing(self,netlister:Netlister):
+        analysis_listing=[]
+        for i_vd,vd in enumerate(self.vd_values,start=1):
+            analysis_listing.append(netlister.astr_altervdc('D',vd))
+            analysis_listing.append(netlister.astr_sweepvdc('G',name=f'idvg_vdnum{i_vd}',
+                start=self.vg_range[0],step=self.vg_range[1],stop=self.vg_range[2]))
+        return analysis_listing
+        
     def parse_return(self,result):
         parsed_result={}
         for i_vd,vd in enumerate(self.vd_values,start=1):
             for key in result:
-                if f'dcvdnum{i_vd}' in key:
+                if f'idvg_vdnum{i_vd}' in key:
+                    #import pdb; pdb.set_trace()
                     df=result[key].copy()
-                    df['ID/W [uA/um]']=-df['VD:p']/\
+                    df['ID/W [uA/um]']=-df['vd#p']/\
                             self.model_paramset.get_total_device_width()
-                    df['IG/W [uA/um]']=-df['VG:p']/\
+                    df['IG/W [uA/um]']=-df['vg#p']/\
                             self.model_paramset.get_total_device_width()
                     parsed_result[vd]=df.rename(columns=\
                                 {'netd':'VD','netg':'VG'})\
@@ -282,17 +224,18 @@ class DCIVTemplate(SimTemplate):
         super().set_paramset(model_paramset)
         self._dcidvg.set_paramset(model_paramset)
         self._dcidvd.set_paramset(model_paramset)
-        
-    def get_netlist_str(self):
-        lines=self._dcidvg.get_netlist_str()
-        assert lines==self._dcidvd.get_netlist_str()
+
+    def get_schematic_listing(self,netlister:Netlister):
+        lines=self._dcidvg.get_schematic_listing(netlister)
+        assert lines==self._dcidvd.get_schematic_listing(netlister)
         return lines
-    def get_analyses_str(self):
-        return self._dcidvg.get_analyses_str()+self._dcidvd.get_analyses_str()
+    def get_analysis_listing(self,netlister:Netlister):
+        return  self._dcidvg.get_analysis_listing(netlister)+\
+                self._dcidvd.get_analysis_listing(netlister)
         
     def parse_return(self,result):
-        result_idvg={k:v for k,v in result.items() if 'VG:dc' in k}
-        result_idvd={k:v for k,v in result.items() if 'VD:dc' in k}
+        result_idvg={k:v for k,v in result.items() if 'idvg' in k}
+        result_idvd={k:v for k,v in result.items() if 'idvd' in k}
         return {'IdVg': self._dcidvg.parse_return(result_idvg),
                 'IdVd': self._dcidvd.parse_return(result_idvd)}
     
@@ -315,105 +258,61 @@ class DCIVTemplate(SimTemplate):
 class CVTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args,
-                 vg_range=(0,.03,1.8), freq='1M', **kwargs):
+                 vg_range=(0,.03,1.8), freq='1meg', **kwargs):
         super().__init__(outer_variable=None, inner_variable='VG',
                          ynames=['Cgg [fF/um]'],
                          *args, **kwargs)
         
         num_vg=(vg_range[2]-vg_range[0])/vg_range[1]
-        assert abs(num_vg-int(num_vg))<1e-3, f"Make sure the IdVg range gives even steps {str(vg_range)}"
+        assert abs(num_vg-int(num_vg))<1e-3, f"Make sure the CV VG range gives even steps {str(vg_range)}"
         
         self.vg_range=vg_range
         self.freq=freq
+        try:
+            spicenum_to_float(freq)
+        except:
+            raise Exception(f"Invalid frequency: {freq}")
 
-    def get_netlist_str(self):
-        setup_part:str=\
-            f"parameters vg=0\n"\
-            f"X0 (0 netg 0 0) {self.model_name} "+\
-                self._get_instance_param_part() + "\n"+\
-            f"VG (netg 0) vsource dc=vg mag=1 type=dc\n"
-        return setup_part
-        
-    def get_analyses_str(self):
-        analysis_part=f"cv ac dev=VG param=dc start={self.vg_range[0]}"\
-            f" step={self.vg_range[1]} stop={self.vg_range[2]} freq={self.freq}\n"
-        return analysis_part
+    def get_schematic_listing(self,netlister:Netlister):
+            #netlister.nstr_param(params={'vg':0})+\
+        return [
+            netlister.nstr_modeled_xtor("inst",netd=netlister.GND,netg='netg',
+                                        nets=netlister.GND,netb=netlister.GND,dt=None),
+            netlister.nstr_VAC("G",netp='netg',netm=netlister.GND,dc=0)]
+    
+    def get_analysis_listing(self,netlister:Netlister):
+        return [netlister.astr_sweepvac('G',
+                start=self.vg_range[0],step=self.vg_range[1],
+                stop=self.vg_range[2], freq=self.freq, name='cv')]
+        return analysis_listing
         
     def parse_return(self,result):
         parsed_result={}
         assert len(result)==1
         freq=spicenum_to_float(self.freq)
         df=list(result.values())[0]
-        I=-df['VG:p']
+        I=-df['vg#p']
         df['Cgg [fF/um]']=np.imag(I)/(2*np.pi*freq) /1e-15 /\
             (self.model_paramset.get_total_device_width()/1e-6)
-        df['VG']=np.real(df['dc'])
+        df['VG']=np.real(df['v-sweep'])
         parsed_result={0:df[['VG','Cgg [fF/um]']]}
         return parsed_result
 
-
-class MultiSimSesh():
-    def __init__(self, simtemps: dict[str,SimTemplate]):
-        self.simtemps: dict[str,SimTemplate]=simtemps
-        self._sessions: dict[str,psp.Session]={}
+class TemplateGroup:
+    def __init__(self,**templates):
+        self.temps=templates
+    def set_paramset(self,params_by_template):
+        assert set(params_by_template.keys())==set(self.temps.keys())
+        for k,t in self.temps.items():
+            t.set_paramset(params_by_template[k])
+    def __getitem__(self,key):
+        return self.temps[key]
+    def items(self):
+        return self.temps.items()
+    def __iter__(self):
+        return iter(self.temps)
+    def __len__(self):
+        return len(self.temps)
+    #def parsed_results_to_vector(self,parsed_results):
         
-    def __enter__(self):
-        print("Opening simulation session(s)")
-        assert len(self._sessions)==0, "Previous sessions exist somehow!!"
-        
-    def __exit__(self, exc_type, exc_value, traceback):
-        print("Closing sessions")
-        
-    def __del__(self):
-        if len(self._sessions):
-            print("Somehow deleted MultiSimSesh without closing sessions."\
-                  "  That's bad but I can try to handle it.")
-            self.__exit__(None,None,None)
-
-    def run_with_params(self, params={}):
-        raise NotImplementedError
-
-class SpectreMultiSimSesh(MultiSimSesh):
-
-    def __enter__(self):
-        super().__enter__()
-        for simname,simtemp in self.simtemps.items():
-            try:
-                sesh=psp.start_session(net_path=simtemp.get_netlist_file())
-            except Exception as myexc:
-                args=next((k for k in myexc.value.split("\n") if k.startswith("args:")))
-                print(" ".join(eval(args.split(":")[1])))
-                #import pdb; pdb.set_trace()
-                raise
-            self._sessions[simname]=sesh
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        try:
-            super().__exit__(exc_type, exc_value, traceback)
-        finally:
-            for simname in list(self._sessions.keys()):
-                psp.stop_session(self._sessions.pop(simname))
-
-    def run_with_params(self, params={}):
-        results={}
-        #import time
-        for simname,sesh in self._sessions.items():
-            #print(f"Running {simname}")
-            simtemp=self.simtemps[simname]
-            re_p_changed=simtemp.update_paramset_and_return_spectre_changes(params)
-            #print('setting params',re_p_changed,time.time())
-            psp.set_parameters(sesh,re_p_changed)
-            #print('running', time.time())
-            results[simname]=simtemp.parse_return(psp.run_all(sesh))
-            #print('done', time.time())
-        return results
-        
-class PythonMultiSimSesh(MultiSimSesh):
-    def run_with_params(self,params={}):
-        results={}
-        for simname,simtemp in self.simtemps.items():
-            re_p_changed=simtemp.update_paramset_and_return_spectre_changes(params)
-            results[simname]=python_compact_models[simtemp.model_paramset.model].run_all()
-        return results
-            
+    
