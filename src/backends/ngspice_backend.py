@@ -56,7 +56,9 @@ class NgspiceNetlister(Netlister):
     def astr_sweepvdc(self,whichv, start, stop, step, name=None):
         def sweepvdc(ngss):
             ngss.exec_command(f"dc v{whichv.lower()} {start} {stop} {step}")
-            return name, ngss.plot(None,ngss.last_plot).to_analysis()
+            ret=name, ngss.plot(None,ngss.last_plot).to_analysis()
+            ngss.destroy()
+            return ret
         return sweepvdc
         
     def astr_sweepvac(self, whichv, start, stop, step, freq, name=None):
@@ -71,6 +73,7 @@ class NgspiceNetlister(Netlister):
                 for k,n in an.nodes.items():
                     nodes[k]=nodes.get(k,[])+[n.as_ndarray()[0]]
                 nodes['v-sweep']=nodes.get('v-sweep',[])+[v]
+                ngss.destroy()
             return name,PseudoAnalysis(
                 branches={k:np.array(b) for k,b in branches.items()},
                 nodes={k:np.array(n) for k,n in nodes.items()})
@@ -156,24 +159,31 @@ class NgspiceMultiSimSesh(MultiSimSesh):
             
     def run_with_params(self,params={}):
         results={}
+        #import time
         for (simname, simtemp) in self.simtemps.items():
-            #print(f"Running {simname}")
+            #print(f"Running {simname}", time.time())
             unparsed_result={}
             nl=self._sessions[simname]
             self._ngspice.set_circuit(self._circuit_numbers[simname])
             ps=simtemp.model_paramset
             nv=ps.update_and_return_changes(params)
-            #print("Changes: ",nv)
+            #print("Changes: ",nv, time.time())
             self._ngspice.alter_model(nl.modelcard_name,
                 **{k:v for k,v in nv.items() if ps.get_place(k)==ParamPlace.MODEL})
+            #print("Made model changes: ",time.time())
             for dev in nl._modeled_xtors:
                 self._ngspice.alter_device(dev,
                     **{k:v for k,v in nv.items() if ps.get_place(k)==ParamPlace.INSTANCE})
+            #print("Made inst changes: ",time.time())
             for an in nl.analyses:
                 name,subresult=an(self._ngspice)
                 if name is not None:
-                    unparsed_result[name]=subresult
+                    unparsed_result[name]=subresult    
+                #print(f"Ran analysis {name}",time.time())
+            #print("About to parse: ",time.time())
             results[simname]=simtemp.parse_return(nl.preparse_return(unparsed_result))
+            
+            #print("Done: ",time.time())
         return results            
         
 
