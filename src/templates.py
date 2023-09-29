@@ -89,6 +89,7 @@ class MultiSweepSimTemplate(SimTemplate):
         fig.legend.label_text_line_height=10
         fig.legend.glyph_height=10
         fig.legend.location='bottom_right'
+        fig.xaxis.axis_label=self.inner_variable
         return [fig]
         
     def update_figures(self, parsed_result, vizid=None):
@@ -297,6 +298,64 @@ class CVTemplate(MultiSweepSimTemplate):
         df['VG']=np.real(df['v-sweep'])
         parsed_result={0:df[['VG','Cgg [fF/um]']]}
         return parsed_result
+
+class PulsedIdVdTemplate(MultiSweepSimTemplate):
+
+    def __init__(self, *args,
+                 vg_values=[0,.6,1.2,1.8], vd_range=(0,.1,1.8),
+                 pulse_width,pulse_period,rise_time,fall_time,
+                 **kwargs):
+        super().__init__(outer_variable='VG', inner_variable='VD',
+                         ynames=['ID/W [uA/um]'],
+                         *args, **kwargs)
+        
+        num_vd=(vd_range[2]-vd_range[0])/vd_range[1]
+        assert abs(num_vd-int(num_vd))<1e-3,\
+            f"Make sure the IdVd range gives even steps {str(vd_range)}"
+        
+        self.vg_values=vg_values
+        self.vd_range=vd_range
+        self.pulse_width=pulse_width
+        self.pulse_period=pulse_period
+        self.rise_time=rise_time
+        self.fall_time=fall_time
+    
+    def get_schematic_listing(self,netlister:Netlister):
+        return [
+            netlister.nstr_modeled_xtor("inst",netd='netd',netg='netg',
+                                        nets=netlister.GND,netb=netlister.GND,dt=None),
+            netlister.nstr_VDC("D",netp='netd',netm=netlister.GND,dc=0),
+            netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=0)]
+
+    def get_analysis_listing(self,netlister:Netlister):
+        analysis_listing=[]
+        for i_vg,vg in enumerate(self.vg_values,start=1):
+            analysis_listing.append(netlister.astr_altervdc('G',vg))
+            analysis_listing.append(netlister.astr_sweepvdc('D',name=f'idvd_vgnum{i_vg}',
+                start=self.vd_range[0],step=self.vd_range[1],stop=self.vd_range[2]))
+        return analysis_listing
+
+    def parse_return(self,result):
+        parsed_result={}
+        for i_vg,vg in enumerate(self.vg_values,start=1):
+            for key in result:
+                if f'idvd_vgnum{i_vg}' in key:
+                    df=result[key].copy()
+                    df['ID/W [uA/um]']=-df['vd#p']/\
+                            self.model_paramset.get_total_device_width()
+                    df['IG/W [uA/um]']=-df['vg#p']/\
+                            self.model_paramset.get_total_device_width()
+                    parsed_result[vg]=df.rename(columns=\
+                                {'netd':'VD','netg':'VG'})\
+                            [['VD','VG','ID/W [uA/um]','IG/W [uA/um]']]
+        return parsed_result
+        
+    def generate_figures(self,*args,**kwargs):
+        kwargs['y_axis_type']=kwargs.get('y_axis_type','linear')
+        return super().generate_figures(*args,**kwargs)
+
+    def _rescale_vector(self,arr):
+        return arr
 
 class TemplateGroup:
     def __init__(self,**templates):

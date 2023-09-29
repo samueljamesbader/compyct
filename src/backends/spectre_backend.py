@@ -1,8 +1,20 @@
+import numpy as np
 import pyspectre as psp
 from tempfile import NamedTemporaryFile
 from compyct.templates import SimTemplate
 from .backend import Netlister, MultiSimSesh
 from compyct.paramsets import ParamPlace
+
+def n2scs(num):
+    if type(num) is str:
+        return num.replace("meg","M")
+    else:
+        if num==0: return '0'
+        ord=np.clip(np.floor(np.log10(np.abs(num))/3)*3,-18,15)
+        si={-18:'a',-15:'f',-12:'p',-9:'n',-6:'u',-3:'m',
+            0:'',
+            3:'k',6:'M',9:'G',12:'T',15:'P'}[ord]
+        return f'{(num/10**ord):g}{si}'
 
 class SpectreNetlister(Netlister):
     GND='0'
@@ -28,29 +40,31 @@ class SpectreNetlister(Netlister):
         
     @staticmethod
     def nstr_VDC(name,netp,netm,dc):
-        return f"V{name} ({netp} {netm}) vsource dc={dc} type=dc"
+        return f"V{name} ({netp} {netm}) vsource dc={n2scs(dc)} type=dc"
         
     @staticmethod
     def nstr_VAC(name,netp,netm,dc,ac=1):
-        return f"V{name} ({netp} {netm}) vsource dc={dc} mag={ac} type=dc"
+        return f"V{name} ({netp} {netm}) vsource dc={n2scs(dc)} mag={n2scs(ac)} type=dc"
 
     def astr_altervdc(self,whichv, tovalue, name=None):
         if name is None:
             name=f"alter{self._analysiscount}"
             self._analysiscount+=1
-        return f"{name} alter dev=V{whichv} param=dc value={tovalue}"
+        return f"{name} alter dev=V{whichv} param=dc value={n2scs(tovalue)}"
         
     def astr_sweepvdc(self,whichv, start, stop, step, name=None):
         if name is None:
             name=f"sweep{self._analysiscount}"
             self._analysiscount+=1
-        return f"{name} dc dev=V{whichv} param=dc start={start} stop={stop} step={step}"
+        return f"{name} dc dev=V{whichv} param=dc"\
+                f" start={n2scs(start)} stop={n2scs(stop)} step={n2scs(step)}"
         
     def astr_sweepvac(self,whichv, start, stop, step, freq, name=None):
         if name is None:
             name=f"sweep{self._analysiscount}"
             self._analysiscount+=1
-        return f"{name} ac dev=V{whichv} param=dc start={start} stop={stop} step={step} freq={freq}"
+        return f"{name} ac dev=V{whichv} param=dc start={n2scs(start)}"\
+            f" stop={n2scs(stop)} step={n2scs(step)} freq={n2scs(freq)}"
         
     # def nstr_alter(dev,param,value,name=None):
     #     if name is None:
@@ -84,13 +98,13 @@ class SpectreNetlister(Netlister):
                 paramlinedict={("modparam_"+k):ps.get_value(k) for k in ps}
                 self._tf.write(
                     f"parameters "+\
-                    ' '.join([f'{k}={v}' for k,v in paramlinedict.items()])\
+                    ' '.join([f'{k}={n2scs(v)}' for k,v in paramlinedict.items()])\
                     +"\n\n")
                 instance_params={k:ps.get_value(k)
                     for k in ps if ps.get_place(k)==ParamPlace.INSTANCE}
                 if len(instance_params):
                     self._tf.write(f"parameters "+\
-                                       ' '.join(f'instparam_{k}={v}'
+                                       ' '.join(f'instparam_{k}={n2scs(v)}'
                                             for k,v in instance_params.items())+\
                                    "\n")
             self._tf.write("\n".join(self.simtemp.get_schematic_listing(self))+"\n")
@@ -165,7 +179,7 @@ class SpectreMultiSimSesh(MultiSimSesh):
             #print(f"Running {simname}")
             simtemp=self.simtemps[simname]
             nv=simtemp.model_paramset.update_and_return_changes(params)
-            re_p_changed={nl.get_spectre_names_for_param(k):v for k,v in nv.items()}
+            re_p_changed={nl.get_spectre_names_for_param(k):n2scs(v) for k,v in nv.items()}
             #print('setting params',re_p_changed,time.time())
             psp.set_parameters(sesh,re_p_changed)
             #print('running', time.time())

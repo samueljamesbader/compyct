@@ -22,7 +22,7 @@ def spicenum_to_float(spicenum):
                     [spicenum[-1]]
         
 def float_to_spicenum(fl):
-    ord=np.floor(np.log10(fl)/3)*3
+    ord=np.floor(np.log10(np.abs(fl))/3)*3
     si={-12:'p',-9:'n',-6:'u',-3:'m',0:'',3:'k',6:'meg',9:'G'}[ord]
     return f'{(fl/10**ord):g}{si}'
 
@@ -87,9 +87,9 @@ class ParamSet():
                             if v!=self.get_default(k)}
 
     def __repr__(self):
+        ndf=self.get_non_default_values()
         return f"<{self.model}:"\
-                    +",".join(f"{k}={v}"
-                        for k,v in self.get_non_default_values().items() )\
+                    +",".join(f"{k}={ndf[k]}" for k in sorted(ndf) )\
                 +">"
                 
         
