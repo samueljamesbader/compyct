@@ -3,14 +3,15 @@ from pathlib import Path
 import subprocess
 import os
 import pandas as pd
+import sys
 from PySpice.Spice.NgSpice.Shared import NgSpiceShared
 from collections import namedtuple
+import hashlib
 
 from tempfile import NamedTemporaryFile
 from compyct.templates import SimTemplate
-from .backend import Netlister, MultiSimSesh
-from compyct.paramsets import ParamPlace
-from compyct import COMPYCT_VA_PATH, COMPYCT_OSDI_PATH
+from .backend import Netlister, MultiSimSesh, get_va_path, get_va_paths
+from compyct.paramsets import ParamSet, ParamPlace
 
 PseudoAnalysis=namedtuple("PseudoAnalysis",["branches","nodes"])
 
@@ -37,8 +38,9 @@ class NgspiceNetlister(Netlister):
         inst_paramstr=' '.join(f'{k}={v}'\
                 for k,v in ps.get_values().items()
                                if ps.get_place(k)==ParamPlace.INSTANCE)
-        #inst_paramstr=""
-        return f"N{name.lower()} {netd} {netg} {nets} {netb} dt"\
+        assert ps.terminals[:4]==['d','g','s','b']
+        has_dt_terminal='dt' in ps.terminals
+        return f"N{name.lower()} {netd} {netg} {nets} {netb} {'dt' if has_dt_terminal else ''}"\
                     f" {self.modelcard_name} {inst_paramstr}"
         
     @staticmethod
@@ -80,12 +82,12 @@ class NgspiceNetlister(Netlister):
         return sweepvac
 
     def get_netlist(self):
-        ps=self.simtemp.model_paramset
+        ps:ParamSet=self.simtemp.model_paramset
         netlist=f".title {self.circuit_name}\n"
-        if len(ps.osdi_includes):
+        if len(ps.va_includes):
             netlist+=".control\n"
-            for i in ps.osdi_includes:
-                netlist+=f"pre_osdi {i}\n"
+            for vaname in ps.va_includes:
+                netlist+=f"pre_osdi {get_confirmed_osdi_path(vaname)}\n"
             netlist+=".endc\n"
         if ps is not None:
             paramstr=" ".join([f"{k}={v}"
@@ -144,6 +146,7 @@ class NgspiceMultiSimSesh(MultiSimSesh):
 
         self._circuit_numbers={simname:i for i,(simname,_) in\
                 enumerate(reversed(self.simtemps.items()),start=1)}
+        return self
     
     def __exit__(self, exc_type, exc_value, traceback):
         try:
@@ -187,12 +190,45 @@ class NgspiceMultiSimSesh(MultiSimSesh):
         return results            
         
 
+def get_unconfirmed_osdi_path(vaname) -> Path:
+    COMPYCT_OSDI_PATH=Path(os.environ['COMPYCT_OSDI_PATH'])
+    vapath=get_va_path(vaname=vaname)
+
+    # Read the file in 1kb chunks, updating the hash for each
+    hasher=hashlib.sha1()
+    with open(vapath,'rb') as input:
+        chunk = 0
+        while chunk != b'':
+            chunk = input.read(1024)
+            hasher.update(chunk)
+
+    # Return an osdi filename incorporating the hex digest of the va file
+    hash=hasher.hexdigest()
+    osdipath=COMPYCT_OSDI_PATH/str(vaname).replace(".va","_"+hash+".osdi")
+    return osdipath
+
 def compile_va_to_osdi(vaname=None):
+    COMPYCT_OSDI_PATH=Path(os.environ['COMPYCT_OSDI_PATH'])
+    COMPYCT_OPENVAF_PATH=Path(os.environ['COMPYCT_OPENVAF_PATH'])
+
+    # Delete any old compilation files that match this vaname
     for osdipath in COMPYCT_OSDI_PATH.glob("*"):
-        if vaname is None or osdipath.name.replace(".osdi",".va")==vaname:
-            osdipath.unlink()
-    for vapath in COMPYCT_VA_PATH.glob("*.va"):
+        if vaname is None or str(vaname).replace(".va","") in osdipath.name:
+            if not osdipath.name.endswith(".va"):
+                osdipath.unlink()
+
+    # Compile anew
+    for vapath in get_va_paths():
         if vaname is None or vapath.name==vaname:
-            osdipath=COMPYCT_OSDI_PATH/vapath.name.replace(".va",".osdi")
-            subprocess.run(["openvaf",str(vapath),"-o",str(osdipath)])
-            
+            osdipath=get_unconfirmed_osdi_path(vaname)
+            print(f"Compiling {vapath} to {osdipath}")
+            result=subprocess.run([str(COMPYCT_OPENVAF_PATH/"openvaf"),str(vapath),"-o",str(osdipath)],
+                           stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+            if result.returncode!=0:
+                raise Exception("Compilation seems to have failed: "+result.stdout.decode(sys.stdout.encoding))
+
+def get_confirmed_osdi_path(vaname) -> Path:
+    path=get_unconfirmed_osdi_path(vaname=vaname)
+    if not path.exists():
+        compile_va_to_osdi(vaname=vaname)
+    return path

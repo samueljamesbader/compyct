@@ -3,6 +3,9 @@ from compyct import templates
 from compyct.backends.backend import MultiSimSesh
 import bokeh.layouts
 
+from compyct.paramsets import spicenum_to_float
+
+
 def make_widget(model_paramset, param_name, center):
     units=model_paramset.get_units(param_name)
     name_with_units=param_name+(f" [{units}]"
@@ -17,7 +20,7 @@ def make_widget(model_paramset, param_name, center):
 
 class ManualOptimizer(pn.widgets.base.CompositeWidget):
     def __init__(self, mss:MultiSimSesh=None, model_paramset=None,
-                 active_paramset={},meas_data=None, fig_layout_params={}):
+                 active_paramset={},meas_data={}, fig_layout_params={}):
         super().__init__(height=300,sizing_mode='stretch_width')
         self.mss=mss
         self.paramset=active_paramset

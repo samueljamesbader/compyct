@@ -8,12 +8,10 @@ from compyct.paramsets import ParamSet, spicenum_to_float, ParamPlace
 
 class SimTemplate():
     def __init__(self, model_paramset=None):
-        self._tf=None
         if model_paramset is not None:
             self.set_paramset(model_paramset)
 
     def set_paramset(self,model_paramset):
-        assert self._tf is None, "Can't change paramset after creating netlist"
         self.model_name=model_paramset.model+"_standin"
         self.model_paramset=model_paramset.copy()
         
@@ -211,16 +209,22 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
     def _rescale_vector(self,arr):
         return np.log10(np.abs(arr))
 
-class DCIVTemplate(SimTemplate):
+class JointTemplate(SimTemplate):
+    def __init__(self,subtemplates:dict, *args, **kwargs):
+        super().__init__(*args,**kwargs)
+        self.subtemplates=subtemplates
+        #TODO: Move more of the DCIVTemplate code into JointTemplate
+
+class DCIVTemplate(JointTemplate):
     def __init__(self, *args,
                  idvd_vg_values=[0,.6,1.2,1.8], idvd_vd_range=(0,.1,1.8),
                  idvg_vd_values=[.05,1.8], idvg_vg_range=(0,.03,1.8), **kwargs):
-        super().__init__(*args, **kwargs)
         self._dcidvg=DCIdVgTemplate(*args, **kwargs,
                                     vd_values=idvg_vd_values, vg_range=idvg_vg_range)
         self._dcidvd=DCIdVdTemplate(*args, **kwargs,
                                     vg_values=idvd_vg_values, vd_range=idvd_vd_range)
-        
+        super().__init__(subtemplates={'IdVg':self._dcidvg,'IdVd':self._dcidvd}, *args, **kwargs)
+
     def set_paramset(self,model_paramset):
         super().set_paramset(model_paramset)
         self._dcidvg.set_paramset(model_paramset)
@@ -241,6 +245,9 @@ class DCIVTemplate(SimTemplate):
                 'IdVd': self._dcidvd.parse_return(result_idvd)}
     
     def generate_figures(self, meas_data=None, layout_params={}, vizid=None):
+        # Typical templates receive None for no meas_data...
+        meas_data={} if meas_data is None else meas_data
+
         figs1=self._dcidvg.generate_figures(
             meas_data=meas_data.get('IdVg',None), layout_params=layout_params, vizid=vizid)
         figs2=self._dcidvd.generate_figures(

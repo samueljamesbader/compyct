@@ -6,7 +6,8 @@ import os
 from copy import copy as _copy
 import numpy as np
 
-from compyct import COMPYCT_VA_PATH, COMPYCT_OSDI_PATH
+from compyct.backends.backend import get_va_path
+
 
 def spicenum_to_float(spicenum):
     try:
@@ -35,8 +36,7 @@ class ParamSet():
     _shared_paramdict=None
     scs_includes=[]
     va_includes=[]
-    osdi_includes=[]
-    
+
     def __init__(self,model,**kwargs):
         self.model=model
         self._values={}
@@ -95,6 +95,8 @@ class ParamSet():
         
 class GuessedInstanceValueParamSet(ParamSet):
     _shared_paramdicts={}
+    terminals=['d','g','s','b']
+
     def __init__(self, model, file, section="",**kwargs):
         super().__init__(model=model,**kwargs)
         self.file=file
@@ -125,18 +127,22 @@ class GuessedInstanceValueParamSet(ParamSet):
         return ParamPlace.INSTANCE
 
 class CMCParamSet(ParamSet):
+    """ Abstract superclass for Verilog-A standard models, so far tried only on CMC models (MVSG and ASMHEMT).
+
+    To use this class, you *must* subclass it, because the default parameters dictionary is stored at the class level,
+    shared between all instances.
+
+    # Todo: make this work more like GuessInstanceValueParamSet where it is safe to use without subclassing
+    """
     def __init__(self,model,vaname,**kwargs):
         super().__init__(model=model,**kwargs)
         if self._shared_paramdict is not None:
             return
 
-        vapath=Path(os.environ['COMPYCT_VA_PATH'])/vaname
+        vapath=get_va_path(vaname=vaname)
         self.__class__.scs_includes=[]
-        self.__class__.va_includes=\
-            [str(COMPYCT_VA_PATH/vaname)]
-        self.__class__.osdi_includes=\
-            [str(COMPYCT_OSDI_PATH/vaname.replace(".va",".osdi"))]
-        
+        self.__class__.va_includes=[vaname]
+
         with open(vapath,'r') as f:        
             # Collect the model parameter and instance parameter definition lines
             # Tweak them slightly so they can be read by csv reader with the macro
@@ -223,18 +229,21 @@ class CMCParamSet(ParamSet):
         return (lower,step,upper)
         
 class MVSGParamSet(CMCParamSet):
+    terminals=['d','g','s','b']
     def __init__(self,**kwargs):
         super().__init__(model='mvsg_cmc',vaname="mvsg_cmc_3.0.0.va",**kwargs)
-        
+
     def get_total_device_width(self):
         return spicenum_to_float(self.get_value('w'))*\
                 spicenum_to_float(self.get_value('ngf'))
         
 class ASMHEMTParamSet(CMCParamSet):
+    terminals=['d','g','s','b','dt']
     def __init__(self,**kwargs):
         super().__init__(model='asmhemt',vaname="asmhemt.va",**kwargs)
-        
+
     def get_total_device_width(self):
         return spicenum_to_float(self.get_value('w'))*\
                 spicenum_to_float(self.get_value('nf'))
         
+# TODO: actually assess terminals instead of defining here
