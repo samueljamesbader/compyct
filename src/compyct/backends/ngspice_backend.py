@@ -191,8 +191,8 @@ def compile_va_to_osdi(vaname=None):
     for osdipath in COMPYCT_OSDI_PATH.glob("*"):
         if vaname is None or osdipath.name.replace(".osdi",".va")==vaname:
             osdipath.unlink()
-    for vapath in va_dir.glob("*.va"):
+    for vapath in COMPYCT_VA_PATH.glob("*.va"):
         if vaname is None or vapath.name==vaname:
-            osdipath=osdi_dir/vaname.replace(".va",".osdi")
+            osdipath=COMPYCT_OSDI_PATH/vapath.name.replace(".va",".osdi")
             subprocess.run(["openvaf",str(vapath),"-o",str(osdipath)])
             
