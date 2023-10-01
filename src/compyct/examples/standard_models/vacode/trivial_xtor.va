@@ -1,3 +1,9 @@
+// Not a realistic model of any known transistor
+// does not even capture pinch-off
+// but is basically a one-liner that looks like typical family curves
+// and is trivial to validate in Python
+// so we use this for testing
+
 `include "disciplines.vams"
 `include "constants.vams"
 
@@ -8,34 +14,54 @@
 module trivial_xtor(d,g,s,b);
     inout d,g,s,b;
     electrical d,g,s,b;
-    //electrical trap;
+    electrical trap;
 
-    `IPRco(  l,   5e-6,      "m",    1e-6,    inf,    "Channel length" )
-    `IPRco(  w,   1e-6,      "m",    1e-6,    inf,    "Channel width" )
-    `MPRco(  n,    1.5,       "",       1,    inf,    "Subthreshold ideality factor" )
-    `MPRoz( cg,   1e-3,  "F/m^2",                     "Gate capacitance per area" )
-    `MPRoz( u0,   1,     "m^2/Vs",                     "Low-field mobility" )
-    `MPRoz( vs,   1e+5,    "m/s",                     "Saturation velocity" )
-    `MPRoz( vt0,   0.5,      "V",                     "Threshold voltage" )
+    `IPRco(  l,    5e-6,      "m",    1e-6,    inf,    "Channel length" )
+    `IPRco(  w,    1e-6,      "m",    1e-6,    inf,    "Channel width" )
+    `MPRco(  n,     1.5,       "",       1,    inf,    "Subthreshold ideality factor" )
+    `MPRoz( cg,    1e-3,  "F/m^2",                     "Gate capacitance per area" )
+    `MPRoz( u0,       1, "m^2/VS",                     "Low-field mobility" )
+    `MPRoz( vs,    1e+5,    "m/s",                     "Saturation velocity" )
+    `MPRoz( vt0,    0.4,      "V",                     "Threshold voltage" )
+    `MPRoz( ttrap, 1e-3,      "S",                     "Trap timescale" )
+    `MPRoz( gtrap,  0.1,       "",                     "Trap-induced VT shift factor" )
 
-    real vth, qg_oA, qg, qd, qs, beta, vu, v, rsb;
+    real vth, qg_oA, qg, qd, qs, beta, vu, v, rsb, rtrap, ctrap, vtshift;
 analog begin
+
+    // Trapping dynamics:
+    // for freq<<1/ttrap V(trap)->V(d,g)
+    // for freq>>1/ttrap V(trap)->0 (as 1/freq)
+    // And traps shift threshold by V(trap)*gtrap
+    rtrap=1;
+    ctrap=ttrap/rtrap;
+    I(trap) <+ ctrap*ddt(V(trap));
+    I(trap) <+ (V(trap)-V(d,g)) / rtrap;
+    vtshift = V(trap) * gtrap;
+
+    // Compute charge
     vth =`P_K * $temperature / `P_Q;
-    qg_oA = cg*ln(1+exp((V(g,s)-vt0)/(n*vth)));
+    qg_oA = n*cg*vth*ln(1+exp((V(g,s)-vt0-vtshift)/(n*vth)));
     qg = w * l * qg_oA;
     qd = qg/2;
     qs = qg/2;
 
+    // Compute velocity
     beta=2;
     vu = u0 * V(d,s) / l;
     v = vu/pow((1+pow(vu/vs,beta)),1/beta);
 
+    // Compute DC current
     I(d,s) <+ w * qg_oA * v;
+
+    // Compute capacitive effects
     I(g,s) <+ ddt(qs);
     I(g,d) <+ ddt(qd);
 
+    // Tie the body to the source with 1ohm
     rsb = 1;
     V(s,b) <+ I(s,b)*rsb;
+
 end
 
 endmodule

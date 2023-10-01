@@ -21,9 +21,12 @@ def spicenum_to_float(spicenum):
             {'f':1e-15,'p':1e-12,'n':1e-9,
              'u':1e-6,'m':1e-3,'k':1e3,'M':1e6}\
                     [spicenum[-1]]
-        
+
 def float_to_spicenum(fl):
-    ord=np.floor(np.log10(np.abs(fl))/3)*3
+    if type(fl) is str:
+        fl=spicenum_to_float(fl)
+    if fl==0: return '0'
+    ord=np.clip(np.floor(np.log10(np.abs(fl))/3)*3,-12,9)
     si={-12:'p',-9:'n',-6:'u',-3:'m',0:'',3:'k',6:'meg',9:'G'}[ord]
     return f'{(fl/10**ord):g}{si}'
 
@@ -31,7 +34,7 @@ from enum import Enum
 class ParamPlace(Enum):
     MODEL = 1
     INSTANCE =2
-    
+
 class ParamSet():
     _shared_paramdict=None
     scs_includes=[]
@@ -45,7 +48,7 @@ class ParamSet():
                 self._values[k]=v
             else:
                 raise Exception(f"Tried to set parameter {k} in {self.__class__.__name__} but it's not in paramset")
-        
+
     def __iter__(self):
         return iter(self._shared_paramdict)
     def get_dtype(self,param) -> type:
@@ -65,7 +68,7 @@ class ParamSet():
         cp=_copy(self)
         cp._values=self._values.copy()
         return cp
-        
+
     def update_and_return_changes(self,new_values):
         changed={}
         for k,v in new_values.items():
@@ -73,7 +76,7 @@ class ParamSet():
                 self._values[k]=v
                 changed[k]=v
         return changed
-                
+
     def copy_with_changes(self,new_values):
         other=self.copy()
         other.update_and_return_changes(new_values)
@@ -81,7 +84,7 @@ class ParamSet():
 
     def get_values(self):
         return {k:self.get_value(k) for k in self}
-    
+
     def get_non_default_values(self):
         return {k:v for k,v in self._values.items()
                             if v!=self.get_default(k)}
@@ -91,8 +94,8 @@ class ParamSet():
         return f"<{self.model}:"\
                     +",".join(f"{k}={ndf[k]}" for k in sorted(ndf) )\
                 +">"
-                
-        
+
+
 class GuessedInstanceValueParamSet(ParamSet):
     _shared_paramdicts={}
     terminals=['d','g','s','b']
@@ -109,7 +112,7 @@ class GuessedInstanceValueParamSet(ParamSet):
             for l in f:
                 if l.startswith("section"):
                     in_section=l.strip().split(" ")[1]
-                
+
                 if l.startswith(f"subckt {model}"):
                     if in_section==self.section:
                         l=next(f).strip()
@@ -120,7 +123,7 @@ class GuessedInstanceValueParamSet(ParamSet):
     @property
     def _shared_paramdict(self):
         return self._shared_paramdicts[(self.model,self.file,self.section)]
-        
+
     def get_dtype(self, param):
         return self._shared_paramdict[param].get('dtype',float)
     def get_place(self, param):
@@ -143,7 +146,7 @@ class CMCParamSet(ParamSet):
         self.__class__.scs_includes=[]
         self.__class__.va_includes=[vaname]
 
-        with open(vapath,'r') as f:        
+        with open(vapath,'r') as f:
             # Collect the model parameter and instance parameter definition lines
             # Tweak them slightly so they can be read by csv reader with the macro
             # name as the first entry in each line (easier than trying to split

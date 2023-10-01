@@ -1,6 +1,7 @@
 import numpy as np
 import bokeh
 import bokeh.plotting
+import pandas as pd
 
 from compyct.backends.backend import Netlister
 
@@ -122,6 +123,7 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
     def get_schematic_listing(self,netlister:Netlister):
             #netlister.nstr_param(params={'vg':0,'vd':0})+\
         return [
+            netlister.nstr_abstol('1e-15'),
             netlister.nstr_modeled_xtor("inst",netd='netd',netg='netg',
                                         nets=netlister.GND,netb=netlister.GND,dt=None),
             netlister.nstr_VDC("D",netp='netd',netm=netlister.GND,dc=0),
@@ -173,6 +175,7 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
     def get_schematic_listing(self,netlister:Netlister):
             #netlister.nstr_param(params={'vg':0,'vd':0})+\
         return [
+            netlister.nstr_abstol('1e-15'),
             netlister.nstr_modeled_xtor("inst",netd='netd',netg='netg',
                                         nets=netlister.GND,netb=netlister.GND,dt=None),
             netlister.nstr_VDC("D",netp='netd',netm=netlister.GND,dc=0),
@@ -306,11 +309,12 @@ class CVTemplate(MultiSweepSimTemplate):
         parsed_result={0:df[['VG','Cgg [fF/um]']]}
         return parsed_result
 
-class PulsedIdVdTemplate(MultiSweepSimTemplate):
+class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args,
                  vg_values=[0,.6,1.2,1.8], vd_range=(0,.1,1.8),
-                 pulse_width,pulse_period,rise_time,fall_time,
+                 pulse_width='1u',rise_time='100n',
+                 vgq=0, vdq=0,
                  **kwargs):
         super().__init__(outer_variable='VG', inner_variable='VD',
                          ynames=['ID/W [uA/um]'],
@@ -323,38 +327,42 @@ class PulsedIdVdTemplate(MultiSweepSimTemplate):
         self.vg_values=vg_values
         self.vd_range=vd_range
         self.pulse_width=pulse_width
-        self.pulse_period=pulse_period
         self.rise_time=rise_time
-        self.fall_time=fall_time
-    
+        self.vgq=vgq
+        self.vdq=vdq
+
     def get_schematic_listing(self,netlister:Netlister):
         return [
             netlister.nstr_modeled_xtor("inst",netd='netd',netg='netg',
                                         nets=netlister.GND,netb=netlister.GND,dt=None),
-            netlister.nstr_VDC("D",netp='netd',netm=netlister.GND,dc=0),
-            netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=0)]
+            netlister.nstr_VStep("D",netp='netd',netm=netlister.GND,dc=self.vdq, rise_time=self.rise_time, final_v=0),
+            netlister.nstr_VStep("G",netp='netg',netm=netlister.GND,dc=self.vgq,rise_time=self.rise_time,final_v=0)]
 
     def get_analysis_listing(self,netlister:Netlister):
         analysis_listing=[]
-        for i_vg,vg in enumerate(self.vg_values,start=1):
-            analysis_listing.append(netlister.astr_altervdc('G',vg))
-            analysis_listing.append(netlister.astr_sweepvdc('D',name=f'idvd_vgnum{i_vg}',
-                start=self.vd_range[0],step=self.vd_range[1],stop=self.vd_range[2]))
+        vd_sweep=list(np.arange(self.vd_range[0],self.vd_range[2]+1e-9,self.vd_range[1]))
+        vdpulses=vd_sweep*len(self.vg_values)
+        vgpulses=list(np.repeat(self.vg_values,len(vd_sweep)))
+        meas_delay=spicenum_to_float(self.pulse_width)/2
+        analysis_listing.append(netlister.astr_idealpulsed(vdcs={'D':self.vdq,'G':self.vgq},vpulses={'D':vdpulses,'G':vgpulses},name='pulsed',
+                                                           rise_time=self.rise_time,meas_delay=meas_delay))
         return analysis_listing
 
     def parse_return(self,result):
+        result=result['pulsed'].reset_index()
         parsed_result={}
-        for i_vg,vg in enumerate(self.vg_values,start=1):
-            for key in result:
-                if f'idvd_vgnum{i_vg}' in key:
-                    df=result[key].copy()
-                    df['ID/W [uA/um]']=-df['vd#p']/\
-                            self.model_paramset.get_total_device_width()
-                    df['IG/W [uA/um]']=-df['vg#p']/\
-                            self.model_paramset.get_total_device_width()
-                    parsed_result[vg]=df.rename(columns=\
-                                {'netd':'VD','netg':'VG'})\
-                            [['VD','VG','ID/W [uA/um]','IG/W [uA/um]']]
+        vd_sweep=list(np.arange(self.vd_range[0],self.vd_range[2]+1e-9,self.vd_range[1]))
+        for i_vg,vg in enumerate(self.vg_values):
+            # Pandas slicing is endpoint-inclusive
+            mask=slice((i_vg*len(vd_sweep)),((i_vg+1)*len(vd_sweep))-1)
+            df={}
+            df['ID/W [uA/um]']=-result.loc[mask,'vd#p']/\
+                    self.model_paramset.get_total_device_width()
+            df['IG/W [uA/um]']=-result.loc[mask,'vg#p']/\
+                    self.model_paramset.get_total_device_width()
+            df['VD']=result.loc[mask,'netd']
+            df['VG']=result.loc[mask,'netg']
+            parsed_result[vg]=pd.DataFrame(df)
         return parsed_result
         
     def generate_figures(self,*args,**kwargs):

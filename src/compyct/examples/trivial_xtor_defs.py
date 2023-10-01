@@ -1,4 +1,5 @@
-from compyct.templates import TemplateGroup, DCIVTemplate, DCIdVgTemplate, DCIdVdTemplate, JointTemplate
+from compyct.templates import TemplateGroup, DCIVTemplate, DCIdVgTemplate, DCIdVdTemplate, JointTemplate, CVTemplate, \
+    IdealPulsedIdVdTemplate
 from compyct.paramsets import CMCParamSet, spicenum_to_float
 from scipy.constants import elementary_charge as q, Boltzmann as kb
 import pandas as pd
@@ -15,12 +16,17 @@ class TrivialXtorParamSet(CMCParamSet):
 class TrivialXtor():
     def __init__(self,paramset):
         self.paramset=paramset
-    def qg_oa(self,VGS,T):
+    def qg_oa(self,VGS,VDS,T,trap_state='DC'):
         cg=spicenum_to_float(self.paramset.get_value('cg'))
         n=spicenum_to_float(self.paramset.get_value('n'))
         vt0=spicenum_to_float(self.paramset.get_value('vt0'))
+        gtrap=spicenum_to_float(self.paramset.get_value('gtrap'))
         vth = kb*T/q
-        return cg*np.log(1+np.exp((VGS-vt0)/(n*vth)))
+        if trap_state=='DC':
+            vtshift=gtrap*(VDS-VGS)
+        else:
+            vtshift=gtrap*(trap_state['VD']-trap_state['VG'])
+        return n*cg*vth*np.log(1+np.exp((VGS-vt0-vtshift)/(n*vth)))
     def v(self,VDS,T):
         u0=spicenum_to_float(self.paramset.get_value('u0'))
         l=spicenum_to_float(self.paramset.get_value('l'))
@@ -28,11 +34,26 @@ class TrivialXtor():
         beta=2
         vu= u0 * VDS / l
         return vu/(1+(vu/vs)**beta)**(1/beta)
-    def ID(self,VD,VG,VS,VB,T):
+    def ID(self,VD,VG,VS,VB,T,trap_state='DC'):
         w=spicenum_to_float(self.paramset.get_value('w'))
-        qg_oa=self.qg_oa(VGS=VG-VS,T=T)
+        qg_oa=self.qg_oa(VGS=VG-VS,VDS=VD-VS,T=T,trap_state=trap_state)
         v = self.v(VD-VS,T)
         return w * qg_oa * v
+    def Cgg(self,VD,VG,VS,VB,T,trap_state='DC'):
+        VGS=VG-VS
+        w=spicenum_to_float(self.paramset.get_value('w'))
+        l=spicenum_to_float(self.paramset.get_value('l'))
+        cg=spicenum_to_float(self.paramset.get_value('cg'))
+        n=spicenum_to_float(self.paramset.get_value('n'))
+        vt0=spicenum_to_float(self.paramset.get_value('vt0'))
+        gtrap=spicenum_to_float(self.paramset.get_value('gtrap'))
+        vth = kb*T/q
+        assert np.allclose(VD,VS), "VD==VS for CV"
+        if trap_state=='DC':
+            vtshift=gtrap*(VD-VG)
+        else:
+            vtshift=gtrap*(trap_state['VD']-trap_state['VG'])
+        return w * l * cg / (1+np.exp((vt0+vtshift-VGS)/(n*vth)))
 
     def evaluate_template(self,simtemp,T=273.15+27):
         w=spicenum_to_float(self.paramset.get_value('w'))
@@ -41,7 +62,7 @@ class TrivialXtor():
             start,step,stop=simtemp.vg_range
             VG=np.arange(start,stop+1e-6,step)
             for vd in simtemp.vd_values:
-                results[vd]=pd.DataFrame({'VG':VG,'ID/W [uA/um]':self.ID(vd,VG,0,0,T)/w})
+                results[vd]=pd.DataFrame({'VG':VG,'ID/W [uA/um]':self.ID(vd,VG,0,0,T,trap_state='DC')/w})
             return results
 
         elif isinstance(simtemp,DCIdVdTemplate):
@@ -49,7 +70,24 @@ class TrivialXtor():
             start,step,stop=simtemp.vd_range
             VD=np.arange(start,stop+1e-6,step)
             for vg in simtemp.vg_values:
-                results[vg]=pd.DataFrame({'VD':VD,'ID/W [uA/um]':self.ID(VD,vg,0,0,T)/w})
+                results[vg]=pd.DataFrame({'VD':VD,'ID/W [uA/um]':self.ID(VD,vg,0,0,T,trap_state='DC')/w})
             return results
+
+        elif isinstance(simtemp,CVTemplate):
+            results={}
+            start,step,stop=simtemp.vg_range
+            VG=np.arange(start,stop+1e-6,step)
+            results[0]=pd.DataFrame({'VG':VG,'Cgg [fF/um]':self.Cgg(0,VG,0,0,T,trap_state='DC')/w * 1e9})
+            return results
+
+        elif isinstance(simtemp,IdealPulsedIdVdTemplate):
+            results={}
+            start,step,stop=simtemp.vd_range
+            VD=np.arange(start,stop+1e-6,step)
+            for vg in simtemp.vg_values:
+                results[vg]=pd.DataFrame({'VD':VD,'ID/W [uA/um]':self.ID(VD,vg,0,0,T,
+                                         trap_state={'VD':simtemp.vdq,'VG':simtemp.vgq,'VS':0})/w})
+            return results
+
         elif isinstance(simtemp,JointTemplate):
             return {k:self.evaluate_template(subsimtemp) for k,subsimtemp in simtemp.subtemplates.items()}

@@ -11,7 +11,7 @@ import hashlib
 from tempfile import NamedTemporaryFile
 from compyct.templates import SimTemplate
 from .backend import Netlister, MultiSimSesh, get_va_path, get_va_paths
-from compyct.paramsets import ParamSet, ParamPlace
+from compyct.paramsets import ParamSet, ParamPlace, spicenum_to_float, float_to_spicenum
 
 PseudoAnalysis=namedtuple("PseudoAnalysis",["branches","nodes"])
 
@@ -29,7 +29,9 @@ class NgspiceNetlister(Netlister):
         self.circuit_name=f"Netlist{num}_{self.simtemp.__class__.__name__}"
         self.analyses=self.simtemp.get_analysis_listing(self)
         self.modelcard_name=f"{self.simtemp.model_paramset.model}_standin"
-        
+
+    def nstr_abstol(self,abstol):
+        return f".option abstol={float_to_spicenum(abstol)}"
     
     def nstr_modeled_xtor(self,name,netd,netg,nets,netb,dt,inst_param_ovrd={}):
         assert len(inst_param_ovrd)==0
@@ -51,6 +53,24 @@ class NgspiceNetlister(Netlister):
     def nstr_VAC(name,netp,netm,dc,ac=1):
         return f"V{name} {netp} {netm} dc {dc} ac {ac}"
 
+    @staticmethod
+    def nstr_VPulses(name,netp,netm,dc, pulse_width, pulse_period, rise_time, fall_time, vpulses):
+        pulse_width,pulse_period,rise_time,fall_time=[spicenum_to_float(x) for x in
+                                                      [pulse_width,pulse_period,rise_time,fall_time]]
+        times=[t for t0 in np.arange(len(vpulses))*pulse_period
+                   for t in [t0,
+                             t0+rise_time,
+                             t0+rise_time/2+pulse_width-fall_time/2,
+                             t0+rise_time/2+pulse_width+fall_time/2]]
+        voltages=[v for vpulse in vpulses
+                    for v in [dc,vpulse,vpulse,dc]]
+        pwlstr=" ".join([f"{float_to_spicenum(t)} {float_to_spicenum(v)}" for t,v in zip(times,voltages)])
+        return f"V{name} {netp} {netm} PWL({pwlstr})"
+    @staticmethod
+    def nstr_VStep(name, netp, netm, dc, rise_time, final_v):
+        dc,rise_time,final_v=[spicenum_to_float(x) for x in [dc,rise_time,final_v]]
+        return f"V{name} {netp} {netm} PWL(0 {dc} {float_to_spicenum(rise_time)} {final_v})"
+
     def astr_altervdc(self,whichv, tovalue, name=None):
         return lambda ngss:\
                     (None,ngss.alter_device(f'v{whichv.lower()}',dc=tovalue))
@@ -58,28 +78,41 @@ class NgspiceNetlister(Netlister):
     def astr_sweepvdc(self,whichv, start, stop, step, name=None):
         def sweepvdc(ngss):
             ngss.exec_command(f"dc v{whichv.lower()} {start} {stop} {step}")
-            ret=name, ngss.plot(None,ngss.last_plot).to_analysis()
+            ret=name, self.analysis_to_df(ngss.plot(None,ngss.last_plot).to_analysis())
             ngss.destroy()
             return ret
         return sweepvdc
         
     def astr_sweepvac(self, whichv, start, stop, step, freq, name=None):
         def sweepvac(ngss):
-            branches,nodes={},{}
+            dfs=[]
             for v in np.arange(start,stop+1e-9,step):
                 ngss.alter_device(f'v{whichv.lower()}',dc=v)
                 ngss.exec_command(f"ac lin 1 {freq} {freq}")
                 an=ngss.plot(None,ngss.last_plot).to_analysis()
-                for k,b in an.branches.items():
-                    branches[k]=branches.get(k,[])+[b.as_ndarray()[0]]
-                for k,n in an.nodes.items():
-                    nodes[k]=nodes.get(k,[])+[n.as_ndarray()[0]]
-                nodes['v-sweep']=nodes.get('v-sweep',[])+[v]
+                dfs.append(self.analysis_to_df(an).assign(**{'v-sweep':v}))
                 ngss.destroy()
-            return name,PseudoAnalysis(
-                branches={k:np.array(b) for k,b in branches.items()},
-                nodes={k:np.array(n) for k,n in nodes.items()})
+            return name, pd.concat(dfs)
         return sweepvac
+
+    def astr_idealpulsed(self, vdcs:list, vpulses:dict, rise_time, meas_delay, check_flat=None, name=None):
+        def idealpulsed(ngss):
+            dfs=[]
+            for i in range(len(list(vpulses.values())[0])):
+                for whichv,vs in vpulses.items():
+                    ngss.exec_command(f"alter v{whichv.lower()} PWL = [ {0} {vdcs[whichv]} {rise_time} {vs[i]} ]")
+
+                ngss.exec_command(f"tran {spicenum_to_float(rise_time)/5}"\
+                                  f" {spicenum_to_float(meas_delay)+spicenum_to_float(rise_time)}")
+                df=self.analysis_to_df(ngss.plot(None,ngss.last_plot).to_analysis())
+                if check_flat is not None:
+                    mask=df['time']>spicenum_to_float(meas_delay)/2
+                    assert np.sum(mask)>5
+                    assert np.allclose(df[check_flat][mask],df[check_flat][-1])
+                dfs.append(df.iloc[-1:])
+                ngss.destroy()
+            return name,pd.concat(dfs).reset_index()
+        return idealpulsed
 
     def get_netlist(self):
         ps:ParamSet=self.simtemp.model_paramset
@@ -103,17 +136,14 @@ class NgspiceNetlister(Netlister):
         netlist+=".end\n"
         return netlist
 
+    def analysis_to_df(self,analysis):
+        branches={(f"{k}#p" if "#" not in k else k):b
+                             for k,b in analysis.branches.items()}
+        nodes={k:n for k,n in analysis.nodes.items()}
+        time=({'time':analysis.time} if hasattr(analysis,'time') else {})
+        return pd.DataFrame(dict(**branches,**nodes,**time))
 
-    def preparse_return(self,result):
-        branches={sweepname:{(f"{k}#p" if "#" not in k else k):b
-                                 for k,b in an.branches.items()}
-                      for sweepname,an in result.items()}
-        nodes={sweepname:{k:n for k,n in an.nodes.items()}
-                      for sweepname,an in result.items()}
-        return {sweepname:pd.DataFrame(dict(**bdict,**ndict))
-                    for (sweepname,bdict),ndict
-                        in zip(branches.items(),nodes.values())}
-        
+
 class NgspiceMultiSimSesh(MultiSimSesh):
         
     def print_netlists(self):
@@ -184,8 +214,9 @@ class NgspiceMultiSimSesh(MultiSimSesh):
                     unparsed_result[name]=subresult    
                 #print(f"Ran analysis {name}",time.time())
             #print("About to parse: ",time.time())
-            results[simname]=simtemp.parse_return(nl.preparse_return(unparsed_result))
-            
+            #results[simname]=simtemp.parse_return(nl.preparse_return(unparsed_result))
+            results[simname]=simtemp.parse_return(unparsed_result)
+
             #print("Done: ",time.time())
         return results            
         
