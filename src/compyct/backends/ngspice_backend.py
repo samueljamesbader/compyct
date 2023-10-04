@@ -30,7 +30,7 @@ class NgspiceNetlister(Netlister):
         self.analyses=self.simtemp.get_analysis_listing(self)
         self.modelcard_name=f"{self.simtemp.model_paramset.model}_standin"
 
-    def nstr_abstol(self,abstol):
+    def nstr_iabstol(self,abstol):
         return f".option abstol={float_to_spicenum(abstol)}"
     
     def nstr_modeled_xtor(self,name,netd,netg,nets,netb,dt,inst_param_ovrd={}):

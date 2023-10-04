@@ -46,6 +46,9 @@ class SpectreNetlister(Netlister):
     def nstr_VAC(name,netp,netm,dc,ac=1):
         return f"V{name} ({netp} {netm}) vsource dc={n2scs(dc)} mag={n2scs(ac)} type=dc"
 
+    def nstr_iabstol(self,abstol):
+        return f"simulatorOptions options iabstol={n2scs(abstol)}"
+
     def astr_altervdc(self,whichv, tovalue, name=None):
         if name is None:
             name=f"alter{self._analysiscount}"

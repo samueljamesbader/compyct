@@ -71,7 +71,8 @@ class MultiSweepSimTemplate(SimTemplate):
         self._sources[vizid]\
                =[self._update_cds_with_parsed_result(cds=None,parsed_result=None)]
         
-        #if meas_data is not None:
+        if meas_data is not None:
+            self._validate_parsed_result(meas_data)
         meas_cds=self._update_cds_with_parsed_result(cds=None,
                     parsed_result=meas_data,flattened=True)
         fig.circle(x='x',y='y',source=meas_cds,legend_field='legend')
@@ -92,6 +93,7 @@ class MultiSweepSimTemplate(SimTemplate):
         return [fig]
         
     def update_figures(self, parsed_result, vizid=None):
+        self._validate_parsed_result(parsed_result)
         self._update_cds_with_parsed_result(
             cds=self._sources[vizid][0],parsed_result=parsed_result)
 
@@ -105,25 +107,29 @@ class MultiSweepSimTemplate(SimTemplate):
         
     def _rescale_vector(self,arr):
         raise NotImplementedError
+        
+    def _validate_parsed_result(self,parsed_result):
+        raise NotImplementedError
 
 class DCIdVdTemplate(MultiSweepSimTemplate):
 
-    def __init__(self, *args,
+    def __init__(self, *args, pol='n',
                  vg_values=[0,.6,1.2,1.8], vd_range=(0,.1,1.8), **kwargs):
         super().__init__(outer_variable='VG', inner_variable='VD',
-                         ynames=['ID/W [uA/um]'],
+                         ynames=['ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]'],
                          *args, **kwargs)
         
         num_vd=(vd_range[2]-vd_range[0])/vd_range[1]
         assert abs(num_vd-int(num_vd))<1e-3, f"Make sure the IdVd range gives even steps {str(vd_range)}"
-        
+
+        self.pol=pol
         self.vg_values=vg_values
         self.vd_range=vd_range
     
     def get_schematic_listing(self,netlister:Netlister):
             #netlister.nstr_param(params={'vg':0,'vd':0})+\
         return [
-            netlister.nstr_abstol('1e-15'),
+            netlister.nstr_iabstol('1e-15'),
             netlister.nstr_modeled_xtor("inst",netd='netd',netg='netg',
                                         nets=netlister.GND,netb=netlister.GND,dt=None),
             netlister.nstr_VDC("D",netp='netd',netm=netlister.GND,dc=0),
@@ -143,13 +149,15 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
             for key in result:
                 if f'idvd_vgnum{i_vg}' in key:
                     df=result[key].copy()
-                    df['ID/W [uA/um]']=-df['vd#p']/\
+                    sgn=-1 if self.pol=='p' else 1
+                    sgnstr="-" if self.pol=='p' else ''
+                    df[f'{sgnstr}ID/W [uA/um]']=-sgn*df['vd#p']/\
                             self.model_paramset.get_total_device_width()
-                    df['IG/W [uA/um]']=-df['vg#p']/\
+                    df[f'{sgnstr}IG/W [uA/um]']=-sgn*df['vg#p']/\
                             self.model_paramset.get_total_device_width()
                     parsed_result[vg]=df.rename(columns=\
                                 {'netd':'VD','netg':'VG'})\
-                            [['VD','VG','ID/W [uA/um]','IG/W [uA/um]']]
+                            [['VD','VG',f'{sgnstr}ID/W [uA/um]',f'{sgnstr}IG/W [uA/um]']]
         return parsed_result
         
     def generate_figures(self,*args,**kwargs):
@@ -159,23 +167,28 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
     def _rescale_vector(self,arr):
         return arr
         
+    def _validate_parsed_result(self,parsed_result):
+        assert parsed_result.keys()==set(self.vg_values)
+        # TODO: check spacings 
+        
 class DCIdVgTemplate(MultiSweepSimTemplate):
 
-    def __init__(self, *args,
+    def __init__(self, *args, pol='n',
                  vd_values=[.05,1.8], vg_range=(0,.03,1.8), **kwargs):
         super().__init__(outer_variable='VD', inner_variable='VG',
-                         ynames=['ID/W [uA/um]'],
+                         ynames=['ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]'],
                          *args, **kwargs)
         num_vg=(vg_range[2]-vg_range[0])/vg_range[1]
         assert abs(num_vg-int(num_vg))<1e-3, f"Make sure the IdVg range gives even steps {str(vg_range)}"
         
+        self.pol=pol
         self.vg_range=vg_range
         self.vd_values=vd_values
 
     def get_schematic_listing(self,netlister:Netlister):
             #netlister.nstr_param(params={'vg':0,'vd':0})+\
         return [
-            netlister.nstr_abstol('1e-15'),
+            netlister.nstr_iabstol('1e-15'),
             netlister.nstr_modeled_xtor("inst",netd='netd',netg='netg',
                                         nets=netlister.GND,netb=netlister.GND,dt=None),
             netlister.nstr_VDC("D",netp='netd',netm=netlister.GND,dc=0),
@@ -196,13 +209,15 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
                 if f'idvg_vdnum{i_vd}' in key:
                     #import pdb; pdb.set_trace()
                     df=result[key].copy()
-                    df['ID/W [uA/um]']=-df['vd#p']/\
+                    sgn=-1 if self.pol=='p' else 1
+                    sgnstr="-" if self.pol=='p' else ''
+                    df[f'{sgnstr}ID/W [uA/um]']=-sgn*df['vd#p']/\
                             self.model_paramset.get_total_device_width()
-                    df['IG/W [uA/um]']=-df['vg#p']/\
+                    df[f'{sgnstr}IG/W [uA/um]']=-sgn*df['vg#p']/\
                             self.model_paramset.get_total_device_width()
                     parsed_result[vd]=df.rename(columns=\
                                 {'netd':'VD','netg':'VG'})\
-                            [['VD','VG','ID/W [uA/um]','IG/W [uA/um]']]
+                            [['VD','VG',f'{sgnstr}ID/W [uA/um]',f'{sgnstr}IG/W [uA/um]']]
         return parsed_result
         
     def generate_figures(self,*args,**kwargs):
@@ -211,6 +226,10 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
 
     def _rescale_vector(self,arr):
         return np.log10(np.abs(arr))
+        
+    def _validate_parsed_result(self,parsed_result):
+        assert parsed_result.keys()==set(self.vd_values)
+        # TODO: check spacings 
 
 class JointTemplate(SimTemplate):
     def __init__(self,subtemplates:dict, *args, **kwargs):
@@ -219,12 +238,12 @@ class JointTemplate(SimTemplate):
         #TODO: Move more of the DCIVTemplate code into JointTemplate
 
 class DCIVTemplate(JointTemplate):
-    def __init__(self, *args,
+    def __init__(self, *args,pol='n',
                  idvd_vg_values=[0,.6,1.2,1.8], idvd_vd_range=(0,.1,1.8),
                  idvg_vd_values=[.05,1.8], idvg_vg_range=(0,.03,1.8), **kwargs):
-        self._dcidvg=DCIdVgTemplate(*args, **kwargs,
+        self._dcidvg=DCIdVgTemplate(*args, **kwargs,pol=pol,
                                     vd_values=idvg_vd_values, vg_range=idvg_vg_range)
-        self._dcidvd=DCIdVdTemplate(*args, **kwargs,
+        self._dcidvd=DCIdVdTemplate(*args, **kwargs,pol=pol,
                                     vg_values=idvd_vg_values, vd_range=idvd_vd_range)
         super().__init__(subtemplates={'IdVg':self._dcidvg,'IdVd':self._dcidvd}, *args, **kwargs)
 
@@ -308,6 +327,11 @@ class CVTemplate(MultiSweepSimTemplate):
         df['VG']=np.real(df['v-sweep'])
         parsed_result={0:df[['VG','Cgg [fF/um]']]}
         return parsed_result
+        
+    def _validate_parsed_result(self,parsed_result):
+        pass
+        #assert parsed_result.keys()==set([0])
+        # TODO: check spacings 
 
 class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
 
@@ -371,6 +395,11 @@ class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
 
     def _rescale_vector(self,arr):
         return arr
+        
+    def _validate_parsed_result(self,parsed_result):
+        pass
+        #assert parsed_result.keys()==set([0])
+        # TODO: check EVERYTHING
 
 class TemplateGroup:
     def __init__(self,**templates):
@@ -388,5 +417,4 @@ class TemplateGroup:
     def __len__(self):
         return len(self.temps)
     #def parsed_results_to_vector(self,parsed_results):
-        
-    
+
