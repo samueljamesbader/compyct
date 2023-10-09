@@ -2,6 +2,8 @@ import numpy as np
 import bokeh
 import bokeh.plotting
 import pandas as pd
+import bokeh.layouts
+import panel as pn
 
 from compyct.backends.backend import Netlister
 
@@ -13,11 +15,13 @@ class SimTemplate():
             self.set_paramset(model_paramset)
 
     def set_paramset(self,model_paramset):
-        self.model_name=model_paramset.model+"_standin"
-        self.model_paramset=model_paramset.copy()
+        self.model_paramset=model_paramset.copy() if model_paramset else None
         
     def parse_return(self, result):
         return result
+
+    def postparse_return(self,parsed_result):
+        return parsed_result
 
     def _parsed_result_to_cds_data(self,parsed_result):
         raise NotImplementedError
@@ -52,45 +56,57 @@ class MultiSweepSimTemplate(SimTemplate):
         self._sources={}
         
     def _parsed_result_to_cds_data(self,parsed_result):
-        assert len(self.ynames)==1
-        yname=self.ynames[0]
+        #assert len(self.ynames)==1
+        #yname=self.ynames[0]
         
-        data={'x':[],'y':[],'legend':[]}
+        data=dict(x=[],legend=[],**{f'y{i}':[] for i in range(len(self.ynames))})
         if parsed_result is None: parsed_result={}
         for key, df in parsed_result.items():
             data['x'].append(df[self.inner_variable].to_numpy())
-            data['y'].append(df[yname].to_numpy())
+            for i,yname in enumerate(self.ynames):
+                data[f'y{i}'].append(df[yname].to_numpy())
             data['legend'].append(key)
         return data
+        
+        
+    def _validate_parsed_result(self,parsed_result):
+        raise NotImplementedError
     
     def generate_figures(self, meas_data=None,
-                         layout_params={}, y_axis_type='linear',vizid=None):
-        fig=bokeh.plotting.figure(#x_range=self.vg_range,y_range=(1e-8,1),
-                                  y_axis_type=y_axis_type,**layout_params)
+                         layout_params={}, y_axis_type='linear', vizid=None):
     
         self._sources[vizid]\
                =[self._update_cds_with_parsed_result(cds=None,parsed_result=None)]
-        
+
         if meas_data is not None:
             self._validate_parsed_result(meas_data)
+        
+        
         meas_cds=self._update_cds_with_parsed_result(cds=None,
                     parsed_result=meas_data,flattened=True)
-        fig.circle(x='x',y='y',source=meas_cds,legend_field='legend')
-            
         sim_cds=self._sources[vizid][0]
-        fig.multi_line(xs='x',ys='y',source=sim_cds,color='red')
 
-        fig.yaxis.axis_label=",".join(self.ynames)
-        fig.legend.margin=0
-        fig.legend.spacing=0
-        fig.legend.padding=4
-        fig.legend.label_text_font_size='8pt'
-        fig.legend.label_height=10
-        fig.legend.label_text_line_height=10
-        fig.legend.glyph_height=10
-        fig.legend.location='bottom_right'
-        fig.xaxis.axis_label=self.inner_variable
-        return [fig]
+        num_ys=len([k for k in sim_cds.data if k.startswith('y')])
+        if type(y_axis_type) is str: y_axis_type=[y_axis_type]*num_ys
+        figs=[]
+        for i in range(num_ys):
+            fig=bokeh.plotting.figure(#x_range=self.vg_range,y_range=(1e-8,1),
+                                      y_axis_type=y_axis_type[i],**layout_params)
+            fig.circle(x='x',y=f'y{i}',source=meas_cds,legend_field='legend')
+            fig.multi_line(xs='x',ys=f'y{i}',source=sim_cds,color='red')
+    
+            fig.yaxis.axis_label=self.ynames[i]#",".join(self.ynames)
+            fig.legend.margin=0
+            fig.legend.spacing=0
+            fig.legend.padding=4
+            fig.legend.label_text_font_size='8pt'
+            fig.legend.label_height=10
+            fig.legend.label_text_line_height=10
+            fig.legend.glyph_height=10
+            fig.legend.location='bottom_right'
+            fig.xaxis.axis_label=self.inner_variable
+            figs.append(fig)
+        return figs
         
     def update_figures(self, parsed_result, vizid=None):
         self._validate_parsed_result(parsed_result)
@@ -107,17 +123,16 @@ class MultiSweepSimTemplate(SimTemplate):
         
     def _rescale_vector(self,arr):
         raise NotImplementedError
-        
-    def _validate_parsed_result(self,parsed_result):
-        raise NotImplementedError
 
 class DCIdVdTemplate(MultiSweepSimTemplate):
 
-    def __init__(self, *args, pol='n',
+    def __init__(self, *args, pol='n', temp=27, yscale='linear',
                  vg_values=[0,.6,1.2,1.8], vd_range=(0,.1,1.8), **kwargs):
+        self.yscale=yscale
         super().__init__(outer_variable='VG', inner_variable='VD',
                          ynames=['ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]'],
                          *args, **kwargs)
+        self.temp=temp
         
         num_vd=(vd_range[2]-vd_range[0])/vd_range[1]
         assert abs(num_vd-int(num_vd))<1e-3, f"Make sure the IdVd range gives even steps {str(vd_range)}"
@@ -137,6 +152,7 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
 
     def get_analysis_listing(self,netlister:Netlister):
         analysis_listing=[]
+        analysis_listing.append(netlister.nstr_temp(temp=self.temp))
         for i_vg,vg in enumerate(self.vg_values,start=1):
             analysis_listing.append(netlister.astr_altervdc('G',vg))
             analysis_listing.append(netlister.astr_sweepvdc('D',name=f'idvd_vgnum{i_vg}',
@@ -161,23 +177,28 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
         return parsed_result
         
     def generate_figures(self,*args,**kwargs):
-        kwargs['y_axis_type']=kwargs.get('y_axis_type','linear')
+        kwargs['y_axis_type']=kwargs.get('y_axis_type',self.yscale)
         return super().generate_figures(*args,**kwargs)
 
     def _rescale_vector(self,arr):
         return arr
         
     def _validate_parsed_result(self,parsed_result):
-        assert parsed_result.keys()==set(self.vg_values)
+        assert parsed_result.keys()==set(self.vg_values),\
+            f"Template requests VG {self.vg_values}, but results are {list(parsed_result.keys())}"
         # TODO: check spacings 
         
 class DCIdVgTemplate(MultiSweepSimTemplate):
 
-    def __init__(self, *args, pol='n',
-                 vd_values=[.05,1.8], vg_range=(0,.03,1.8), **kwargs):
+    def __init__(self, *args, pol='n', temp=27,
+                 vd_values=[.05,1.8], vg_range=(0,.03,1.8), plot_gm=True, **kwargs):
+        ynames=['ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]']
+        if plot_gm: ynames+=['GM/W [uS/um]']
         super().__init__(outer_variable='VD', inner_variable='VG',
-                         ynames=['ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]'],
+                         ynames=ynames,
                          *args, **kwargs)
+        self.temp=temp
+        
         num_vg=(vg_range[2]-vg_range[0])/vg_range[1]
         assert abs(num_vg-int(num_vg))<1e-3, f"Make sure the IdVg range gives even steps {str(vg_range)}"
         
@@ -196,6 +217,7 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
 
     def get_analysis_listing(self,netlister:Netlister):
         analysis_listing=[]
+        analysis_listing.append(netlister.nstr_temp(temp=self.temp))
         for i_vd,vd in enumerate(self.vd_values,start=1):
             analysis_listing.append(netlister.astr_altervdc('D',vd))
             analysis_listing.append(netlister.astr_sweepvdc('G',name=f'idvg_vdnum{i_vd}',
@@ -219,23 +241,38 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
                                 {'netd':'VD','netg':'VG'})\
                             [['VD','VG',f'{sgnstr}ID/W [uA/um]',f'{sgnstr}IG/W [uA/um]']]
         return parsed_result
+
+    def postparse_return(self,parsed_result):
+        sgn=-1 if self.pol=='p' else 1
+        sgnstr="-" if self.pol=='p' else ''
+        for vd,df in parsed_result.items():
+            df[f'GM/W [uS/um]']=np.gradient(sgn*df[f'{sgnstr}ID/W [uA/um]'],self.vg_range[1])
+        return parsed_result
         
     def generate_figures(self,*args,**kwargs):
-        kwargs['y_axis_type']=kwargs.get('y_axis_type','log')
+        kwargs['y_axis_type']=[kwargs.get('y_axis_type','log'),'linear']
         return super().generate_figures(*args,**kwargs)
 
     def _rescale_vector(self,arr):
         return np.log10(np.abs(arr))
         
     def _validate_parsed_result(self,parsed_result):
-        assert parsed_result.keys()==set(self.vd_values)
+        assert parsed_result.keys()==set(self.vd_values),\
+            f"Template requests VD {self.vd_values}, but results are {list(parsed_result.keys())}"
         # TODO: check spacings 
 
 class JointTemplate(SimTemplate):
     def __init__(self,subtemplates:dict, *args, **kwargs):
         super().__init__(*args,**kwargs)
         self.subtemplates=subtemplates
-        #TODO: Move more of the DCIVTemplate code into JointTemplate
+
+    def postparse_return(self,parsed_result):
+        return {k:t.postparse_return(parsed_result[k])for k,t in self.subtemplates.items()}
+
+    def __getitem__(self,key):
+        return self.subtemplates[key]
+
+    #TODO: Move more of the DCIVTemplate code into JointTemplate
 
 class DCIVTemplate(JointTemplate):
     def __init__(self, *args,pol='n',
@@ -404,6 +441,7 @@ class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
 class TemplateGroup:
     def __init__(self,**templates):
         self.temps=templates
+        self._panes={}
     def set_paramset(self,params_by_template):
         assert set(params_by_template.keys())==set(self.temps.keys())
         for k,t in self.temps.items():
@@ -418,3 +456,15 @@ class TemplateGroup:
         return len(self.temps)
     #def parsed_results_to_vector(self,parsed_results):
 
+    def get_figure_pane(self, meas_data=None, fig_layout_params={},vizid=None):
+        figs=sum([t.generate_figures(
+                            meas_data=meas_data.get(stname,None),
+                            layout_params=fig_layout_params)
+                       for stname,t in self.temps.items()],[])
+        self._panes[vizid]=pn.pane.Bokeh(bokeh.layouts.gridplot([figs]))
+        return self._panes[vizid]
+
+    def update_figures(self, new_results, vizid=None):
+        for stname in self.temps:
+            self.temps[stname].update_figures(new_results[stname])
+        pn.io.push_notebook(self._panes[vizid])

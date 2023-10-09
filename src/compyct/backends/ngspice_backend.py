@@ -37,6 +37,7 @@ class NgspiceNetlister(Netlister):
         assert len(inst_param_ovrd)==0
         assert dt is None
         ps=self.simtemp.model_paramset
+        assert ps.terminals==['d','g','s','b']
         inst_paramstr=' '.join(f'{k}={v}'\
                 for k,v in ps.get_values().items()
                                if ps.get_place(k)==ParamPlace.INSTANCE)
