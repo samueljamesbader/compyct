@@ -8,6 +8,7 @@ from compyct.backends.backend import Netlister
 from compyct.paramsets import ParamSet, spicenum_to_float, ParamPlace
 
 class SimTemplate():
+    title='Unnamed plot'
     def __init__(self, model_paramset=None):
         if model_paramset is not None:
             self.set_paramset(model_paramset)
@@ -66,7 +67,7 @@ class MultiSweepSimTemplate(SimTemplate):
     def generate_figures(self, meas_data=None,
                          layout_params={}, y_axis_type='linear',vizid=None):
         fig=bokeh.plotting.figure(#x_range=self.vg_range,y_range=(1e-8,1),
-                                  y_axis_type=y_axis_type,**layout_params)
+                                  y_axis_type=y_axis_type,title=self.title,**layout_params)
     
         self._sources[vizid]\
                =[self._update_cds_with_parsed_result(cds=None,parsed_result=None)]
@@ -108,18 +109,20 @@ class MultiSweepSimTemplate(SimTemplate):
 
 class DCIdVdTemplate(MultiSweepSimTemplate):
 
+
     def __init__(self, *args,
                  vg_values=[0,.6,1.2,1.8], vd_range=(0,.1,1.8), **kwargs):
         super().__init__(outer_variable='VG', inner_variable='VD',
                          ynames=['ID/W [uA/um]'],
                          *args, **kwargs)
-        
+
         num_vd=(vd_range[2]-vd_range[0])/vd_range[1]
         assert abs(num_vd-int(num_vd))<1e-3, f"Make sure the IdVd range gives even steps {str(vd_range)}"
         
         self.vg_values=vg_values
         self.vd_range=vd_range
-    
+        self.title=kwargs.get('title','DC IdVd')
+
     def get_schematic_listing(self,netlister:Netlister):
             #netlister.nstr_param(params={'vg':0,'vd':0})+\
         return [
@@ -171,6 +174,7 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
         
         self.vg_range=vg_range
         self.vd_values=vd_values
+        self.title=kwargs.get('title','DC IdVg')
 
     def get_schematic_listing(self,netlister:Netlister):
             #netlister.nstr_param(params={'vg':0,'vd':0})+\
@@ -283,6 +287,7 @@ class CVTemplate(MultiSweepSimTemplate):
             spicenum_to_float(freq)
         except:
             raise Exception(f"Invalid frequency: {freq}")
+        self.title=kwargs.get('title','Cgg-Vg')
 
     def get_schematic_listing(self,netlister:Netlister):
             #netlister.nstr_param(params={'vg':0})+\
@@ -330,6 +335,8 @@ class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
         self.rise_time=rise_time
         self.vgq=vgq
         self.vdq=vdq
+
+        self.title=kwargs.get('title','Pulsed IdVd')
 
     def get_schematic_listing(self,netlister:Netlister):
         return [
