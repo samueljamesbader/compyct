@@ -19,10 +19,12 @@ def n2scs(num):
 class SpectreNetlister(Netlister):
     GND='0'
     
-    def __init__(self,template: SimTemplate):
+    def __init__(self,template: SimTemplate):#, additional_includes=[], override_model_subckt=None):
         self.simtemp: SimTemplate=template
         self._tf = None
         self._analysiscount=0
+        #self.additional_includes=additional_includes
+        #self.override_model_subckt=override_model_subckt
 
     #@staticmethod
     #def nstr_param(params):
@@ -33,10 +35,17 @@ class SpectreNetlister(Netlister):
         assert len(inst_param_ovrd)==0
         assert dt is None
         ps=self.simtemp.model_paramset
-        inst_paramstr=' '.join(f'{k}=instparam_{k}'\
-                for k in ps if ps.get_place(k)==ParamPlace.INSTANCE)
-        return f"X{name} ({netd} {netg} {nets} {netb})"\
-                    f" {ps.model}_standin {inst_paramstr}"
+        if True:
+        #    assert ps.terminals==['d','g','s','b']
+            terms=" ".join([{'d':netd,'g':netg,'s':nets,'b':netb}[k] for k in ps.terminals])
+        #if self.override_model_subckt is None:
+            inst_paramstr=' '.join(f'{k}=instparam_{k}'\
+                    for k in ps if ps.get_place(k)==ParamPlace.INSTANCE)
+            return f"X{name} ({terms})"\
+                        f" {ps.model}_standin {inst_paramstr}"
+        #else:
+        #    return f"X{name} ({netd} {netg} {nets} {netb})"\
+        #                f" {self.override_model_subckt}"
         
     @staticmethod
     def nstr_VDC(name,netp,netm,dc):
@@ -45,6 +54,12 @@ class SpectreNetlister(Netlister):
     @staticmethod
     def nstr_VAC(name,netp,netm,dc,ac=1):
         return f"V{name} ({netp} {netm}) vsource dc={n2scs(dc)} mag={n2scs(ac)} type=dc"
+
+    def nstr_iabstol(self,abstol):
+        return f"simulatorOptions options iabstol={n2scs(abstol)}"
+
+    def nstr_temp(self, temp=27, tnom=27):
+        return f"simulatorOptions options temp={n2scs(temp)} tnom={n2scs(tnom)}"
 
     def astr_altervdc(self,whichv, tovalue, name=None):
         if name is None:
@@ -83,6 +98,12 @@ class SpectreNetlister(Netlister):
             self._tf.write(f"// {self.simtemp.__class__.__name__}\n")
             self._tf.write(f"simulator lang = spectre\n")
             ps=self.simtemp.model_paramset
+            # for i in self.additional_includes:
+            #     if type(i)==str:
+            #         self._tf.write(f"include \"{i}\"\n")
+            #     else:
+            #         self._tf.write(
+            #             f"include \"{i[0]}\" {' '.join(i[1:])}\n")
             if ps is not None:
                 for i in ps.scs_includes:
                     if type(i)==str:
@@ -141,7 +162,7 @@ class SpectreMultiSimSesh(MultiSimSesh):
     def print_netlists(self):
         for simname,simtemp in self.simtemps.items():
             print(f"###################### {simname} #############")
-            nl=SpectreNetlister(simtemp)
+            nl=SpectreNetlister(simtemp, **self._netlist_kwargs)
             with open(nl.get_netlist_file(),'r') as f:
                 print(f.read())
             
@@ -150,7 +171,7 @@ class SpectreMultiSimSesh(MultiSimSesh):
         super().__enter__()
         for simname,simtemp in self.simtemps.items():
             try:
-                nl=SpectreNetlister(simtemp)
+                nl=SpectreNetlister(simtemp, **self._netlist_kwargs)
                 sesh=psp.start_session(net_path=nl.get_netlist_file())
             except Exception as myexc:
                 args=next((k for k in myexc.value.split("\n") if k.startswith("args:")))
@@ -183,7 +204,7 @@ class SpectreMultiSimSesh(MultiSimSesh):
             #print('setting params',re_p_changed,time.time())
             psp.set_parameters(sesh,re_p_changed)
             #print('running', time.time())
-            results[simname]=simtemp.parse_return(nl.preparse_return(psp.run_all(sesh)))
+            results[simname]=simtemp.postparse_return(simtemp.parse_return(nl.preparse_return(psp.run_all(sesh))))
             #print('done', time.time())
         return results
         

@@ -1,7 +1,6 @@
 import panel as pn
 from compyct import templates
 from compyct.backends.backend import MultiSimSesh
-import bokeh.layouts
 
 from compyct.paramsets import spicenum_to_float
 
@@ -18,16 +17,14 @@ def make_widget(model_paramset, param_name, center):
                                      else spicenum_to_float( model_paramset.get_default(param_name))),
                                  sizing_mode='stretch_width')
 
+
 class ManualOptimizer(pn.widgets.base.CompositeWidget):
     def __init__(self, mss:MultiSimSesh=None, model_paramset=None,
                  active_paramset={},meas_data={}, fig_layout_params={}):
         super().__init__(height=300,sizing_mode='stretch_width')
         self.mss=mss
         self.paramset=active_paramset
-        self._figs=sum([t.generate_figures(
-                            meas_data=meas_data.get(stname,None),
-                            layout_params=fig_layout_params)
-                       for stname,t in self.mss.simtemps.items()],[])
+        self._figpane=mss.simtemps.get_figure_pane(meas_data=meas_data,fig_layout_params=fig_layout_params)
         self._widgets={param:make_widget(model_paramset,param,center)
                         for param,center in active_paramset.items()}
         for w in self._widgets.values():
@@ -35,7 +32,7 @@ class ManualOptimizer(pn.widgets.base.CompositeWidget):
         self._composite[:]=[
             pn.Column(*self._widgets.values(),width=100,
                       sizing_mode='stretch_height',scroll=True),
-            bokeh.layouts.gridplot([self._figs])]
+            self._figpane]
         self._widget_updated()
 
     def get_widget_params(self):
@@ -47,6 +44,4 @@ class ManualOptimizer(pn.widgets.base.CompositeWidget):
     def rerun_and_update(self,params={}):
         new_results=self.mss.run_with_params(params=params)
         #import pdb; pdb.set_trace()
-        for stname in self.mss.simtemps:
-            self.mss.simtemps[stname].update_figures(new_results[stname])
-        pn.io.push_notebook(self)
+        self.mss.simtemps.update_figures(new_results)

@@ -30,17 +30,20 @@ class NgspiceNetlister(Netlister):
         self.analyses=self.simtemp.get_analysis_listing(self)
         self.modelcard_name=f"{self.simtemp.model_paramset.model}_standin"
 
-    def nstr_abstol(self,abstol):
+    def nstr_iabstol(self,abstol):
         return f".option abstol={float_to_spicenum(abstol)}"
-    
+
+    def nstr_temp(self, temp=27, tnom=27):
+        return f".option temp={float_to_spicenum(temp)} tnom={float_to_spicenum(tnom)}"
+
     def nstr_modeled_xtor(self,name,netd,netg,nets,netb,dt,inst_param_ovrd={}):
         assert len(inst_param_ovrd)==0
         assert dt is None
         ps=self.simtemp.model_paramset
+        assert ps.terminals[:4]==['d','g','s','b']
         inst_paramstr=' '.join(f'{k}={v}'\
                 for k,v in ps.get_values().items()
                                if ps.get_place(k)==ParamPlace.INSTANCE)
-        assert ps.terminals[:4]==['d','g','s','b']
         has_dt_terminal='dt' in ps.terminals
         return f"N{name.lower()} {netd} {netg} {nets} {netb} {'dt' if has_dt_terminal else ''}"\
                     f" {self.modelcard_name} {inst_paramstr}"
@@ -215,7 +218,7 @@ class NgspiceMultiSimSesh(MultiSimSesh):
                 #print(f"Ran analysis {name}",time.time())
             #print("About to parse: ",time.time())
             #results[simname]=simtemp.parse_return(nl.preparse_return(unparsed_result))
-            results[simname]=simtemp.parse_return(unparsed_result)
+            results[simname]=simtemp.postparse_return(simtemp.parse_return(unparsed_result))
 
             #print("Done: ",time.time())
         return results            

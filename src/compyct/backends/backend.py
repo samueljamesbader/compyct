@@ -44,9 +44,10 @@ class MultiSimSesh():
              if k.lower()==(backend.lower()+"multisimsesh")
                  and issubclass(getattr(backend_module,k),MultiSimSesh))
 
-    def __init__(self, simtemps: 'TemplateGroup'):
+    def __init__(self, simtemps: 'TemplateGroup', netlist_kwargs={}):
         self.simtemps: TemplateGroup=simtemps
         self._sessions: dict[str,typing.Any]={}
+        self._netlist_kwargs=netlist_kwargs
         
     def __enter__(self):
         print("Opening simulation session(s)")

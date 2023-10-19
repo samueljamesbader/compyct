@@ -108,6 +108,7 @@ class GuessedInstanceValueParamSet(ParamSet):
         if (model,file,section) in GuessedInstanceValueParamSet._shared_paramdicts:
             return
         in_section=""
+        defaults=None
         with open(file) as f:
             for l in f:
                 if l.startswith("section"):
@@ -117,7 +118,9 @@ class GuessedInstanceValueParamSet(ParamSet):
                     if in_section==self.section:
                         l=next(f).strip()
                         assert l.startswith("parameters ")
+                        assert defaults is None
                         defaults=dict([eq.split("=") for eq in l.split()[1:]])
+        defaults['m']=1
         GuessedInstanceValueParamSet._shared_paramdicts[(model,file,section)]=\
             {k:{'default':v,'units':'A.U.'} for k,v in defaults.items()}
     @property
@@ -128,6 +131,42 @@ class GuessedInstanceValueParamSet(ParamSet):
         return self._shared_paramdict[param].get('dtype',float)
     def get_place(self, param):
         return ParamPlace.INSTANCE
+
+
+
+class GuessedDSPFParamSet(ParamSet):
+    _shared_paramdicts={}
+    _terminals={}
+
+    def __init__(self, subckt, supply_model, file, **kwargs):
+        super().__init__(model=subckt, **kwargs)
+        self.file=file
+        self.scs_includes=supply_model.scs_includes+[str(file)]
+        self.va_includes=supply_model.va_includes
+        self.supply_model=supply_model
+        if (self.model,file) in GuessedDSPFParamSet._shared_paramdicts:
+            return
+        defaults=None
+        with open(file) as f:
+            for l in f: 
+                if l.startswith(f".SUBCKT") and l.split()[1]==subckt:
+                    GuessedDSPFParamSet._terminals[(self.model,file)]=l.split()[2:]
+                    assert defaults is None
+                    defaults={}
+        assert defaults is not None
+        GuessedDSPFParamSet._shared_paramdicts[(self.model,file)]=defaults
+
+    @property
+    def _shared_paramdict(self):
+        return self._shared_paramdicts[(self.model,self.file)]
+        
+    def get_total_device_width(self):
+        return self.supply_model.get_total_device_width()
+        
+    @property
+    def terminals(self):
+        return self._terminals[(self.model,self.file)]
+
 
 class CMCParamSet(ParamSet):
     """ Abstract superclass for Verilog-A standard models, so far tried only on CMC models (MVSG and ASMHEMT).
