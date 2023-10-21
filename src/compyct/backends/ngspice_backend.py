@@ -148,20 +148,15 @@ class NgspiceNetlister(Netlister):
 
 
 class NgspiceMultiSimSesh(MultiSimSesh):
-        
+
+    singleton_in_use=False
+
     def print_netlists(self):
         for simname, simtemp in self.simtemps.items():
             print(f"###################### {simname} #############")
             print(NgspiceNetlister(simtemp).get_netlist())
 
-    def __enter__(self):
-        super().__enter__()
-
-        # Get a NgSpiceShared to commmunicate with
-        # Despite the name, the returned object may be reused
-        # since we're not supplyed an ngspice_id
-        self._ngspice=NgSpiceShared.new_instance()
-
+    def _ensure_clear_ngspice(self, if_circuits='warn'):
         # Make sure its clear of any previous circuits
         # by loading a blank circuit and then clearing
         # all circuits.  [Loading the blank prevents
@@ -171,7 +166,18 @@ class NgspiceMultiSimSesh(MultiSimSesh):
         sc=self._ngspice.exec_command('setcirc')
         for i in range(len(sc.split("\n"))-1):
             self._ngspice.remove_circuit()
-        
+            if if_circuits=='warn' and i>0:
+                print("ALERT, REMOVING OLD CIRCUIT")
+
+    def __enter__(self):
+        assert not NgspiceMultiSimSesh.singleton_in_use
+        NgspiceMultiSimSesh.singleton_in_use=True
+        super().__enter__()
+
+        self._ngspice=NgSpiceShared.new_instance()
+
+        self._ensure_clear_ngspice()
+
         for simname, simtemp in self.simtemps.items():
             nl=NgspiceNetlister(simtemp)
             self._sessions[simname]=nl
@@ -182,6 +188,9 @@ class NgspiceMultiSimSesh(MultiSimSesh):
         return self
     
     def __exit__(self, exc_type, exc_value, traceback):
+        self._ensure_clear_ngspice(if_circuits='ignore')
+        assert NgspiceMultiSimSesh.singleton_in_use
+        NgspiceMultiSimSesh.singleton_in_use=False
         try:
             super().__exit__(exc_type, exc_value, traceback)
         finally:
@@ -193,7 +202,7 @@ class NgspiceMultiSimSesh(MultiSimSesh):
         if hasattr(self,'_ngspice'):
             del self._ngspice
             
-    def run_with_params(self,params={}):
+    def run_with_params(self, params={}, translator=None):
         results={}
         #import time
         for (simname, simtemp) in self.simtemps.items():
@@ -202,7 +211,8 @@ class NgspiceMultiSimSesh(MultiSimSesh):
             nl=self._sessions[simname]
             self._ngspice.set_circuit(self._circuit_numbers[simname])
             ps=simtemp.model_paramset
-            nv=ps.update_and_return_changes(params)
+            print("If simulation entered and exited, TEMPLATE AND SIM MIGHT BE OUT OF SYNC!!!!")
+            nv=ps.update_and_return_changes(params, translator=translator)
             #print("Changes: ",nv, time.time())
             self._ngspice.alter_model(nl.modelcard_name,
                 **{k:v for k,v in nv.items() if ps.get_place(k)==ParamPlace.MODEL})

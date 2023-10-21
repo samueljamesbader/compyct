@@ -63,7 +63,7 @@ class MultiSimSesh():
                   "  That's bad but I can try to handle it.")
             self.__exit__(None,None,None)
 
-    def run_with_params(self, params={}):
+    def run_with_params(self, params={}, translator=None):
         raise NotImplementedError
 
 def get_va_path(vaname):

@@ -130,6 +130,7 @@ class MultiSweepSimTemplate(SimTemplate):
         raise NotImplementedError
 
     def _validate_parsed_result(self,parsed_result):
+        if parsed_result is None: return
         if self.outer_variable is not None:
             assert parsed_result.keys()==set(self.outer_values), \
                 f"{self.__class__.__name__} requests {self.outer_variable} {self.outer_values},"\
@@ -158,7 +159,7 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
         self.temp=temp
         
         num_vd=(vd_range[2]-vd_range[0])/vd_range[1]
-        assert abs(num_vd-int(num_vd))<1e-3, f"Make sure the IdVd range gives even steps {str(vd_range)}"
+        assert abs(num_vd-round(num_vd))<1e-3, f"Make sure the IdVd range gives even steps {str(vd_range)}"
 
         self.pol=pol
 
@@ -222,7 +223,7 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
         self.temp=temp
         
         num_vg=(vg_range[2]-vg_range[0])/vg_range[1]
-        assert abs(num_vg-int(num_vg))<1e-3, f"Make sure the IdVg range gives even steps {str(vg_range)}"
+        assert abs(num_vg-round(num_vg))<1e-3, f"Make sure the IdVg range gives even steps {str(vg_range)}"
         
         self.pol=pol
 
@@ -355,7 +356,7 @@ class CVTemplate(MultiSweepSimTemplate):
                          *args, **kwargs)
         
         num_vg=(vg_range[2]-vg_range[0])/vg_range[1]
-        assert abs(num_vg-int(num_vg))<1e-3, f"Make sure the CV VG range gives even steps {str(vg_range)}"
+        assert abs(num_vg-round(num_vg))<1e-3, f"Make sure the CV VG range gives even steps {str(vg_range)}"
         
         self.freq=freq
         try:
@@ -412,7 +413,7 @@ class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
                          *args, **kwargs)
         
         num_vd=(vd_range[2]-vd_range[0])/vd_range[1]
-        assert abs(num_vd-int(num_vd))<1e-3,\
+        assert abs(num_vd-round(num_vd))<1e-3,\
             f"Make sure the IdVd range gives even steps {str(vd_range)}"
         
         self.vg_values=vg_values

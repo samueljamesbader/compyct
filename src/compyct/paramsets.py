@@ -69,7 +69,9 @@ class ParamSet():
         cp._values=self._values.copy()
         return cp
 
-    def update_and_return_changes(self,new_values):
+    def update_and_return_changes(self, new_values, translator=None):
+        if translator is not None:
+            new_values=translator(new_values,self.copy())
         changed={}
         for k,v in new_values.items():
             if v!=self.get_value(k):

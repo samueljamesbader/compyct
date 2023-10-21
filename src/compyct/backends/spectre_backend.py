@@ -192,14 +192,14 @@ class SpectreMultiSimSesh(MultiSimSesh):
         print("Deleting S MSS")
         super().__del__()
 
-    def run_with_params(self, params={}):
+    def run_with_params(self, params={}, translator=None):
         #print(f"Running with params {params}")
         results={}
         #import time
         for simname,(nl,sesh) in self._sessions.items():
             #print(f"Running {simname}")
             simtemp=self.simtemps[simname]
-            nv=simtemp.model_paramset.update_and_return_changes(params)
+            nv=simtemp.model_paramset.update_and_return_changes(params, translator=translator)
             re_p_changed={nl.get_spectre_names_for_param(k):n2scs(v) for k,v in nv.items()}
             #print('setting params',re_p_changed,time.time())
             psp.set_parameters(sesh,re_p_changed)
