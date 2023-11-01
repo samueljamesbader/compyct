@@ -1,3 +1,4 @@
+from collections import UserDict
 from pathlib import Path
 import csv
 import io
@@ -69,9 +70,7 @@ class ParamSet():
         cp._values=self._values.copy()
         return cp
 
-    def update_and_return_changes(self, new_values, translator=None):
-        if translator is not None:
-            new_values=translator(new_values,self.copy())
+    def update_and_return_changes(self, new_values):
         changed={}
         for k,v in new_values.items():
             if v!=self.get_value(k):
@@ -97,6 +96,32 @@ class ParamSet():
                     +",".join(f"{k}={ndf[k]}" for k in sorted(ndf) )\
                 +">"
 
+    def translate_to(self,param_dict,other):
+        # TODO: some (eg Guessed) allow multiple types from same class so this logic is bad
+        if other.__class__==self.__class__:
+            return param_dict
+        else:
+            raise NotImplementedError
+
+    def as_patch(self, ignore_keys=[]):
+        return ParamPatch(self,{k:v for k,v in self.get_values().items() if k not in ignore_keys})
+
+class ParamPatch(UserDict):
+
+    def __init__(self, ps_example:ParamSet, *args, **kwargs):
+        self._ps_example=ps_example
+        super().__init__(*args,**kwargs)
+
+    def patch_paramset_and_return_changes(self, ps: ParamSet):
+        pd=self._ps_example.translate_to(self, ps)
+        return ps.update_and_return_changes(pd)
+    def patch_paramset_and_return_it(self, ps: ParamSet):
+        pd=self._ps_example.translate_to(self, ps)
+        ps.update_and_return_changes(pd)
+        return ps
+
+    #def generate_from_example(self):
+    #    self._ps_example.copy_with_changes()
 
 class GuessedInstanceValueParamSet(ParamSet):
     _shared_paramdicts={}
@@ -241,12 +266,12 @@ class CMCParamSet(ParamSet):
         return [ParamPlace.INSTANCE,ParamPlace.MODEL]\
                     [self._shared_paramdict[param]['macro'].startswith('M')]
     
-    def get_bounds(self,param):        
+    def get_bounds(self, param, null=None):
         deets=self._shared_paramdict[param]
         match deets['macro']:
             case 'MPRco':
                 lower=spicenum_to_float(deets['lower'])
-                upper=None
+                upper=null
             case 'MPRcc':
                 lower=spicenum_to_float(deets['lower'])
                 upper=spicenum_to_float(deets['upper'])
@@ -255,19 +280,20 @@ class CMCParamSet(ParamSet):
                 upper=spicenum_to_float(deets['upper'])
             case 'MPRoz':
                 lower=spicenum_to_float(deets['default'])*.01
-                upper=None
+                upper=null
             case 'MPRcz':
                 lower=0
-                upper=None
+                upper=null
             case _:
                 print(f"Not sure what to do with macro {deets['macro']} for param {param}")
-                lower=None
-                upper=None
-        if upper is not None and np.isinf(upper): upper=None
+                lower=null
+                upper=null
+        if null is None:
+            if upper is not null and np.isinf(upper): upper=null
         if deets['macro']=='MPRnb':
             step=.1
         else:
-            step=np.abs(spicenum_to_float(deets['default']))*.1
+            step=np.abs(spicenum_to_float(deets['default']))*.01
             if step==0:
                 step=.1
         return (lower,step,upper)

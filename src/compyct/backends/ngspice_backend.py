@@ -10,7 +10,7 @@ import hashlib
 
 from tempfile import NamedTemporaryFile
 from compyct.templates import SimTemplate
-from .backend import Netlister, MultiSimSesh, get_va_path, get_va_paths
+from .backend import Netlister, MultiSimSesh, get_va_path, get_va_paths, SimulatorCommandException
 from compyct.paramsets import ParamSet, ParamPlace, spicenum_to_float, float_to_spicenum
 
 PseudoAnalysis=namedtuple("PseudoAnalysis",["branches","nodes"])
@@ -90,8 +90,11 @@ class NgspiceNetlister(Netlister):
         def sweepvac(ngss):
             dfs=[]
             for v in np.arange(start,stop+1e-9,step):
-                ngss.alter_device(f'v{whichv.lower()}',dc=v)
-                ngss.exec_command(f"ac lin 1 {freq} {freq}")
+                try:
+                    ngss.alter_device(f'v{whichv.lower()}',dc=v)
+                    ngss.exec_command(f"ac lin 1 {freq} {freq}")
+                except Exception as e:
+                    raise SimulatorCommandException(original_error=e)
                 an=ngss.plot(None,ngss.last_plot).to_analysis()
                 dfs.append(self.analysis_to_df(an).assign(**{'v-sweep':v}))
                 ngss.destroy()
@@ -201,25 +204,29 @@ class NgspiceMultiSimSesh(MultiSimSesh):
         super().__del__()
         if hasattr(self,'_ngspice'):
             del self._ngspice
-            
-    def run_with_params(self, params={}, translator=None):
+
+    def run_with_params(self, params={}, full_resync=False, only_temps=None):
+        assert (params=={} or hasattr(params,'patch_paramset_and_return_changes'))
         results={}
         #import time
         for (simname, simtemp) in self.simtemps.items():
+            if only_temps is not None and simname not in only_temps: continue
             #print(f"Running {simname}", time.time())
             unparsed_result={}
             nl=self._sessions[simname]
             self._ngspice.set_circuit(self._circuit_numbers[simname])
-            ps=simtemp.model_paramset
-            print("If simulation entered and exited, TEMPLATE AND SIM MIGHT BE OUT OF SYNC!!!!")
-            nv=ps.update_and_return_changes(params, translator=translator)
-            #print("Changes: ",nv, time.time())
-            self._ngspice.alter_model(nl.modelcard_name,
-                **{k:v for k,v in nv.items() if ps.get_place(k)==ParamPlace.MODEL})
-            #print("Made model changes: ",time.time())
-            for dev in nl._modeled_xtors:
-                self._ngspice.alter_device(dev,
-                    **{k:v for k,v in nv.items() if ps.get_place(k)==ParamPlace.INSTANCE})
+            if params != {}:
+                ps=simtemp.model_paramset
+                nv=params.patch_paramset_and_return_changes(ps)
+                if full_resync:
+                    nv=simtemp.model_paramset.get_values()
+                #print("Changes: ",nv, time.time())
+                self._ngspice.alter_model(nl.modelcard_name,
+                    **{k:v for k,v in nv.items() if ps.get_place(k)==ParamPlace.MODEL})
+                #print("Made model changes: ",time.time())
+                for dev in nl._modeled_xtors:
+                    self._ngspice.alter_device(dev,
+                        **{k:v for k,v in nv.items() if ps.get_place(k)==ParamPlace.INSTANCE})
             #print("Made inst changes: ",time.time())
             for an in nl.analyses:
                 name,subresult=an(self._ngspice)

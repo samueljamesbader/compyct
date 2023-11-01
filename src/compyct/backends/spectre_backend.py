@@ -192,17 +192,22 @@ class SpectreMultiSimSesh(MultiSimSesh):
         print("Deleting S MSS")
         super().__del__()
 
-    def run_with_params(self, params={}, translator=None):
+    def run_with_params(self, params={}, full_resync=False, only_temps=None):
+        assert params=={} or hasattr(params,'patch_paramset')
         #print(f"Running with params {params}")
         results={}
         #import time
         for simname,(nl,sesh) in self._sessions.items():
+            if only_temps is not None and simname not in only_temps: continue
             #print(f"Running {simname}")
             simtemp=self.simtemps[simname]
-            nv=simtemp.model_paramset.update_and_return_changes(params, translator=translator)
-            re_p_changed={nl.get_spectre_names_for_param(k):n2scs(v) for k,v in nv.items()}
-            #print('setting params',re_p_changed,time.time())
-            psp.set_parameters(sesh,re_p_changed)
+            if params != {}:
+                nv=params.patch_paramset_and_return_changes(simtemp.model_paramset)
+                if full_resync:
+                    nv=simtemp.model_paramset.get_values()
+                re_p_changed={nl.get_spectre_names_for_param(k):n2scs(v) for k,v in nv.items()}
+                #print('setting params',re_p_changed,time.time())
+                psp.set_parameters(sesh,re_p_changed)
             #print('running', time.time())
             results[simname]=simtemp.postparse_return(simtemp.parse_return(nl.preparse_return(psp.run_all(sesh))))
             #print('done', time.time())

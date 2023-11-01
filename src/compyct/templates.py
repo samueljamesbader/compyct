@@ -284,15 +284,24 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
         return np.log10(np.abs(arr))
 
 class JointTemplate(SimTemplate):
-    def __init__(self,subtemplates:dict, *args, **kwargs):
-        super().__init__(*args,**kwargs)
+    def __init__(self,subtemplates:dict, *args, model_paramset:ParamSet=None, **kwargs):
         self.subtemplates=subtemplates
+        super().__init__(model_paramset=model_paramset,*args,**kwargs)
+
+    def set_paramset(self,model_paramset):
+        super().set_paramset(model_paramset)
+        for st in self.subtemplates.values():
+            st.model_paramset=self.model_paramset
 
     def postparse_return(self,parsed_result):
         return {k:t.postparse_return(parsed_result[k])for k,t in self.subtemplates.items()}
 
     def _validate_parsed_result(self,parsed_result):
         {k:t._validate_parsed_result(parsed_result[k])for k,t in self.subtemplates.items()}
+
+    def update_figures(self, parsed_result, vizid=None):
+        for k,t in self.subtemplates.items():
+            t.update_figures((parsed_result[k] if parsed_result else None),vizid=vizid)
 
     def __getitem__(self,key):
         return self.subtemplates[key]
@@ -308,11 +317,6 @@ class DCIVTemplate(JointTemplate):
         self._dcidvd=DCIdVdTemplate(*args, **kwargs,pol=pol,
                                     vg_values=idvd_vg_values, vd_range=idvd_vd_range)
         super().__init__(subtemplates={'IdVg':self._dcidvg,'IdVd':self._dcidvd}, *args, **kwargs)
-
-    def set_paramset(self,model_paramset):
-        super().set_paramset(model_paramset)
-        self._dcidvg.set_paramset(model_paramset)
-        self._dcidvd.set_paramset(model_paramset)
 
     def get_schematic_listing(self,netlister:Netlister):
         lines=self._dcidvg.get_schematic_listing(netlister)
@@ -338,9 +342,6 @@ class DCIVTemplate(JointTemplate):
             meas_data=meas_data.get('IdVd',None), layout_params=layout_params, vizid=vizid)
         return figs1+figs2
         
-    def update_figures(self, parsed_result, vizid=None):
-        self._dcidvg.update_figures(parsed_result['IdVg'],vizid=vizid)
-        self._dcidvd.update_figures(parsed_result['IdVd'],vizid=vizid)
 
     def parsed_results_to_vector(self, parsed_results, roi):
         return np.concatenate([
@@ -409,6 +410,7 @@ class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
                  vgq=0, vdq=0,
                  **kwargs):
         super().__init__(outer_variable='VG', inner_variable='VD',
+                         outer_values=vg_values, inner_range=vd_range,
                          ynames=['ID/W [uA/um]'],
                          *args, **kwargs)
         
@@ -416,12 +418,15 @@ class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
         assert abs(num_vd-round(num_vd))<1e-3,\
             f"Make sure the IdVd range gives even steps {str(vd_range)}"
         
-        self.vg_values=vg_values
-        self.vd_range=vd_range
         self.pulse_width=pulse_width
         self.rise_time=rise_time
         self.vgq=vgq
         self.vdq=vdq
+
+    @property
+    def vg_values(self): return self.outer_values
+    @property
+    def vd_range(self): return self.inner_range
 
     def get_schematic_listing(self,netlister:Netlister):
         return [
@@ -493,14 +498,14 @@ class TemplateGroup:
     def get_figure_pane(self, meas_data=None, fig_layout_params={},vizid=None):
         figs=sum([t.generate_figures(
                             meas_data=meas_data.get(stname,None),
-                            layout_params=fig_layout_params)
+                            layout_params=fig_layout_params, vizid=vizid)
                        for stname,t in self.temps.items()],[])
         self._panes[vizid]=pn.pane.Bokeh(bokeh.layouts.gridplot([figs]))
         return self._panes[vizid]
 
     def update_figures(self, new_results, vizid=None):
         for stname in self.temps:
-            self.temps[stname].update_figures(new_results[stname])
+            self.temps[stname].update_figures((new_results[stname] if new_results else None),vizid=vizid)
         pn.io.push_notebook(self._panes[vizid])
 
     def parsed_results_to_vector(self,parsed_results,roi):

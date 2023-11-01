@@ -1,0 +1,272 @@
+import time
+from pathlib import Path
+import os
+from operator import itemgetter
+import pickle
+import numpy as np
+
+from compyct.paramsets import spicenum_to_float, ParamPatch
+from compyct.backends.backend import MultiSimSesh, SimulatorCommandException
+from scipy.optimize import curve_fit
+from typing import Any
+from copy import deepcopy
+from dataclasses import dataclass, field
+from compyct.templates import TemplateGroup
+from contextlib import contextmanager
+
+
+OUTPUT_DIR=Path(os.environ['MODELFIT_HOME'])/'output'
+
+class OptimizationException(Exception):
+    def __init__(self, bounds, latest, sim_err):
+        self.bounds=bounds
+        self.latest=latest
+        self.sim_err=sim_err
+        super().__init__("Optimization Failed")
+
+@dataclass
+class SemiAutoOptimizer():
+
+    global_template_group: TemplateGroup
+    global_patch: ParamPatch
+    global_meas_data: dict[str,Any]
+
+    tabbed_templates: dict[str,str]
+    tabbed_actives: dict[str,list[str]]
+    tabbed_rois: dict[str,Any]
+    backend: str = 'ngspice'
+    backend_kwargs: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        self._tabbed_template_groups: dict[str,TemplateGroup] =\
+            {tabname: self.global_template_group.only(*tempnames)\
+                 for tabname,tempnames in self.tabbed_templates.items()}
+        self._mss=MultiSimSesh.get_with_backend(self.global_template_group, backend=self.backend,**self.backend_kwargs)
+
+    def load(self, save_name, rerun=True):
+        with open(OUTPUT_DIR/(save_name+".pkl"),'rb') as f:
+            saved=pickle.load(f)
+        self.global_patch.update(saved['global_values'])
+        if rerun:
+            self.rerun(None)
+
+    def save(self, save_name):
+        with open(OUTPUT_DIR/(save_name+".pkl"),'wb') as f:
+            pickle.dump({'global_values':dict(self.global_patch)},f)
+
+    def start_sesh(self):
+        self._mss.__enter__()
+
+    def end_sesh(self):
+        self._mss.__exit__(None,None,None)
+
+    @contextmanager
+    def ensure_within_sesh(self):
+        if self._mss.is_entered:
+            yield self._mss
+        else:
+            with self._mss as mss:
+                yield mss
+
+    def optimize_tab(self,tabname):
+        backup_values=self.global_patch.copy()
+        def _f(mss,*args):
+            pvs={a:v*self.global_patch._ps_example.get_scale(a) for a,v in zip(self.tabbed_actives[tabname],args)}
+            self.global_patch.update(pvs)
+            return self._tabbed_template_groups[tabname].parsed_results_to_vector(
+                mss.run_with_params(self.global_patch,
+                                    only_temps=self._tabbed_template_groups[tabname]),
+                    self.tabbed_rois[tabname])
+
+        bounds=list(zip(*[np.array(self.global_patch._ps_example.get_bounds(a,null=np.inf))[[0,2]]/self.global_patch._ps_example.get_scale(a) for a in self.tabbed_actives[tabname]]))
+        #bounds=[[(b if b is not None else np.inf) for b in bi] for bi in bounds]
+        try:
+            with self.ensure_within_sesh() as mss:
+                meas_vector=self._tabbed_template_groups[tabname].parsed_results_to_vector(
+                    self.global_meas_data,self.tabbed_rois[tabname])
+
+                p0=[spicenum_to_float(self.global_patch[a])/self.global_patch._ps_example.get_scale(a) for a in self.tabbed_actives[tabname]]
+                #print(f"Initial args {dict(zip(self.tabbed_actives[tabname],p0))}")
+                #print(f"Meas vec {meas_vector}")
+                #print(f"Initial vec {_f(mss,*p0)}")
+                try:
+                    res=curve_fit(_f,mss,ydata=meas_vector,p0=p0,bounds=bounds,full_output=True)
+                except SimulatorCommandException as e:
+                    bounds_dict=dict(zip(self.tabbed_actives[tabname],zip(*bounds)))
+                    latest={a:self.global_patch[a] for a in self.tabbed_actives[tabname]}
+                    raise OptimizationException(bounds=bounds_dict,latest=latest, sim_err=e)
+        except OptimizationException:
+            self.global_patch.update(backup_values)
+            raise
+
+    def rerun(self,tabname):
+        # Ignoring tabname and rerunning-updating all
+        #assert tabname is None
+        with self.ensure_within_sesh() as mss:
+            new_results=mss.run_with_params(self.global_patch,
+                    only_temps=(self._tabbed_template_groups[tabname] if tabname else None))
+        return new_results
+
+
+import panel as pn
+from panel.widgets import CompositeWidget
+from compyct.gui import make_widget
+
+class SemiAutoOptimizerGui(CompositeWidget):
+
+    def __init__(self, sao: SemiAutoOptimizer, save_name: str = 'sim_save', fig_layout_params={},**kwargs):
+        super().__init__(**kwargs)
+        self._sao=sao
+        self._default_save_name=save_name
+        self._fig_layout_params=fig_layout_params
+        self._should_respond_to_param_widgets=True
+        self._composite[:]=[self.make_gui()]
+
+        self.start_sesh()
+        #self._load()
+        self._needs_rerun={tn:True for tn in self._tabbed_template_groups}
+        self.rerun_and_update(self._active_tab)
+
+
+    def start_sesh(self):
+        self._sao.start_sesh()
+        if hasattr(self,'_sesh_button'):
+            self._sesh_button.name='End Sesh'
+
+    def end_sesh(self):
+        self._sao.end_sesh()
+        if hasattr(self,'_sesh_button'):
+            self._sesh_button.name='Start Sesh'
+
+    def __getattr__(self,attr):
+        if attr in ['global_template_group','global_patch','global_meas_data',
+                    'tabbed_templates','tabbed_actives','tabbed_rois',
+                    '_tabbed_template_groups','ensure_within_sesh']:
+            return getattr(self._sao,attr)
+        else:
+            raise AttributeError(attr)
+
+    def make_gui(self):
+        tabs=[]
+        self._widgets={}
+        self._tabname_to_vizid={}
+
+        for vizid, (tabname, tg) in enumerate(self._tabbed_template_groups.items()):
+            self._tabname_to_vizid[tabname]=vizid
+            fp=tg.get_figure_pane(meas_data=self.global_meas_data,fig_layout_params=self._fig_layout_params,vizid=vizid)
+
+            self._widgets[tabname]={param:make_widget(self.global_patch._ps_example, param, self.global_patch[param])
+                                    for param in self.tabbed_actives[tabname]}
+            for param,w in self._widgets[tabname].items():
+                w.param.watch((lambda event, tabname=tabname, param=param: self._updated_widget(tabname,param)),'value')
+            content=pn.Row(pn.Column(*self._widgets[tabname].values(),width=100,sizing_mode='stretch_height',scroll=True),fp)
+
+            tabs.append((tabname,content))
+
+        self._tabs=pn.Tabs(*tabs)
+        sesh_button=self._sesh_button=pn.widgets.Button(name="Start Sesh")
+        opt_button=pn.widgets.Button(name="Optimize tab")
+        running_ind=self.running_ind=pn.widgets.LoadingSpinner(value=False,size=25)
+        save_name_input=self._save_name_input=pn.widgets.TextInput(value=self._default_save_name,width=100)
+        save_button=pn.widgets.Button(name="Save")
+        load_button=pn.widgets.Button(name="Load")
+
+        sesh_button.on_click(self._sesh_button_pressed)
+        opt_button.on_click(self._opt_button_pressed)
+        save_button.on_click(self._save_button_pressed)
+        load_button.on_click(self._load_button_pressed)
+        self._tabs.param.watch(self._tab_changed,['active'])
+
+        return pn.Column(pn.Row(sesh_button,opt_button,running_ind,pn.HSpacer(),save_name_input,save_button,load_button,sizing_mode='stretch_width'),
+                         self._tabs,height=450)
+
+    @contextmanager
+    def dont_trigger_param_widgets(self):
+        should_respond=self._should_respond_to_param_widgets
+        self._should_respond_to_param_widgets=False
+        try:
+            yield
+        finally:
+            self._should_respond_to_param_widgets=should_respond
+
+    @property
+    def _active_tab(self):
+        return list(self._tabbed_template_groups)[self._tabs.active]
+
+    def _sesh_button_pressed(self, event):
+        if self._mss.is_entered:
+            self.end_sesh()
+        else:
+            self.start_sesh()
+
+    def _opt_button_pressed(self,event):
+        self.reset_all_figures()
+        active=self._active_tab
+        try:
+            self.running_ind.value=True
+            self._sao.optimize_tab(active)
+        except OptimizationException as e:
+            print(f"Bounds: {e.bounds}")
+            print(f"Latest: {e.latest}")
+            print(f"Sim Err: {e.sim_err}")
+            self._latest_error=e
+            raise e
+        finally:
+            self.running_ind.value=False
+        self.rerun_and_update(active)
+        self.update_widgets_from_global_patch()
+
+    def _load_button_pressed(self, event):
+        self.reset_all_figures()
+        save_name=self._save_name_input.value if hasattr(self,'_save_name_input') else self.default_save_name
+        try:
+            self._sao.load(save_name,rerun=False)
+            self.update_widgets_from_global_patch()
+        except Exception as e:
+            print("Error loading from previous save:")
+            print(e)
+        self.rerun_and_update(self._active_tab)
+
+    def _save_button_pressed(self, event):
+        save_name=self._save_name_input.value if hasattr(self,'_save_name_input') else self.default_save_name
+        self._sao.save(save_name)
+
+    def reset_all_figures(self, except_for=None):
+        for tn,vizid in self._tabname_to_vizid.items():
+            if except_for==tn: continue
+            self._needs_rerun[tn]=True
+            self._tabbed_template_groups[tn].update_figures(None,vizid=vizid)
+
+
+    def _tab_changed(self, event):
+        if self._needs_rerun[self._active_tab]:
+            self.rerun_and_update(self._active_tab)
+
+    def _updated_widget(self,tabname,param):
+        if self._should_respond_to_param_widgets:
+            #print('updated widget')
+            #if self._active_tab==tabname:
+                values={n:float(w.value) for n,w in self._widgets[tabname].items()}
+                self.global_patch.update(values)
+                self.reset_all_figures(except_for=tabname)
+                self.rerun_and_update(tabname)
+                self.update_widgets_from_global_patch(only_param=param)
+
+    def update_widgets_from_global_patch(self,only_param=None):
+        #print("Updating widgets from global patch")
+        with self.dont_trigger_param_widgets():
+            for t,widgets in self._widgets.items():
+                for param in widgets:
+                    if (only_param is None) or (param==only_param):
+                        widgets[param].value=spicenum_to_float(self.global_patch[param])
+
+    def rerun_and_update(self,tabname):
+        try:
+            self.running_ind.value=True
+            new_results=self._sao.rerun(tabname)
+        finally:
+            self.running_ind.value=False
+        for tn,vizid in self._tabname_to_vizid.items():
+            if ((tabname is None) or (tn==tabname)):
+                self._needs_rerun[tn]=False
+                self._tabbed_template_groups[tn].update_figures(new_results,vizid=vizid)

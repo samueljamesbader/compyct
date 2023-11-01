@@ -12,7 +12,7 @@ def test_get_with_backend():
         ngspice_backend.NgspiceMultiSimSesh)
 
 def test_get_osdi_path():
-    ngspice_backend.get_confirmed_osdi_path('asmhemt.va')
+    ngspice_backend.get_confirmed_osdi_path('trivial_xtor.va')
 
 def test_trivial_xtor_dciv():
     paramset=TrivialXtorParamSet()

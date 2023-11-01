@@ -1,6 +1,7 @@
 import typing
 if typing.TYPE_CHECKING:
     from compyct.templates import TemplateGroup
+    from compyct.paramsets import ParamPatch
 import importlib
 from pathlib import Path
 import os
@@ -63,7 +64,12 @@ class MultiSimSesh():
                   "  That's bad but I can try to handle it.")
             self.__exit__(None,None,None)
 
-    def run_with_params(self, params={}, translator=None):
+
+    @property
+    def is_entered(self):
+        return len(self._sessions)>0
+
+    def run_with_params(self, params:'ParamPatch'={}, full_resync=False, only_temps:list[str] = None):
         raise NotImplementedError
 
 def get_va_path(vaname):
@@ -94,4 +100,8 @@ def get_va_paths():
 #             re_p_changed=simtemp.update_paramset_and_return_spectre_changes(params)
 #             results[simname]=python_compact_models[simtemp.model_paramset.model].run_all()
 #         return results
-            
+
+class SimulatorCommandException(Exception):
+    def __init__(self, original_error):
+        super().__init__(str(original_error))
+        self.original_error=original_error
