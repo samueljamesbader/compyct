@@ -3,7 +3,7 @@ from compyct.backends import backend
 from compyct.backends import ngspice_backend
 from compyct.backends.backend import MultiSimSesh
 from compyct.examples.trivial_xtor_defs import TrivialXtorParamSet, TrivialXtor
-from compyct.templates import TemplateGroup, DCIVTemplate, CVTemplate, IdealPulsedIdVdTemplate
+from compyct.templates import TemplateGroup, DCIVTemplate, CVTemplate, IdealPulsedIdVdTemplate, SParTemplate
 
 
 def test_get_with_backend():
@@ -62,6 +62,37 @@ def test_trivial_xtor_psiv():
             res['thepsiv'][vg]["ID/W [uA/um]"],
             rtol=1e-3,atol=1e-6)
 
+def test_trivial_xtor_spar():
+    paramset=TrivialXtorParamSet().copy_with_changes({'gtrap':0})
+    tg=TemplateGroup(thespar=SParTemplate(vg=.6,vd=1.8,pts_per_dec=4,fstart='10meg',fstop='10e9',model_paramset=paramset))
+    meas_data={'thespar':TrivialXtor(paramset=paramset).evaluate_template(tg['thespar'])}
+    with MultiSimSesh.get_with_backend(tg,backend='ngspice') as sim:
+        res=sim.run_with_params()
+
+    assert np.allclose(
+        meas_data['thespar'][0]["freq"],
+        res['thespar'][0]["freq"],
+        rtol=1e-3,atol=1e-6)
+    assert np.allclose(
+        meas_data['thespar'][0]["Y11"],
+        res['thespar'][0]["Y11"],
+        rtol=1e-2,atol=1e-6)
+    assert np.allclose(
+        meas_data['thespar'][0]["Y12"],
+        res['thespar'][0]["Y12"],
+        rtol=1e-2,atol=1e-6)
+    assert np.allclose(
+        meas_data['thespar'][0]["Y21"],
+        res['thespar'][0]["Y21"],
+        rtol=1e-2,atol=1e-6)
+    #assert np.allclose(
+    #    meas_data['thespar'][0]["Y22"],
+    #    res['thespar'][0]["Y11"],
+    #    rtol=1e-2,atol=1e-6)
+    #print(res['thespar'][0])
+    # Actual comparison
+
 if __name__=='__main__':
     #test_get_with_backend()
-    test_get_osdi_path()
+    #test_get_osdi_path()
+    test_trivial_xtor_spar()

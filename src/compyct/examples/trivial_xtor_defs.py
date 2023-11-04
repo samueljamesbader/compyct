@@ -1,5 +1,5 @@
 from compyct.templates import TemplateGroup, DCIVTemplate, DCIdVgTemplate, DCIdVdTemplate, JointTemplate, CVTemplate, \
-    IdealPulsedIdVdTemplate
+    IdealPulsedIdVdTemplate, SParTemplate
 from compyct.paramsets import CMCParamSet, spicenum_to_float
 from scipy.constants import elementary_charge as q, Boltzmann as kb
 import pandas as pd
@@ -39,7 +39,20 @@ class TrivialXtor():
         qg_oa=self.qg_oa(VGS=VG-VS,VDS=VD-VS,T=T,trap_state=trap_state)
         v = self.v(VD-VS,T)
         return w * qg_oa * v
-    def Cgg(self,VD,VG,VS,VB,T,trap_state='DC'):
+    def GM(self,VD,VG,VS,VB,T,trap_state='DC',traps_move=True):
+        assert not traps_move
+        l=spicenum_to_float(self.paramset.get_value('l'))
+        v = self.v(VD-VS,T)
+        return self.Cgg(VD,VG,VS,VB,T,trap_state=trap_state)/l * v
+    def G0(self,VD,VG,VS,VB,T,trap_state='DC',traps_move=True):
+        assert not traps_move
+        u0=spicenum_to_float(self.paramset.get_value('u0'))
+        l=spicenum_to_float(self.paramset.get_value('l'))
+        vs=spicenum_to_float(self.paramset.get_value('vs'))
+        beta=2
+        #vu= u0 * VDS / l
+        #return vu/(1+(vu/vs)**beta)**(1/beta)
+    def Cgg(self,VD,VG,VS,VB,T,trap_state='DC',traps_move=False):
         VGS=VG-VS
         w=spicenum_to_float(self.paramset.get_value('w'))
         l=spicenum_to_float(self.paramset.get_value('l'))
@@ -48,7 +61,7 @@ class TrivialXtor():
         vt0=spicenum_to_float(self.paramset.get_value('vt0'))
         gtrap=spicenum_to_float(self.paramset.get_value('gtrap'))
         vth = kb*T/q
-        assert np.allclose(VD,VS), "VD==VS for CV"
+        if traps_move: assert np.allclose(VD,VS), "VD==VS for CV"
         if trap_state=='DC':
             vtshift=gtrap*(VD-VG)
         else:
@@ -62,7 +75,10 @@ class TrivialXtor():
             start,step,stop=simtemp.vg_range
             VG=np.arange(start,stop+1e-6,step)
             for vd in simtemp.vd_values:
-                results[vd]=pd.DataFrame({'VG':VG,'ID/W [uA/um]':self.ID(vd,VG,0,0,T,trap_state='DC')/w})
+                results[vd]=pd.DataFrame({'VG':VG,
+                                          'ID/W [uA/um]':self.ID(vd,VG,0,0,T,trap_state='DC')/w,
+                                          'GM/W [uS/um]':self.ID(vd,VG,0,0,T,trap_state='DC')/w*np.NaN,
+                                          })
             return results
 
         elif isinstance(simtemp,DCIdVdTemplate):
@@ -87,6 +103,24 @@ class TrivialXtor():
             for vg in simtemp.vg_values:
                 results[vg]=pd.DataFrame({'VD':VD,'ID/W [uA/um]':self.ID(VD,vg,0,0,T,
                                          trap_state={'VD':simtemp.vdq,'VG':simtemp.vgq,'VS':0})/w})
+            return results
+
+        elif isinstance(simtemp,SParTemplate):
+            results={}
+
+            freq=np.power(10,np.arange(np.log10(simtemp.fstart),np.log10(simtemp.fstop)+1e-6,1/simtemp.pts_per_dec))
+            w=2*np.pi*freq
+
+            Cgs=self.Cgg(VD=simtemp.vd,VG=simtemp.vg,VS=0,VB=0,T=simtemp.temp)
+            gm=self.GM(VD=simtemp.vd,VG=simtemp.vg,VS=0,VB=0,T=simtemp.temp,traps_move=False)
+
+            results[0]=pd.DataFrame({
+                'freq':freq,
+                'Y11':1j*w*Cgs,
+                'Y12':freq*0,
+                'Y21':gm,
+                'Y22': freq*np.NaN
+            })
             return results
 
         elif isinstance(simtemp,JointTemplate):

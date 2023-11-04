@@ -49,10 +49,11 @@ class SemiAutoOptimizer():
         self.global_patch.update(saved['global_values'])
         if rerun:
             self.rerun(None)
+        return saved['additional']
 
-    def save(self, save_name):
+    def save(self, save_name, additional=None):
         with open(OUTPUT_DIR/(save_name+".pkl"),'wb') as f:
-            pickle.dump({'global_values':dict(self.global_patch)},f)
+            pickle.dump({'global_values':dict(self.global_patch),'additional':additional},f)
 
     def start_sesh(self):
         self._mss.__enter__()
@@ -68,32 +69,34 @@ class SemiAutoOptimizer():
             with self._mss as mss:
                 yield mss
 
-    def optimize_tab(self,tabname):
+    def optimize_tab(self, tabname, only_actives=None):
         backup_values=self.global_patch.copy()
+        actives=only_actives if only_actives else self.tabbed_actives[tabname]
+        #print(f"optimizing with {actives}")
         def _f(mss,*args):
-            pvs={a:v*self.global_patch._ps_example.get_scale(a) for a,v in zip(self.tabbed_actives[tabname],args)}
+            pvs={a:v*self.global_patch._ps_example.get_scale(a) for a,v in zip(actives,args)}
             self.global_patch.update(pvs)
             return self._tabbed_template_groups[tabname].parsed_results_to_vector(
                 mss.run_with_params(self.global_patch,
                                     only_temps=self._tabbed_template_groups[tabname]),
                     self.tabbed_rois[tabname])
 
-        bounds=list(zip(*[np.array(self.global_patch._ps_example.get_bounds(a,null=np.inf))[[0,2]]/self.global_patch._ps_example.get_scale(a) for a in self.tabbed_actives[tabname]]))
+        bounds=list(zip(*[np.array(self.global_patch._ps_example.get_bounds(a,null=np.inf))[[0,2]]/self.global_patch._ps_example.get_scale(a) for a in actives]))
         #bounds=[[(b if b is not None else np.inf) for b in bi] for bi in bounds]
         try:
             with self.ensure_within_sesh() as mss:
                 meas_vector=self._tabbed_template_groups[tabname].parsed_results_to_vector(
                     self.global_meas_data,self.tabbed_rois[tabname])
 
-                p0=[spicenum_to_float(self.global_patch[a])/self.global_patch._ps_example.get_scale(a) for a in self.tabbed_actives[tabname]]
-                #print(f"Initial args {dict(zip(self.tabbed_actives[tabname],p0))}")
+                p0=[spicenum_to_float(self.global_patch[a])/self.global_patch._ps_example.get_scale(a) for a in actives]
+                #print(f"Initial args {dict(zip(actives,p0))}")
                 #print(f"Meas vec {meas_vector}")
                 #print(f"Initial vec {_f(mss,*p0)}")
                 try:
                     res=curve_fit(_f,mss,ydata=meas_vector,p0=p0,bounds=bounds,full_output=True)
                 except SimulatorCommandException as e:
-                    bounds_dict=dict(zip(self.tabbed_actives[tabname],zip(*bounds)))
-                    latest={a:self.global_patch[a] for a in self.tabbed_actives[tabname]}
+                    bounds_dict=dict(zip(actives,zip(*bounds)))
+                    latest={a:self.global_patch[a] for a in actives}
                     raise OptimizationException(bounds=bounds_dict,latest=latest, sim_err=e)
         except OptimizationException:
             self.global_patch.update(backup_values)
@@ -149,6 +152,7 @@ class SemiAutoOptimizerGui(CompositeWidget):
     def make_gui(self):
         tabs=[]
         self._widgets={}
+        self._checkboxes={}
         self._tabname_to_vizid={}
 
         for vizid, (tabname, tg) in enumerate(self._tabbed_template_groups.items()):
@@ -157,9 +161,12 @@ class SemiAutoOptimizerGui(CompositeWidget):
 
             self._widgets[tabname]={param:make_widget(self.global_patch._ps_example, param, self.global_patch[param])
                                     for param in self.tabbed_actives[tabname]}
+            self._checkboxes[tabname]={param:pn.widgets.Checkbox(value=True,width=5,sizing_mode='stretch_height') for param in self.tabbed_actives[tabname]}
             for param,w in self._widgets[tabname].items():
                 w.param.watch((lambda event, tabname=tabname, param=param: self._updated_widget(tabname,param)),'value')
-            content=pn.Row(pn.Column(*self._widgets[tabname].values(),width=100,sizing_mode='stretch_height',scroll=True),fp)
+            content=pn.Row(pn.Column(*[pn.Row(pn.Column(pn.VSpacer(),pn.VSpacer(),c,pn.VSpacer(),width=15,height=60),w)
+                                        for c,w in zip(self._checkboxes[tabname].values(),self._widgets[tabname].values())],
+                                     width=125,sizing_mode='stretch_height',scroll=True),fp)
 
             tabs.append((tabname,content))
 
@@ -204,7 +211,8 @@ class SemiAutoOptimizerGui(CompositeWidget):
         active=self._active_tab
         try:
             self.running_ind.value=True
-            self._sao.optimize_tab(active)
+            #print('only_actives',[a for a in self.tabbed_actives[active] if self._checkboxes[active][a].value])
+            self._sao.optimize_tab(active, only_actives=[a for a in self.tabbed_actives[active] if self._checkboxes[active][a].value])
         except OptimizationException as e:
             print(f"Bounds: {e.bounds}")
             print(f"Latest: {e.latest}")
@@ -220,8 +228,13 @@ class SemiAutoOptimizerGui(CompositeWidget):
         self.reset_all_figures()
         save_name=self._save_name_input.value if hasattr(self,'_save_name_input') else self.default_save_name
         try:
-            self._sao.load(save_name,rerun=False)
+            additional=self._sao.load(save_name,rerun=False)
+            print(additional)
             self.update_widgets_from_global_patch()
+            for tn, checks in self._checkboxes.items():
+                for a, check in checks.items():
+                    if (saved_activation:=additional['activated'].get(tn,{}).get(a,None)) is not None:
+                        check.value=saved_activation
         except Exception as e:
             print("Error loading from previous save:")
             print(e)
@@ -229,7 +242,8 @@ class SemiAutoOptimizerGui(CompositeWidget):
 
     def _save_button_pressed(self, event):
         save_name=self._save_name_input.value if hasattr(self,'_save_name_input') else self.default_save_name
-        self._sao.save(save_name)
+        self._sao.save(save_name,additional={'activated':{tn:{a:check.value for a,check in checks.items()}
+                                                          for tn, checks in self._checkboxes.items()}})
 
     def reset_all_figures(self, except_for=None):
         for tn,vizid in self._tabname_to_vizid.items():

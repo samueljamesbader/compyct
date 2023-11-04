@@ -79,7 +79,8 @@ class MultiSweepSimTemplate(SimTemplate):
         
         
     def generate_figures(self, meas_data=None,
-                         layout_params={}, y_axis_type='linear', vizid=None):
+                         layout_params={}, y_axis_type='linear', x_axis_type='linear',
+                         vizid=None):
     
         self._sources[vizid]\
                =[self._update_cds_with_parsed_result(cds=None,parsed_result=None)]
@@ -93,10 +94,11 @@ class MultiSweepSimTemplate(SimTemplate):
 
         num_ys=len([k for k in sim_cds.data if k.startswith('y')])
         if type(y_axis_type) is str: y_axis_type=[y_axis_type]*num_ys
+        if type(x_axis_type) is str: x_axis_type=[x_axis_type]*num_ys
         figs=[]
         for i in range(num_ys):
             fig=bokeh.plotting.figure(#x_range=self.vg_range,y_range=(1e-8,1),
-                                      y_axis_type=y_axis_type[i],**layout_params)
+                                      y_axis_type=y_axis_type[i],x_axis_type=x_axis_type[i],**layout_params)
             fig.circle(x='x',y=f'y{i}',source=meas_cds,legend_field='legend')
             fig.multi_line(xs='x',ys=f'y{i}',source=sim_cds,color='red')
     
@@ -118,15 +120,17 @@ class MultiSweepSimTemplate(SimTemplate):
         self._update_cds_with_parsed_result(
             cds=self._sources[vizid][0],parsed_result=parsed_result)
 
-    def parsed_results_to_vector(self, parsed_results, roi):
-        if roi is None: return np.array([])
+    def parsed_results_to_vector(self, parsed_results, rois):
+        if rois is None: return np.array([])
+        if type(rois) is dict: rois=[rois]
         arr=[]
-        for k, v in parsed_results.items():
-            if k in roi:
-                arr.append(parsed_results[k].loc[roi[k]])
-        return self._rescale_vector(np.concatenate(arr))
+        for roi in rois:
+            for k,sl in roi.items():
+                inds,col=sl
+                arr.append(self._rescale_vector(parsed_results[k].loc[sl],col))
+        return np.concatenate(arr)
         
-    def _rescale_vector(self,arr):
+    def _rescale_vector(self, arr, col):
         raise NotImplementedError
 
     def _validate_parsed_result(self,parsed_result):
@@ -207,7 +211,7 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
         kwargs['y_axis_type']=kwargs.get('y_axis_type',self.yscale)
         return super().generate_figures(*args,**kwargs)
 
-    def _rescale_vector(self,arr):
+    def _rescale_vector(self, arr, col):
         return arr
         
 class DCIdVgTemplate(MultiSweepSimTemplate):
@@ -222,7 +226,7 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
                          *args, **kwargs)
         self.temp=temp
         
-        num_vg=(vg_range[2]-vg_range[0])/vg_range[1]
+        num_vg=(vg_range[2]-vg_range[0])/vg_range[1]+1
         assert abs(num_vg-round(num_vg))<1e-3, f"Make sure the IdVg range gives even steps {str(vg_range)}"
         
         self.pol=pol
@@ -280,8 +284,11 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
         kwargs['y_axis_type']=[kwargs.get('y_axis_type','log'),'linear']
         return super().generate_figures(*args,**kwargs)
 
-    def _rescale_vector(self,arr):
-        return np.log10(np.abs(arr))
+    def _rescale_vector(self, arr, col):
+        if col[0]=='I':
+            return np.log10(np.abs(arr))
+        else:
+            return arr
 
 class JointTemplate(SimTemplate):
     def __init__(self,subtemplates:dict, *args, model_paramset:ParamSet=None, **kwargs):
@@ -356,7 +363,7 @@ class CVTemplate(MultiSweepSimTemplate):
                          ynames=['Cgg [fF/um]'],
                          *args, **kwargs)
         
-        num_vg=(vg_range[2]-vg_range[0])/vg_range[1]
+        num_vg=(vg_range[2]-vg_range[0])/vg_range[1]+1
         assert abs(num_vg-round(num_vg))<1e-3, f"Make sure the CV VG range gives even steps {str(vg_range)}"
         
         self.freq=freq
@@ -394,7 +401,7 @@ class CVTemplate(MultiSweepSimTemplate):
         parsed_result={0:df[['VG','Cgg [fF/um]']]}
         return parsed_result
 
-    def _rescale_vector(self,arr):
+    def _rescale_vector(self,arr,col):
         return arr
 
     #def _validate_parsed_result(self,parsed_result):
@@ -466,13 +473,91 @@ class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
         kwargs['y_axis_type']=kwargs.get('y_axis_type','linear')
         return super().generate_figures(*args,**kwargs)
 
-    def _rescale_vector(self,arr):
+    def _rescale_vector(self,arr,col):
         return arr
         
     def _validate_parsed_result(self,parsed_result):
         pass
         #assert parsed_result.keys()==set([0])
         # TODO: check EVERYTHING
+
+class SParTemplate(MultiSweepSimTemplate):
+
+    def __init__(self, *args,
+                 vg, vd, pts_per_dec, fstart, fstop, temp=27, **kwargs):
+        try:
+            fstart=spicenum_to_float(fstart)
+            fstop=spicenum_to_float(fstop)
+        except:
+            raise Exception(f"Invalid frequency range: {fstart} - {fstop}")
+
+        super().__init__(outer_variable=None, inner_variable='freq', inner_range=(fstart,pts_per_dec,fstop),
+                         ynames=['|h21|','U'],
+                         *args, **kwargs)
+        self.vg=vg
+        self.vd=vd
+        self.temp=temp
+
+        num_f=(np.log10(fstop)-np.log10(fstart))*pts_per_dec+1
+        assert abs(num_f-round(num_f))<1e-3,\
+            f"Make sure the SPar range gives log-even steps {pts_per_dec,str(fstart),str(fstop)}"
+
+    @property
+    def fstart(self):
+        return self.inner_range[0]
+    @property
+    def fstop(self):
+        return self.inner_range[2]
+    @property
+    def pts_per_dec(self):
+        return self.inner_range[1]
+
+    def get_schematic_listing(self,netlister:Netlister):
+        #netlister.nstr_param(params={'vg':0,'vd':0})+\
+        return [
+            netlister.nstr_iabstol('1e-15'),
+            netlister.nstr_temp(temp=self.temp),
+            netlister.nstr_modeled_xtor("inst",netd='netd',netg='netg',
+                                        nets=netlister.GND,netb=netlister.GND,dt=None),
+            netlister.nstr_port("D",netp='netd',netm=netlister.GND,dc=self.vd,portnum=2),
+            netlister.nstr_port("G",netp='netg',netm=netlister.GND,dc=self.vg,portnum=1)]
+
+    def get_analysis_listing(self,netlister:Netlister):
+        return [netlister.astr_spar(pts_per_dec=self.pts_per_dec, fstart=self.fstart, fstop=self.fstop, name='spar')]
+        return analysis_listing
+
+    def parse_return(self,result):
+        parsed_result={0: result['spar']}
+        #assert len(result)==1
+        #freq=spicenum_to_float(self.freq)
+        #df=list(result.values())[0]
+        #I=-df['vg#p']
+        #df['Cgg [fF/um]']=np.imag(I)/(2*np.pi*freq) /1e-15 / \
+        #                  (self.model_paramset.get_total_device_width()/1e-6)
+        #df['VG']=np.real(df['v-sweep'])
+        #parsed_result={0:df[['VG','Cgg [fF/um]']]}
+        return parsed_result
+
+    def postparse_return(self,parsed_result):
+        df=parsed_result[0]
+        df[f'|h21|']=np.abs(df['Y21']/df['Y11'])
+        df[f'U']=(np.abs(df['Y21']-df['Y12'])**2/
+                  (4*(np.real(df['Y11']*np.real(df['Y22'])-np.real(df['Y12'])*np.real(df['Y21'])))))
+        return parsed_result
+
+    def _rescale_vector(self,arr,col):
+        return arr
+
+    def _validate_parsed_result(self,parsed_result):
+        # Overriding because this does freq num points instead of freq delta
+        # TODO: implement this
+        pass
+
+    def generate_figures(self,*args,**kwargs):
+        kwargs['y_axis_type']=kwargs.get('y_axis_type','log')
+        kwargs['x_axis_type']=kwargs.get('x_axis_type','log')
+        return super().generate_figures(*args,**kwargs)
+
 
 class TemplateGroup:
     def __init__(self,**templates):

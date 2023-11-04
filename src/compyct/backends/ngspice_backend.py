@@ -57,6 +57,10 @@ class NgspiceNetlister(Netlister):
         return f"V{name} {netp} {netm} dc {dc} ac {ac}"
 
     @staticmethod
+    def nstr_port(name,netp,netm,dc,portnum,z0=50):
+        return f"V{name} {netp} {netm} dc {dc} portnum {portnum} z0 {z0}"
+
+    @staticmethod
     def nstr_VPulses(name,netp,netm,dc, pulse_width, pulse_period, rise_time, fall_time, vpulses):
         pulse_width,pulse_period,rise_time,fall_time=[spicenum_to_float(x) for x in
                                                       [pulse_width,pulse_period,rise_time,fall_time]]
@@ -119,6 +123,29 @@ class NgspiceNetlister(Netlister):
                 ngss.destroy()
             return name,pd.concat(dfs).reset_index()
         return idealpulsed
+
+    def astr_spar(self, pts_per_dec, fstart, fstop, name=None):
+        def spar(ngss):
+            ngss.exec_command(f"sp dec {pts_per_dec} {fstart} {fstop}")
+            # PySpice doesn't have an s-parameter analysis class yet so we'll extract it differently
+            #df=self.analysis_to_df(ngss.plot(None,ngss.last_plot).to_analysis())
+            plot=ngss.plot(None,ngss.last_plot)
+            df=pd.DataFrame({
+                'freq': plot['frequency'].to_waveform(to_real=True),
+
+                'S11':  plot['S_1_1'].to_waveform(),
+                'S12':  plot['S_1_2'].to_waveform(),
+                'S21':  plot['S_2_1'].to_waveform(),
+                'S22':  plot['S_2_2'].to_waveform(),
+
+                'Y11':  plot['Y_1_1'].to_waveform(),
+                'Y12':  plot['Y_1_2'].to_waveform(),
+                'Y21':  plot['Y_2_1'].to_waveform(),
+                'Y22':  plot['Y_2_2'].to_waveform(),
+            })
+            # If we want, there are also Y parameters, Z parameters here ripe for picking
+            return name, df
+        return spar
 
     def get_netlist(self):
         ps:ParamSet=self.simtemp.model_paramset

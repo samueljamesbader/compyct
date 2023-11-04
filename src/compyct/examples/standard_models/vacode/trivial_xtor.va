@@ -10,6 +10,7 @@
 `define IPRco(nam,def,uni,lwr,upr,des) (*units=uni, type="instance",  desc=des*) parameter real    nam=def from[lwr:upr);
 `define MPRco(nam,def,uni,lwr,upr,des) (*units=uni,                   desc=des*) parameter real    nam=def from[lwr:upr);
 `define MPRoz(nam,def,uni,        des) (*units=uni,                   desc=des*) parameter real    nam=def from(  0:inf);
+`define MPRcz(nam,def,uni,        des) (*units=uni,                   desc=des*) parameter real    nam=def from[  0:inf);
 
 module trivial_xtor(d,g,s,b);
     inout d,g,s,b;
@@ -24,7 +25,7 @@ module trivial_xtor(d,g,s,b);
     `MPRoz( vs,    1e+5,    "m/s",                     "Saturation velocity" )
     `MPRoz( vt0,    0.4,      "V",                     "Threshold voltage" )
     `MPRoz( ttrap, 1e-3,      "S",                     "Trap timescale" )
-    `MPRoz( gtrap,  0.1,       "",                     "Trap-induced VT shift factor" )
+    `MPRcz( gtrap,  0.1,       "",                     "Trap-induced VT shift factor" )
 
     real vth, qg_oA, qg, qd, qs, beta, vu, v, rsb, rtrap, ctrap, vtshift;
 analog begin
@@ -43,8 +44,8 @@ analog begin
     vth =`P_K * $temperature / `P_Q;
     qg_oA = n*cg*vth*ln(1+exp((V(g,s)-vt0-vtshift)/(n*vth)));
     qg = w * l * qg_oA;
-    qd = qg/2;
-    qs = qg/2;
+    qd = 0;
+    qs = qg;
 
     // Compute velocity
     beta=2;
