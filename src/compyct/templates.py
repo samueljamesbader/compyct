@@ -120,17 +120,17 @@ class MultiSweepSimTemplate(SimTemplate):
         self._update_cds_with_parsed_result(
             cds=self._sources[vizid][0],parsed_result=parsed_result)
 
-    def parsed_results_to_vector(self, parsed_results, rois):
+    def parsed_results_to_vector(self, parsed_results, rois, meas_parsed_results):
         if rois is None: return np.array([])
         if type(rois) is dict: rois=[rois]
         arr=[]
         for roi in rois:
             for k,sl in roi.items():
                 inds,col=sl
-                arr.append(self._rescale_vector(parsed_results[k].loc[sl],col))
+                arr.append(self._rescale_vector(parsed_results[k].loc[sl],col,meas_parsed_results[k].loc[sl]))
         return np.concatenate(arr)
         
-    def _rescale_vector(self, arr, col):
+    def _rescale_vector(self, arr, col, meas_arr):
         raise NotImplementedError
 
     def _validate_parsed_result(self,parsed_result):
@@ -211,7 +211,7 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
         kwargs['y_axis_type']=kwargs.get('y_axis_type',self.yscale)
         return super().generate_figures(*args,**kwargs)
 
-    def _rescale_vector(self, arr, col):
+    def _rescale_vector(self, arr, col, meas_arr):
         return arr
         
 class DCIdVgTemplate(MultiSweepSimTemplate):
@@ -284,11 +284,11 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
         kwargs['y_axis_type']=[kwargs.get('y_axis_type','log'),'linear']
         return super().generate_figures(*args,**kwargs)
 
-    def _rescale_vector(self, arr, col):
+    def _rescale_vector(self, arr, col, meas_arr):
         if col[0]=='I':
-            return np.log10(np.abs(arr))
+            return np.log10(np.abs(arr)+1e-14)
         else:
-            return arr
+            return 5*arr/np.max(meas_arr)
 
 class JointTemplate(SimTemplate):
     def __init__(self,subtemplates:dict, *args, model_paramset:ParamSet=None, **kwargs):
@@ -350,10 +350,10 @@ class DCIVTemplate(JointTemplate):
         return figs1+figs2
         
 
-    def parsed_results_to_vector(self, parsed_results, roi):
+    def parsed_results_to_vector(self, parsed_results, roi, meas_parsed_results):
         return np.concatenate([
-            self._dcidvg.parsed_results_to_vector(parsed_results['IdVg'],roi['IdVg']),
-            self._dcidvd.parsed_results_to_vector(parsed_results['IdVd'],roi['IdVd'])])
+            self._dcidvg.parsed_results_to_vector(parsed_results['IdVg'],roi['IdVg'], meas_parsed_results['IdVg']),
+            self._dcidvd.parsed_results_to_vector(parsed_results['IdVd'],roi['IdVd'], meas_parsed_results['IdVd'])])
 
 class CVTemplate(MultiSweepSimTemplate):
 
@@ -401,7 +401,7 @@ class CVTemplate(MultiSweepSimTemplate):
         parsed_result={0:df[['VG','Cgg [fF/um]']]}
         return parsed_result
 
-    def _rescale_vector(self,arr,col):
+    def _rescale_vector(self,arr,col,meas_arr):
         return arr
 
     #def _validate_parsed_result(self,parsed_result):
@@ -473,7 +473,7 @@ class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
         kwargs['y_axis_type']=kwargs.get('y_axis_type','linear')
         return super().generate_figures(*args,**kwargs)
 
-    def _rescale_vector(self,arr,col):
+    def _rescale_vector(self,arr,col, meas_arr):
         return arr
         
     def _validate_parsed_result(self,parsed_result):
@@ -545,7 +545,7 @@ class SParTemplate(MultiSweepSimTemplate):
                   (4*(np.real(df['Y11']*np.real(df['Y22'])-np.real(df['Y12'])*np.real(df['Y21'])))))
         return parsed_result
 
-    def _rescale_vector(self,arr,col):
+    def _rescale_vector(self,arr,col, meas_arr):
         return arr
 
     def _validate_parsed_result(self,parsed_result):
@@ -578,7 +578,6 @@ class TemplateGroup:
     def only(self,*names):
         assert all(n in self.temps for n in names)
         return self.__class__(**{k:v for k,v in self.temps.items() if k in names})
-    #def parsed_results_to_vector(self,parsed_results):
 
     def get_figure_pane(self, meas_data=None, fig_layout_params={},vizid=None):
         figs=sum([t.generate_figures(
@@ -593,5 +592,5 @@ class TemplateGroup:
             self.temps[stname].update_figures((new_results[stname] if new_results else None),vizid=vizid)
         pn.io.push_notebook(self._panes[vizid])
 
-    def parsed_results_to_vector(self,parsed_results,roi):
-        return np.concatenate([simtemp.parsed_results_to_vector(parsed_results[k],roi[k]) for k,simtemp in self.items()])
+    def parsed_results_to_vector(self,parsed_results,roi, meas_parsed_results):
+        return np.concatenate([simtemp.parsed_results_to_vector(parsed_results[k],roi[k],meas_parsed_results[k]) for k,simtemp in self.items()])

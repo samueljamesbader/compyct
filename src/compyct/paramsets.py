@@ -70,6 +70,12 @@ class ParamSet():
         cp._values=self._values.copy()
         return cp
 
+    def get_scale(self,param):
+        if 'scale' in (pd:=self._shared_paramdict[param]):
+            return pd['scale']
+        else:
+            return 1
+
     def update_and_return_changes(self, new_values):
         changed={}
         for k,v in new_values.items():
@@ -267,11 +273,16 @@ class CMCParamSet(ParamSet):
                     [self._shared_paramdict[param]['macro'].startswith('M')]
     
     def get_bounds(self, param, null=None):
+        if null is np.inf:
+            upper_null=null
+            lower_null=-null
+        else:
+            upper_null=lower_null=null
         deets=self._shared_paramdict[param]
         match deets['macro']:
             case 'MPRco':
                 lower=spicenum_to_float(deets['lower'])
-                upper=null
+                upper=upper_null
             case 'MPRcc':
                 lower=spicenum_to_float(deets['lower'])
                 upper=spicenum_to_float(deets['upper'])
@@ -280,14 +291,15 @@ class CMCParamSet(ParamSet):
                 upper=spicenum_to_float(deets['upper'])
             case 'MPRoz':
                 lower=spicenum_to_float(deets['default'])*.01
-                upper=null
+                upper=upper_null
             case 'MPRcz':
                 lower=0
-                upper=null
+                upper=upper_null
             case _:
-                print(f"Not sure what to do with macro {deets['macro']} for param {param}")
-                lower=null
-                upper=null
+                print(f"Not sure what to do for bounds with macro {deets['macro']} for param {param}")
+                #if 'lower' in deets and deets['lower'] is not None:
+                lower=lower_null
+                upper=upper_null
         if null is None:
             if upper is not null and np.isinf(upper): upper=null
         if deets['macro']=='MPRnb':

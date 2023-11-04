@@ -78,17 +78,18 @@ class SemiAutoOptimizer():
             self.global_patch.update(pvs)
             return self._tabbed_template_groups[tabname].parsed_results_to_vector(
                 mss.run_with_params(self.global_patch,
-                                    only_temps=self._tabbed_template_groups[tabname]),
-                    self.tabbed_rois[tabname])
+                                    only_temps=self._tabbed_template_groups[tabname],),
+                    self.tabbed_rois[tabname], meas_parsed_results=self.global_meas_data)
 
         bounds=list(zip(*[np.array(self.global_patch._ps_example.get_bounds(a,null=np.inf))[[0,2]]/self.global_patch._ps_example.get_scale(a) for a in actives]))
         #bounds=[[(b if b is not None else np.inf) for b in bi] for bi in bounds]
         try:
             with self.ensure_within_sesh() as mss:
                 meas_vector=self._tabbed_template_groups[tabname].parsed_results_to_vector(
-                    self.global_meas_data,self.tabbed_rois[tabname])
+                    self.global_meas_data,self.tabbed_rois[tabname],meas_parsed_results=self.global_meas_data)
 
                 p0=[spicenum_to_float(self.global_patch[a])/self.global_patch._ps_example.get_scale(a) for a in actives]
+                print(p0)
                 #print(f"Initial args {dict(zip(actives,p0))}")
                 #print(f"Meas vec {meas_vector}")
                 #print(f"Initial vec {_f(mss,*p0)}")
@@ -98,6 +99,19 @@ class SemiAutoOptimizer():
                     bounds_dict=dict(zip(actives,zip(*bounds)))
                     latest={a:self.global_patch[a] for a in actives}
                     raise OptimizationException(bounds=bounds_dict,latest=latest, sim_err=e)
+                except ValueError as e:
+                    if 'Each lower bound must be strictly less than each upper bound' in str(e):
+                        bounds_dict=dict(zip(actives,zip(*bounds)))
+                        e.bounds=bounds_dict
+                        print(bounds_dict)
+                        raise
+                    elif 'array must not contain infs or NaNs' in str(e):
+                        bounds_dict=dict(zip(actives,zip(*bounds)))
+                        latest={a:self.global_patch[a] for a in actives}
+                        raise OptimizationException(bounds=bounds_dict,latest=latest, sim_err=e)
+                    else:
+                        raise
+
         except OptimizationException:
             self.global_patch.update(backup_values)
             raise
@@ -217,6 +231,9 @@ class SemiAutoOptimizerGui(CompositeWidget):
             print(f"Bounds: {e.bounds}")
             print(f"Latest: {e.latest}")
             print(f"Sim Err: {e.sim_err}")
+            self._latest_error=e
+            raise e
+        except Exception as e:
             self._latest_error=e
             raise e
         finally:
