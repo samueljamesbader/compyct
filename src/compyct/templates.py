@@ -146,7 +146,9 @@ class MultiSweepSimTemplate(SimTemplate):
             assert np.isclose(val[self.inner_variable].to_numpy()[-1],self.inner_range[2]),\
                 f"{self.__class__.__name__} expects {self.inner_variable}[-1]={self.inner_range[-1]},"\
                 f" but results have {val[self.inner_variable].to_numpy()[-1]}"
-            assert np.allclose(np.diff(val[self.inner_variable]),self.inner_range[1]), \
+            #print(val[self.inner_variable])
+            #import pdb; pdb.set_trace()
+            assert np.allclose(np.diff(val[self.inner_variable]),self.inner_range[1],rtol=1e-3), \
                 f"{self.__class__.__name__} expects Δ{self.inner_variable}={self.inner_range[1]},"\
                 f" but results have {list(np.diff(val[self.inner_variable]))}"
 

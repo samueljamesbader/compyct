@@ -193,7 +193,7 @@ class SpectreMultiSimSesh(MultiSimSesh):
         super().__del__()
 
     def run_with_params(self, params={}, full_resync=False, only_temps=None):
-        assert params=={} or hasattr(params,'patch_paramset')
+        assert params=={} or hasattr(params,'patch_paramset_and_return_changes')
         #print(f"Running with params {params}")
         results={}
         #import time
