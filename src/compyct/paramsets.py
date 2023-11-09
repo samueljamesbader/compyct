@@ -331,12 +331,13 @@ class ASMHEMTParamSet(CMCParamSet):
         super().__init__(model='asmhemt',vaname="asmhemt.va",**kwargs)
 
         # Overrides where ASMHEMT 101.2.0 documentation is incorrect
-        self._shared_paramdict['cgso']['units']='F/m'
-        self._shared_paramdict['cgdo']['units']='F/m'
-        self._shared_paramdict['ua']['units']='m/V'
-        self._shared_paramdict['ub']['units']='m^2/V^2'
-        self._shared_paramdict['ns0accs']['units']='1/m^2'
-        self._shared_paramdict['ns0accd']['units']='1/m^2'
+        self._shared_paramdict['cgso']['units']='F/m' # Documentation says F
+        self._shared_paramdict['cgdo']['units']='F/m' # Documentation says F
+        self._shared_paramdict['ua']['units']='m/V' # Documentation says 1/V
+        self._shared_paramdict['ub']['units']='m^2/V^2' # Documentation says 1/V^2
+        self._shared_paramdict['ns0accs']['units']='1/m^2' # Documentation says C/m^2
+        self._shared_paramdict['ns0accd']['units']='1/m^2' # Documentation says C/m^2
+        self._shared_paramdict['vsataccs']['units']='m/s' # Documentation says cm/s
 
         # Pint needs 'W' (for Watt) to be capitalized
         self._shared_paramdict['rth0']['units']=self._shared_paramdict['rth0']['units'].replace('w','W')

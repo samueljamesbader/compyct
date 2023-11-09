@@ -280,15 +280,17 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
                 if f'idvg_vdnum{i_vd}' in key:
                     #import pdb; pdb.set_trace()
                     df=result[key].copy()
+                    #print(vd,"gmi:",list(df['@ninst[gmi]']))
                     sgn=-1 if self.pol=='p' else 1
                     sgnstr="-" if self.pol=='p' else ''
                     df[f'{sgnstr}ID/W [uA/um]']=-sgn*df['vd#p']/\
                             self.model_paramset.get_total_device_width()
                     df[f'{sgnstr}IG/W [uA/um]']=-sgn*df['vg#p']/\
                             self.model_paramset.get_total_device_width()
+                    # TODO: reinstate column restriction (removed for device internals testing)
                     parsed_result[vd]=df.rename(columns=\
-                                {'netd':'VD','netg':'VG'})\
-                            [['VD','VG',f'{sgnstr}ID/W [uA/um]',f'{sgnstr}IG/W [uA/um]']]
+                                {'netd':'VD','netg':'VG'})#\
+                            #[['VD','VG',f'{sgnstr}ID/W [uA/um]',f'{sgnstr}IG/W [uA/um]']]
         return parsed_result
 
     def postparse_return(self,parsed_result):
@@ -416,7 +418,8 @@ class CVTemplate(MultiSweepSimTemplate):
         df['Cgg [fF/um]']=np.imag(I)/(2*np.pi*freq) /1e-15 /\
             (self.model_paramset.get_total_device_width()/1e-6)
         df['VG']=np.real(df['v-sweep'])
-        parsed_result={0:df[['VG','Cgg [fF/um]']]}
+        # TODO: reinstate column restriction (removed for device internals testing)
+        parsed_result={0:df}#[['VG','Cgg [fF/um]']]}
         return parsed_result
 
     def _rescale_vector(self,arr,col,meas_arr):

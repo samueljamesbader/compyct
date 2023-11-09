@@ -1,9 +1,14 @@
+import warnings
+
 import numpy as np
 from pathlib import Path
 import subprocess
 import os
 import pandas as pd
 import sys
+
+from numpy import ComplexWarning
+
 from PySpice.Spice.NgSpice.Shared import NgSpiceShared
 from collections import namedtuple
 import hashlib
@@ -13,6 +18,7 @@ from io import StringIO
 from compyct.templates import SimTemplate
 from .backend import Netlister, MultiSimSesh, get_va_path, get_va_paths, SimulatorCommandException
 from compyct.paramsets import ParamSet, ParamPlace, spicenum_to_float, float_to_spicenum
+from ..util import catch_stderr
 
 PseudoAnalysis=namedtuple("PseudoAnalysis",["branches","nodes"])
 
@@ -37,7 +43,7 @@ class NgspiceNetlister(Netlister):
     def nstr_temp(self, temp=27, tnom=27):
         return f".option temp={float_to_spicenum(temp)} tnom={float_to_spicenum(tnom)}"
 
-    def nstr_modeled_xtor(self,name,netd,netg,nets,netb,dt,inst_param_ovrd={}):
+    def nstr_modeled_xtor(self,name,netd,netg,nets,netb,dt,inst_param_ovrd={},internals_to_save=None):
         assert len(inst_param_ovrd)==0
         assert dt is None
         ps=self.simtemp.model_paramset
@@ -46,9 +52,11 @@ class NgspiceNetlister(Netlister):
                 for k,v in ps.get_values().items()
                                if ps.get_place(k)==ParamPlace.INSTANCE)
         has_dt_terminal='dt' in ps.terminals
+        intstr=f"\n.save all "+\
+                " ".join([f"@n{name.lower()}[{k}]" for k in internals_to_save])
         return f"N{name.lower()} {netd} {netg} {nets} {netb} {'dt' if has_dt_terminal else ''}"\
-                    f" {self.modelcard_name} {inst_paramstr}"
-        
+                    f" {self.modelcard_name} {inst_paramstr}"+ intstr
+
     @staticmethod
     def nstr_VDC(name,netp,netm,dc):
         return f"V{name} {netp} {netm} dc {dc}"
@@ -86,7 +94,8 @@ class NgspiceNetlister(Netlister):
     def astr_sweepvdc(self,whichv, start, stop, step, name=None):
         def sweepvdc(ngss):
             ngss.exec_command(f"dc v{whichv.lower()} {start} {stop} {step}")
-            ret=name, self.analysis_to_df(ngss.plot(None,ngss.last_plot).to_analysis())
+            with catch_stderr(["Unit is None"]):
+                ret=name, self.analysis_to_df(ngss.plot(None,ngss.last_plot).to_analysis())
             ngss.destroy()
             return ret
         return sweepvdc
@@ -100,7 +109,12 @@ class NgspiceNetlister(Netlister):
                     ngss.exec_command(f"ac lin 1 {freq} {freq}")
                 except Exception as e:
                     raise SimulatorCommandException(original_error=e)
-                an=ngss.plot(None,ngss.last_plot).to_analysis()
+                with warnings.catch_warnings():
+                    # Todo: debug and remove this.. only became necessary when I was
+                    # including device internal parameters (eg "gmi") in output via ngspice ".save all ..." command
+                    warnings.filterwarnings('ignore',category=ComplexWarning)
+                    with catch_stderr(["Unit is None"]):
+                        an=ngss.plot(None,ngss.last_plot).to_analysis()
                 dfs.append(self.analysis_to_df(an).assign(**{'v-sweep':v}))
                 ngss.destroy()
             return name, pd.concat(dfs)
@@ -175,7 +189,9 @@ class NgspiceNetlister(Netlister):
                              for k,b in analysis.branches.items()}
         nodes={k:n for k,n in analysis.nodes.items()}
         time=({'time':analysis.time} if hasattr(analysis,'time') else {})
-        return pd.DataFrame(dict(**branches,**nodes,**time))
+        internals={k:n for k,n in analysis.internal_parameters.items()}
+        df=pd.DataFrame(dict(**branches,**nodes,**time,**internals))
+        return df
 
 
 class NgspiceMultiSimSesh(MultiSimSesh):
@@ -210,6 +226,7 @@ class NgspiceMultiSimSesh(MultiSimSesh):
             self._ngspice=NgSpiceShared.new_instance()
         ngs_warnings.seek(0)
         ngs_warnings=ngs_warnings.readlines()
+        # TODO: make this use the catch_stderr function in compyct.util
         for w in ngs_warnings:
             cms=['spice2poly','analog','digital','xtradev','xtraevt','table']
             if any((f"{cm}.cm couldn't be loaded" in w) for cm in cms):
