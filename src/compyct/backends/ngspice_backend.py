@@ -43,7 +43,7 @@ class NgspiceNetlister(Netlister):
     def nstr_temp(self, temp=27, tnom=27):
         return f".option temp={float_to_spicenum(temp)} tnom={float_to_spicenum(tnom)}"
 
-    def nstr_modeled_xtor(self,name,netd,netg,nets,netb,dt,inst_param_ovrd={},internals_to_save=None):
+    def nstr_modeled_xtor(self,name,netd,netg,nets,netb,dt,inst_param_ovrd={},internals_to_save=[]):
         assert len(inst_param_ovrd)==0
         assert dt is None
         ps=self.simtemp.model_paramset

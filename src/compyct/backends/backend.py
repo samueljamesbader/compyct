@@ -12,7 +12,7 @@ import importlib.resources as irsc
 class Netlister():
         
     @staticmethod
-    def nstr_modeled_xtor(self,name,netd,netg,nets,netb,dt,inst_param_ovrd={}):
+    def nstr_modeled_xtor(self,name,netd,netg,nets,netb,dt,inst_param_ovrd={},internals_to_save=[]):
         raise NotImplementedError
         
     @staticmethod

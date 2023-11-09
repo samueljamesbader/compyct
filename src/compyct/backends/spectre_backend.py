@@ -31,8 +31,9 @@ class SpectreNetlister(Netlister):
     #    return f"parameters "+\
     #        " ".join([f"{k}={v}" for k,v in params.items()])
         
-    def nstr_modeled_xtor(self,name,netd,netg,nets,netb,dt,inst_param_ovrd={}):
+    def nstr_modeled_xtor(self,name,netd,netg,nets,netb,dt,inst_param_ovrd={},internals_to_save=[]):
         assert len(inst_param_ovrd)==0
+        assert len(internals_to_save)==0, "Haven't implemented internal saving for spectre backend"
         assert dt is None
         ps=self.simtemp.model_paramset
         if True:

@@ -8,6 +8,16 @@ from bokeh.models.formatters import BasicTickFormatter
 
 from compyct.paramsets import spicenum_to_float, ParamPatch
 
+from compyct.util import is_notebook
+from bokeh.models.tools import LassoSelectTool
+def get_tools():
+    # Normally holding SHIFT switches the selection-mode to 'append'... but that doesn't work in Jupyter for some reason
+    # according to this bug report https://github.com/bokeh/bokeh/issues/11324
+    # So switching the mode to 'append' for Jupyter
+    return ['wheel_zoom',
+            'pan',
+            LassoSelectTool(mode='append' if is_notebook() else 'replace'),
+            'reset']
 
 def make_widget(model_paramset, param_name, center):
     true_units=model_paramset.get_units(param_name)

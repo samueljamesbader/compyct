@@ -4,30 +4,21 @@ import bokeh.plotting
 import pandas as pd
 import bokeh.layouts
 import panel as pn
-from bokeh.models.tools import LassoSelectTool
 
 from bokeh_smith import smith_chart
 from compyct.backends.backend import Netlister
-from compyct.gui import fig_legend_config
+from compyct.gui import fig_legend_config, get_tools
 
 from compyct.paramsets import ParamSet, spicenum_to_float, ParamPlace
-from compyct.util import is_notebook
 
 
-def get_tools():
-    # Normally holding SHIFT switches the selection-mode to 'append'... but that doesn't work in Jupyter for some reason
-    # according to this bug report https://github.com/bokeh/bokeh/issues/11324
-    # Switching the mode to 'append' for Jupyter because holding SHIFT doesn
-    return ['wheel_zoom',
-            'pan',
-            LassoSelectTool(mode='append' if is_notebook() else 'replace'),
-            'reset']
 
 class SimTemplate():
     title='Unnamed plot'
-    def __init__(self, model_paramset=None):
+    def __init__(self, model_paramset=None, internals_to_save=[]):
         if model_paramset is not None:
             self.set_paramset(model_paramset)
+        self.internals_to_save=internals_to_save
 
     def set_paramset(self,model_paramset):
         self.model_paramset=model_paramset.copy() if model_paramset else None
@@ -261,7 +252,8 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
             netlister.nstr_iabstol('1e-15'),
             netlister.nstr_temp(temp=self.temp),
             netlister.nstr_modeled_xtor("inst",netd='netd',netg='netg',
-                                        nets=netlister.GND,netb=netlister.GND,dt=None),
+                                        nets=netlister.GND,netb=netlister.GND,dt=None,
+                                        internals_to_save=self.internals_to_save),
             netlister.nstr_VDC("D",netp='netd',netm=netlister.GND,dc=0),
             netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=0)]
 
