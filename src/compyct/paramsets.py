@@ -59,6 +59,9 @@ class ParamSet():
 
     def get_units(self,param) -> str:
         return self._shared_paramdict[param]['units']
+    def get_display_units(self,param) -> str:
+        d=self._shared_paramdict[param]
+        return d.get('display_units',d['units'])
     def get_default(self,param):
         if param not in self._shared_paramdict:
             raise Exception(f"Param {param} not in {self.__class__.__name__}")
@@ -267,7 +270,7 @@ class CMCParamSet(ParamSet):
             self.__class__._shared_paramdict=paramset
             
     def get_dtype(self,param) -> type:
-        return {'':float}[self._shared_paramdict[param]['macro']]
+        return {'R':float,'I':int}[self._shared_paramdict[param]['macro'][2]]
     def get_place(self,param) -> ParamPlace:
         return [ParamPlace.INSTANCE,ParamPlace.MODEL]\
                     [self._shared_paramdict[param]['macro'].startswith('M')]
@@ -279,22 +282,25 @@ class CMCParamSet(ParamSet):
         else:
             upper_null=lower_null=null
         deets=self._shared_paramdict[param]
-        match deets['macro']:
-            case 'MPRco':
+        match deets['macro'][3:]:
+            case 'co':
                 lower=spicenum_to_float(deets['lower'])
                 upper=upper_null
-            case 'MPRcc':
+            case 'cc':
                 lower=spicenum_to_float(deets['lower'])
                 upper=spicenum_to_float(deets['upper'])
-            case 'MPRoo':
+            case 'oo':
                 lower=spicenum_to_float(deets['lower'])
                 upper=spicenum_to_float(deets['upper'])
-            case 'MPRoz':
+            case 'oz':
                 lower=spicenum_to_float(deets['default'])*.01
                 upper=upper_null
-            case 'MPRcz':
+            case 'cz':
                 lower=0
                 upper=upper_null
+            case 'sw':
+                lower=0
+                upper=1
             case _:
                 print(f"Not sure what to do for bounds with macro {deets['macro']} for param {param}")
                 #if 'lower' in deets and deets['lower'] is not None:
@@ -323,6 +329,18 @@ class ASMHEMTParamSet(CMCParamSet):
     terminals=['d','g','s','b','dt']
     def __init__(self,**kwargs):
         super().__init__(model='asmhemt',vaname="asmhemt.va",**kwargs)
+
+        # Overrides where ASMHEMT 101.2.0 documentation is incorrect
+        self._shared_paramdict['cgso']['units']='F/m'
+        self._shared_paramdict['cgdo']['units']='F/m'
+        self._shared_paramdict['ua']['units']='m/V'
+        self._shared_paramdict['ub']['units']='m^2/V^2'
+        self._shared_paramdict['ns0accs']['units']='1/m^2'
+        self._shared_paramdict['ns0accd']['units']='1/m^2'
+
+        # Pint needs 'W' (for Watt) to be capitalized
+        self._shared_paramdict['rth0']['units']=self._shared_paramdict['rth0']['units'].replace('w','W')
+        self._shared_paramdict['cth0']['units']=self._shared_paramdict['cth0']['units'].replace('w','W')
 
     def get_total_device_width(self):
         return spicenum_to_float(self.get_value('w'))*\

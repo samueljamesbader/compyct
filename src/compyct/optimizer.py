@@ -5,6 +5,7 @@ from operator import itemgetter
 import pickle
 import numpy as np
 
+from PySpice.Spice.NgSpice.Shared import NgSpiceCommandError
 from compyct.paramsets import spicenum_to_float, ParamPatch
 from compyct.backends.backend import MultiSimSesh, SimulatorCommandException
 from scipy.optimize import curve_fit
@@ -89,7 +90,7 @@ class SemiAutoOptimizer():
                     self.global_meas_data,self.tabbed_rois[tabname],meas_parsed_results=self.global_meas_data)
 
                 p0=[spicenum_to_float(self.global_patch[a])/self.global_patch._ps_example.get_scale(a) for a in actives]
-                print(p0)
+                #print(p0)
                 #print(f"Initial args {dict(zip(actives,p0))}")
                 #print(f"Meas vec {meas_vector}")
                 #print(f"Initial vec {_f(mss,*p0)}")
@@ -103,7 +104,7 @@ class SemiAutoOptimizer():
                     if 'Each lower bound must be strictly less than each upper bound' in str(e):
                         bounds_dict=dict(zip(actives,zip(*bounds)))
                         e.bounds=bounds_dict
-                        print(bounds_dict)
+                        #print(bounds_dict)
                         raise
                     elif 'array must not contain infs or NaNs' in str(e):
                         bounds_dict=dict(zip(actives,zip(*bounds)))
@@ -175,11 +176,15 @@ class SemiAutoOptimizerGui(CompositeWidget):
 
             self._widgets[tabname]={param:make_widget(self.global_patch._ps_example, param, self.global_patch[param])
                                     for param in self.tabbed_actives[tabname]}
-            self._checkboxes[tabname]={param:pn.widgets.Checkbox(value=True,width=5,sizing_mode='stretch_height') for param in self.tabbed_actives[tabname]}
-            for param,w in self._widgets[tabname].items():
+            self._checkboxes[tabname]={
+                param:pn.widgets.Checkbox(value=(self.global_patch._ps_example.get_dtype(param)==float),
+                                          width=5,sizing_mode='stretch_height',
+                                          disabled=(self.global_patch._ps_example.get_dtype(param)!=float))\
+                    for param in self.tabbed_actives[tabname]}
+            for param,(w,_) in self._widgets[tabname].items():
                 w.param.watch((lambda event, tabname=tabname, param=param: self._updated_widget(tabname,param)),'value')
             content=pn.Row(pn.Column(*[pn.Row(pn.Column(pn.VSpacer(),pn.VSpacer(),c,pn.VSpacer(),width=15,height=60),w)
-                                        for c,w in zip(self._checkboxes[tabname].values(),self._widgets[tabname].values())],
+                                        for c,w in zip(self._checkboxes[tabname].values(),[w for w,_ in self._widgets[tabname].values()])],
                                      width=125,sizing_mode='stretch_height',scroll=True),fp)
 
             tabs.append((tabname,content))
@@ -215,7 +220,7 @@ class SemiAutoOptimizerGui(CompositeWidget):
         return list(self._tabbed_template_groups)[self._tabs.active]
 
     def _sesh_button_pressed(self, event):
-        if self._mss.is_entered:
+        if self._sao._mss.is_entered:
             self.end_sesh()
         else:
             self.start_sesh()
@@ -246,7 +251,7 @@ class SemiAutoOptimizerGui(CompositeWidget):
         save_name=self._save_name_input.value if hasattr(self,'_save_name_input') else self.default_save_name
         try:
             additional=self._sao.load(save_name,rerun=False)
-            print(additional)
+            #print(additional)
             self.update_widgets_from_global_patch()
             for tn, checks in self._checkboxes.items():
                 for a, check in checks.items():
@@ -277,7 +282,8 @@ class SemiAutoOptimizerGui(CompositeWidget):
         if self._should_respond_to_param_widgets:
             #print('updated widget')
             #if self._active_tab==tabname:
-                values={n:float(w.value) for n,w in self._widgets[tabname].items()}
+                #import pdb; pdb.set_trace()
+                values={n:float(w.value)/dscale for n,(w,dscale) in self._widgets[tabname].items()}
                 self.global_patch.update(values)
                 self.reset_all_figures(except_for=tabname)
                 self.rerun_and_update(tabname)
@@ -289,12 +295,20 @@ class SemiAutoOptimizerGui(CompositeWidget):
             for t,widgets in self._widgets.items():
                 for param in widgets:
                     if (only_param is None) or (param==only_param):
-                        widgets[param].value=spicenum_to_float(self.global_patch[param])
+                        w,dscale=widgets[param]
+                        if isinstance(w,pn.widgets.TextInput):
+                            w.value=f"{spicenum_to_float(self.global_patch[param])*dscale:.5g}"
+                        else:
+                            w.value=spicenum_to_float(self.global_patch[param])*dscale
 
     def rerun_and_update(self,tabname):
         try:
             self.running_ind.value=True
             new_results=self._sao.rerun(tabname)
+            run_error=False
+        except NgSpiceCommandError as e:
+            new_results=None
+            run_error=True
         finally:
             self.running_ind.value=False
         for tn,vizid in self._tabname_to_vizid.items():

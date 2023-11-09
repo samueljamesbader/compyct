@@ -4,10 +4,24 @@ import bokeh.plotting
 import pandas as pd
 import bokeh.layouts
 import panel as pn
+from bokeh.models.tools import LassoSelectTool
 
+from bokeh_smith import smith_chart
 from compyct.backends.backend import Netlister
+from compyct.gui import fig_legend_config
 
 from compyct.paramsets import ParamSet, spicenum_to_float, ParamPlace
+from compyct.util import is_notebook
+
+
+def get_tools():
+    # Normally holding SHIFT switches the selection-mode to 'append'... but that doesn't work in Jupyter for some reason
+    # according to this bug report https://github.com/bokeh/bokeh/issues/11324
+    # Switching the mode to 'append' for Jupyter because holding SHIFT doesn
+    return ['wheel_zoom',
+            'pan',
+            LassoSelectTool(mode='append' if is_notebook() else 'replace'),
+            'reset']
 
 class SimTemplate():
     title='Unnamed plot'
@@ -68,12 +82,12 @@ class MultiSweepSimTemplate(SimTemplate):
         #assert len(self.ynames)==1
         #yname=self.ynames[0]
         
-        data=dict(x=[],legend=[],**{f'y{i}':[] for i in range(len(self.ynames))})
+        data=dict(x=[],legend=[],**{yname:[] for yname in self.ynames})
         if parsed_result is None: parsed_result={}
         for key, df in parsed_result.items():
             data['x'].append(df[self.inner_variable].to_numpy())
             for i,yname in enumerate(self.ynames):
-                data[f'y{i}'].append(df[yname].to_numpy())
+                data[yname].append(df[yname].to_numpy())
             data['legend'].append(key)
         return data
         
@@ -88,33 +102,34 @@ class MultiSweepSimTemplate(SimTemplate):
         if meas_data is not None:
             self._validate_parsed_result(meas_data)
 
-        meas_cds=self._update_cds_with_parsed_result(cds=None,
+        meas_cds_c=self._update_cds_with_parsed_result(cds=None,
                     parsed_result=meas_data,flattened=True)
+        meas_cds_l=self._update_cds_with_parsed_result(cds=None,
+                    parsed_result=meas_data,flattened=False)
         sim_cds=self._sources[vizid][0]
 
-        num_ys=len([k for k in sim_cds.data if k.startswith('y')])
+        return self._make_figures(meas_cds_c=meas_cds_c, meas_cds_l=meas_cds_l, sim_cds=sim_cds,
+                                  layout_params=layout_params,
+                                  y_axis_type=y_axis_type, x_axis_type=x_axis_type)
+
+    def _make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params, y_axis_type='linear',x_axis_type='linear'):
+        num_ys=len(self.ynames)
         if type(y_axis_type) is str: y_axis_type=[y_axis_type]*num_ys
         if type(x_axis_type) is str: x_axis_type=[x_axis_type]*num_ys
         figs=[]
         for i in range(num_ys):
-            fig=bokeh.plotting.figure(#x_range=self.vg_range,y_range=(1e-8,1),
+            fig=bokeh.plotting.figure(tools=get_tools(),#x_range=self.vg_range,y_range=(1e-8,1),
                                       y_axis_type=y_axis_type[i],x_axis_type=x_axis_type[i],**layout_params)
-            fig.circle(x='x',y=f'y{i}',source=meas_cds,legend_field='legend')
-            fig.multi_line(xs='x',ys=f'y{i}',source=sim_cds,color='red')
-    
+            fig.circle(x='x',y=self.ynames[i],source=meas_cds_c,legend_field='legend')
+            fig.multi_line(xs='x',ys=self.ynames[i],source=meas_cds_l)
+            fig.multi_line(xs='x',ys=self.ynames[i],source=sim_cds,color='red')
+
             fig.yaxis.axis_label=self.ynames[i]#",".join(self.ynames)
-            fig.legend.margin=0
-            fig.legend.spacing=0
-            fig.legend.padding=4
-            fig.legend.label_text_font_size='8pt'
-            fig.legend.label_height=10
-            fig.legend.label_text_line_height=10
-            fig.legend.glyph_height=10
-            fig.legend.location='bottom_right'
             fig.xaxis.axis_label=self.inner_variable
+            fig_legend_config(fig)
             figs.append(fig)
         return figs
-        
+
     def update_figures(self, parsed_result, vizid=None):
         self._validate_parsed_result(parsed_result)
         self._update_cds_with_parsed_result(
@@ -214,8 +229,9 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
         return super().generate_figures(*args,**kwargs)
 
     def _rescale_vector(self, arr, col, meas_arr):
-        return arr
-        
+        if col[0]=='I':
+            return 5*arr/np.max(meas_arr)
+
 class DCIdVgTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args, pol='n', temp=27,
@@ -494,7 +510,7 @@ class SParTemplate(MultiSweepSimTemplate):
             raise Exception(f"Invalid frequency range: {fstart} - {fstop}")
 
         super().__init__(outer_variable=None, inner_variable='freq', inner_range=(fstart,pts_per_dec,fstop),
-                         ynames=['|h21|','U'],
+                         ynames=['|h21| [dB]','U [dB]','MAG-MSG [dB]','ReS11','ImS11','ReS22','ImS22','ReS12','ImS12'],
                          *args, **kwargs)
         self.vg=vg
         self.vd=vd
@@ -542,9 +558,30 @@ class SParTemplate(MultiSweepSimTemplate):
 
     def postparse_return(self,parsed_result):
         df=parsed_result[0]
-        df[f'|h21|']=np.abs(df['Y21']/df['Y11'])
-        df[f'U']=(np.abs(df['Y21']-df['Y12'])**2/
-                  (4*(np.real(df['Y11']*np.real(df['Y22'])-np.real(df['Y12'])*np.real(df['Y21'])))))
+
+        # h21 is a current ratio, so 20x log
+        df[f'|h21| [dB]']=20*np.log10(np.abs(df.Y21/df.Y11))
+
+        # https://en.wikipedia.org/wiki/Mason%27s_invariant#Derivation_of_U
+        # U is already a power ratio so just 10x log
+        re=np.real; im=np.imag
+        df[f'U [dB]']=10*np.log10(
+            (np.abs(df.Y21-df.Y12)**2 /
+                  (4*(re(df.Y11)*re(df.Y22)-re(df.Y12)*re(df.Y21)))))
+
+        # https://www.microwaves101.com/encyclopedias/stability-factor
+        Delta=df.S11*df.S22-df.S12*df.S21
+        K = (1-np.abs(df.S11)**2-np.abs(df.S22)**2+np.abs(Delta)**2)/(2*np.abs(df.S21*df.S12))
+        # this formula with 1/(K+sqrt(K^2-1)) is less common but more robust for large K
+        # according to Microwaves 101 and easy to show it's equal.
+        MAG = (1/(K+np.sqrt(K**2-1))) * np.abs(df.S21)/np.abs(df.S12)
+        MSG = np.abs(df.S21)/np.abs(df.S12)
+
+        df['MAG-MSG [dB]']=20*np.log10(np.choose(K>=1,[MSG,MAG]))
+        # S-parameters
+        for ii in ['11','12','21','22']:
+            for comp,func in (('Re',np.real),('Im',np.imag)):
+                df[f'{comp}S{ii}']=func(df[f'S{ii}'])
         return parsed_result
 
     def _rescale_vector(self,arr,col, meas_arr):
@@ -560,6 +597,38 @@ class SParTemplate(MultiSweepSimTemplate):
         kwargs['x_axis_type']=kwargs.get('x_axis_type','log')
         return super().generate_figures(*args,**kwargs)
 
+    def _make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params, y_axis_type='log',x_axis_type='log'):
+        assert y_axis_type=='log'
+        assert x_axis_type=='log'
+        figpow=bokeh.plotting.figure(tools=get_tools(),x_axis_type='log',**layout_params)
+        figpow.circle(x='x',y='|h21| [dB]',source=meas_cds_c,color='blue',legend_label='h21')
+        figpow.multi_line(xs='x',ys='|h21| [dB]',source=meas_cds_l,color='blue',legend_label='h21')
+        figpow.multi_line(xs='x',ys='|h21| [dB]',source=sim_cds,color='red',legend_label='h21')
+
+        figpow.circle(x='x',y='U [dB]',source=meas_cds_c,color='green',legend_label='U')
+        figpow.multi_line(xs='x',ys='U [dB]',source=meas_cds_l,color='green',legend_label='U')
+        figpow.multi_line(xs='x',ys='U [dB]',source=sim_cds,color='orange',legend_label='U')
+
+        figpow.circle(x='x',y='MAG-MSG [dB]',source=meas_cds_c,color='lightblue',legend_label='MAG/MSG')
+        figpow.multi_line(xs='x',ys='MAG-MSG [dB]',source=meas_cds_l,color='lightblue',legend_label='MAG/MSG')
+        figpow.multi_line(xs='x',ys='MAG-MSG [dB]',source=sim_cds,color='burlywood',legend_label='MAG/MSG')
+
+        figpow.yaxis.axis_label='Power Gain [dB]'
+        figpow.xaxis.axis_label='Frequency [Hz]'
+        fig_legend_config(figpow)
+        figpow.legend.location='top_right'
+
+        figsmi=smith_chart(**layout_params)
+        figsmi.circle(x='ReS11',y='ImS11',source=meas_cds_c,color='blue',legend_label='S11',line_width=2)
+        figsmi.circle(x='ReS22',y='ImS22',source=meas_cds_c,color='green',legend_label='S22',line_width=2)
+        figsmi.circle(x='ReS12',y='ImS12',source=meas_cds_c,color='lightblue',legend_label='S12',line_width=2)
+        figsmi.multi_line(xs='ReS11',ys='ImS11',source=sim_cds,color='red',legend_label='S11',line_width=2)
+        figsmi.multi_line(xs='ReS22',ys='ImS22',source=sim_cds,color='orange',legend_label='S22',line_width=2)
+        figsmi.multi_line(xs='ReS12',ys='ImS12',source=sim_cds,color='burlywood',legend_label='S12',line_width=2)
+        fig_legend_config(figsmi)
+        figsmi.legend.location='top_right'
+
+        return [figpow,figsmi]
 
 class TemplateGroup:
     def __init__(self,**templates):

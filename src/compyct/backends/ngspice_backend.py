@@ -7,8 +7,9 @@ import sys
 from PySpice.Spice.NgSpice.Shared import NgSpiceShared
 from collections import namedtuple
 import hashlib
+from contextlib import redirect_stderr
+from io import StringIO
 
-from tempfile import NamedTemporaryFile
 from compyct.templates import SimTemplate
 from .backend import Netlister, MultiSimSesh, get_va_path, get_va_paths, SimulatorCommandException
 from compyct.paramsets import ParamSet, ParamPlace, spicenum_to_float, float_to_spicenum
@@ -204,7 +205,18 @@ class NgspiceMultiSimSesh(MultiSimSesh):
         NgspiceMultiSimSesh.singleton_in_use=True
         super().__enter__()
 
-        self._ngspice=NgSpiceShared.new_instance()
+        ngs_warnings=StringIO()
+        with redirect_stderr(ngs_warnings):
+            self._ngspice=NgSpiceShared.new_instance()
+        ngs_warnings.seek(0)
+        ngs_warnings=ngs_warnings.readlines()
+        for w in ngs_warnings:
+            cms=['spice2poly','analog','digital','xtradev','xtraevt','table']
+            if any((f"{cm}.cm couldn't be loaded" in w) for cm in cms):
+                continue
+            if "Unsupported Ngspice version 41" in w:
+                continue
+            raise Exception("New error while trying to load Ngspice... "+w)
 
         self._ensure_clear_ngspice()
 

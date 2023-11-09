@@ -1,27 +1,74 @@
 import panel as pn
+from pint import DimensionalityError
+
+from compyct import ureg
 from compyct import templates
 from compyct.backends.backend import MultiSimSesh
+from bokeh.models.formatters import BasicTickFormatter
 
 from compyct.paramsets import spicenum_to_float, ParamPatch
 
 
 def make_widget(model_paramset, param_name, center):
-    units=model_paramset.get_units(param_name)
-    name_with_units=param_name+(f" [{units}]"
-                                if (units is not None and units!="") else "")
+    true_units=model_paramset.get_units(param_name)
+    disp_units=model_paramset.get_display_units(param_name)
+    name_with_units=param_name+(f" [{disp_units}]"
+                                if (disp_units is not None and disp_units!="") else "")
     bounds=model_paramset.get_bounds(param_name)
     center=spicenum_to_float(center)
-    try:
-        return pn.widgets.FloatInput(name=name_with_units,
-                                     start=bounds[0],
-                                     step=bounds[1],
-                                     value=(center if center is not None\
-                                         else spicenum_to_float( model_paramset.get_default(param_name))),
-                                     sizing_mode='stretch_width')
-    except:
-        print(name_with_units,bounds,center)
-        raise
+    #if bounds[1] is not None and bounds[1]<1e-16: raise Exception(f"Gonna have step error for {param_name}")
+    if (dtype:=model_paramset.get_dtype(param_name)) is float:
+        try:
+            disp_scale=(ureg.parse_expression(true_units)/ureg.parse_expression(disp_units)).to("").magnitude
+        except DimensionalityError as e:
+            raise Exception(f"Units of {true_units} and Display Units of {disp_units}"\
+                            f" for {param_name} are not compatible. Pint says \"{str(e)}\"")
+        except Exception as e:
+            raise Exception(f"Unit error on {param_name}. Pint says \"{str(e)}\"")
+        try:
+            #disp_scale=ureg.parse_expression(true_units).to(disp_units).magnitude
+            #w=pn.widgets.FloatInput(name=name_with_units,
+            #                             start=bounds[0]*disp_scale,
+            #                             step=bounds[1]*disp_scale,
+            #                             value=(center if center is not None\
+            #                                 else spicenum_to_float( model_paramset.get_default(param_name)))*disp_scale,
+            #                             sizing_mode='stretch_width',
+            #                             format=BasicTickFormatter(precision=5)
+            #                        )
+            value=(center if center is not None\
+                else spicenum_to_float( model_paramset.get_default(param_name)))*disp_scale
+            w=pn.widgets.TextInput(name=name_with_units,value=f"{value:.5g}",sizing_mode='stretch_width')
+            return w,disp_scale
+        except:
+            print(name_with_units,bounds,center)
+            raise
+    elif dtype is int:
+        assert true_units=='', "Units should be none for integer parameter"
+        assert disp_units=='', "Units should be none for integer parameter"
+        if bounds[0] is not None and bounds[2] is not None:
+            #print(f'hi there {param_name} {bounds} {center}')
+            w=pn.widgets.Select(name=name_with_units,
+                                options=list(range(int(bounds[0]),int(bounds[2]+1))),
+                                value=int(center),
+                                sizing_mode='stretch_width'
+                                )
+            return w,1
+        else:
+            raise Exception(f"What to do for {param_name}?")
+    else:
+        raise Exception(f"What is dtype {dtype} for {param_name}?")
 
+
+@staticmethod
+def fig_legend_config(fig,location='bottom_right'):
+    fig.legend.margin=0
+    fig.legend.spacing=0
+    fig.legend.padding=4
+    fig.legend.label_text_font_size='8pt'
+    fig.legend.label_height=10
+    fig.legend.label_text_line_height=10
+    fig.legend.glyph_height=10
+    fig.legend.location=location
 
 class ManualOptimizer(pn.widgets.base.CompositeWidget):
     def __init__(self, mss:MultiSimSesh=None, user_paramset=None,
