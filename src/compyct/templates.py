@@ -6,6 +6,7 @@ import bokeh.layouts
 import panel as pn
 
 from bokeh_smith import smith_chart
+from compyct import logger
 from compyct.backends.backend import Netlister
 from compyct.gui import fig_legend_config, get_tools
 
@@ -68,6 +69,7 @@ class MultiSweepSimTemplate(SimTemplate):
         self.inner_range=inner_range
         self.ynames=ynames
         self._sources={}
+        self._fig_is_clear=True
         
     def _parsed_result_to_cds_data(self,parsed_result):
         #assert len(self.ynames)==1
@@ -122,9 +124,14 @@ class MultiSweepSimTemplate(SimTemplate):
         return figs
 
     def update_figures(self, parsed_result, vizid=None):
+        if parsed_result is None and self._fig_is_clear:
+            return False
+        logger.debug(f"Updating figure {self.__class__.__name__}")
         self._validate_parsed_result(parsed_result)
         self._update_cds_with_parsed_result(
             cds=self._sources[vizid][0],parsed_result=parsed_result)
+        self._fig_is_clear=(parsed_result is None)
+        return True
 
     def parsed_results_to_vector(self, parsed_results, rois, meas_parsed_results):
         if rois is None: return np.array([])
@@ -319,8 +326,12 @@ class JointTemplate(SimTemplate):
         {k:t._validate_parsed_result(parsed_result[k])for k,t in self.subtemplates.items()}
 
     def update_figures(self, parsed_result, vizid=None):
+        actually_did_update=False
         for k,t in self.subtemplates.items():
-            t.update_figures((parsed_result[k] if parsed_result else None),vizid=vizid)
+            if t.update_figures((parsed_result[k] if parsed_result else None),vizid=vizid):
+                actually_did_update=True
+        return actually_did_update
+
 
     def __getitem__(self,key):
         return self.subtemplates[key]
@@ -654,9 +665,14 @@ class TemplateGroup:
         return self._panes[vizid]
 
     def update_figures(self, new_results, vizid=None):
+        actually_did_update=False
         for stname in self.temps:
-            self.temps[stname].update_figures((new_results[stname] if new_results else None),vizid=vizid)
-        pn.io.push_notebook(self._panes[vizid])
+            if self.temps[stname].update_figures((new_results[stname] if new_results else None),vizid=vizid):
+                actually_did_update=True
+        if actually_did_update:
+            logger.debug(f"(Not) pushing bokeh update to notebook for vizid {vizid}")
+            # Apparently this isn't needed anymore?
+            #pn.io.push_notebook(self._panes[vizid])
 
     def parsed_results_to_vector(self,parsed_results,roi, meas_parsed_results):
         return np.concatenate([simtemp.parsed_results_to_vector(parsed_results[k],roi[k],meas_parsed_results[k]) for k,simtemp in self.items()])

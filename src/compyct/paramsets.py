@@ -128,6 +128,16 @@ class ParamPatch(UserDict):
         pd=self._ps_example.translate_to(self, ps)
         ps.update_and_return_changes(pd)
         return ps
+    def is_param_irrelevant(self,param):
+        if 'only_relevant_if' not in self._ps_example._shared_paramdict[param]:
+            return False
+        else:
+            controller,values=self._ps_example._shared_paramdict[param]['only_relevant_if']
+            if controller not in self:
+                return None
+            else:
+                return not (self[controller] in values)
+
 
     #def generate_from_example(self):
     #    self._ps_example.copy_with_changes()
@@ -342,6 +352,18 @@ class ASMHEMTParamSet(CMCParamSet):
         # Pint needs 'W' (for Watt) to be capitalized
         self._shared_paramdict['rth0']['units']=self._shared_paramdict['rth0']['units'].replace('w','W')
         self._shared_paramdict['cth0']['units']=self._shared_paramdict['cth0']['units'].replace('w','W')
+
+        for param in ['vsataccs',
+                      'ns0accs','ns0accd','k0accs','k0accd','u0accs','u0accd',
+                      'mexpaccs','mexpaccd',
+                      'rsc','rdc',
+                      'kns0','ats','utes','uted','krsc','krdc']:
+            self._shared_paramdict[param]['only_relevant_if']=('rdsmod',(1,))
+            self._shared_paramdict[param]['category']='Access & Contact'
+        for param in ['cdlag','rdlag','idio',
+                      'atrapvoff','btrapvoff','atrapeta0','btrapeta0','atraprs','btraprs','atraprd','btraprd']:
+            self._shared_paramdict[param]['only_relevant_if']=('trapmod',(1,))
+            self._shared_paramdict[param]['category']='Traps'
 
     def get_total_device_width(self):
         return spicenum_to_float(self.get_value('w'))*\

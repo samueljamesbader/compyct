@@ -1,11 +1,15 @@
 import time
+from datetime import datetime
 from pathlib import Path
 import os
 from operator import itemgetter
 import pickle
+
+import bokeh.io
 import numpy as np
 
 from PySpice.Spice.NgSpice.Shared import NgSpiceCommandError
+from compyct import logger, set_logging_callback, unset_logging_callback
 from compyct.paramsets import spicenum_to_float, ParamPatch
 from compyct.backends.backend import MultiSimSesh, SimulatorCommandException
 from scipy.optimize import curve_fit
@@ -133,7 +137,7 @@ from compyct.gui import make_widget
 class SemiAutoOptimizerGui(CompositeWidget):
 
     def __init__(self, sao: SemiAutoOptimizer, save_name: str = 'sim_save', fig_layout_params={},**kwargs):
-        super().__init__(**kwargs)
+        super().__init__(height=600,sizing_mode='stretch_width',**kwargs)
         self._sao=sao
         self._default_save_name=save_name
         self._fig_layout_params=fig_layout_params
@@ -148,13 +152,18 @@ class SemiAutoOptimizerGui(CompositeWidget):
 
     def start_sesh(self):
         self._sao.start_sesh()
+        set_logging_callback(self._logging_callback)
         if hasattr(self,'_sesh_button'):
             self._sesh_button.name='End Sesh'
 
     def end_sesh(self):
         self._sao.end_sesh()
+        unset_logging_callback()
         if hasattr(self,'_sesh_button'):
             self._sesh_button.name='Start Sesh'
+
+    def _logging_callback(self, record, formatter):
+        self._log_view.value+=formatter.format(record)+"\n"
 
     def __getattr__(self,attr):
         if attr in ['global_template_group','global_patch','global_meas_data',
@@ -168,9 +177,13 @@ class SemiAutoOptimizerGui(CompositeWidget):
         tabs=[]
         self._widgets={}
         self._checkboxes={}
+        self._wlines={}
+        self._wcols={}
         self._tabname_to_vizid={}
 
-        for vizid, (tabname, tg) in enumerate(self._tabbed_template_groups.items()):
+        vizid_offset=round(datetime.now().timestamp()*1e3)
+        for vizid_, (tabname, tg) in enumerate(self._tabbed_template_groups.items()):
+            vizid=vizid_offset+vizid_
             self._tabname_to_vizid[tabname]=vizid
             fp=tg.get_figure_pane(meas_data=self.global_meas_data,fig_layout_params=self._fig_layout_params,vizid=vizid)
 
@@ -181,15 +194,19 @@ class SemiAutoOptimizerGui(CompositeWidget):
                                           width=5,sizing_mode='stretch_height',
                                           disabled=(self.global_patch._ps_example.get_dtype(param)!=float))\
                     for param in self.tabbed_actives[tabname]}
+            self._wlines[tabname]={p:pn.Row(pn.Column(
+                                             pn.VSpacer(),pn.VSpacer(),c,pn.VSpacer(),width=15,height=60),w)
+                                   for (p,c),w in zip(self._checkboxes[tabname].items(),
+                                                      [w for w,_ in self._widgets[tabname].values()])}
             for param,(w,_) in self._widgets[tabname].items():
                 w.param.watch((lambda event, tabname=tabname, param=param: self._updated_widget(tabname,param)),'value')
-            content=pn.Row(pn.Column(*[pn.Row(pn.Column(pn.VSpacer(),pn.VSpacer(),c,pn.VSpacer(),width=15,height=60),w)
-                                        for c,w in zip(self._checkboxes[tabname].values(),[w for w,_ in self._widgets[tabname].values()])],
-                                     width=125,sizing_mode='stretch_height',scroll=True),fp)
+            self._wcols[tabname]=pn.Column(*self._wlines[tabname].values(),
+                                     width=175,sizing_mode='stretch_height',scroll=True)
+            content=pn.Row(self._wcols[tabname],fp)
 
             tabs.append((tabname,content))
 
-        self._tabs=pn.Tabs(*tabs)
+        self._tabs=pn.Tabs(*tabs,height=350)
         sesh_button=self._sesh_button=pn.widgets.Button(name="Start Sesh")
         opt_button=pn.widgets.Button(name="Optimize tab")
         running_ind=self.running_ind=pn.widgets.LoadingSpinner(value=False,size=25)
@@ -202,9 +219,11 @@ class SemiAutoOptimizerGui(CompositeWidget):
         save_button.on_click(self._save_button_pressed)
         load_button.on_click(self._load_button_pressed)
         self._tabs.param.watch(self._tab_changed,['active'])
+        self._log_view=pn.widgets.TextAreaInput(sizing_mode='stretch_both')
 
+        self.redo_widget_visibility()
         return pn.Column(pn.Row(sesh_button,opt_button,running_ind,pn.HSpacer(),save_name_input,save_button,load_button,sizing_mode='stretch_width'),
-                         self._tabs,height=450)
+                         self._tabs,self._log_view,height=550)
 
     @contextmanager
     def dont_trigger_param_widgets(self):
@@ -233,9 +252,9 @@ class SemiAutoOptimizerGui(CompositeWidget):
             #print('only_actives',[a for a in self.tabbed_actives[active] if self._checkboxes[active][a].value])
             self._sao.optimize_tab(active, only_actives=[a for a in self.tabbed_actives[active] if self._checkboxes[active][a].value])
         except OptimizationException as e:
-            print(f"Bounds: {e.bounds}")
-            print(f"Latest: {e.latest}")
-            print(f"Sim Err: {e.sim_err}")
+            logger.debug(f"Bounds: {e.bounds}")
+            logger.debug(f"Latest: {e.latest}")
+            logger.debug(f"Sim Err: {e.sim_err}")
             self._latest_error=e
             raise e
         except Exception as e:
@@ -258,8 +277,8 @@ class SemiAutoOptimizerGui(CompositeWidget):
                     if (saved_activation:=additional['activated'].get(tn,{}).get(a,None)) is not None:
                         check.value=saved_activation
         except Exception as e:
-            print("Error loading from previous save:")
-            print(e)
+            logger.debug("Error loading from previous save:")
+            logger.debug(str(e))
         self.rerun_and_update(self._active_tab)
 
     def _save_button_pressed(self, event):
@@ -280,14 +299,18 @@ class SemiAutoOptimizerGui(CompositeWidget):
 
     def _updated_widget(self,tabname,param):
         if self._should_respond_to_param_widgets:
+            logger.debug(f'Responding to updated widget {param}')
             #print('updated widget')
-            #if self._active_tab==tabname:
+            if self._active_tab==tabname:
                 #import pdb; pdb.set_trace()
                 values={n:float(w.value)/dscale for n,(w,dscale) in self._widgets[tabname].items()}
                 self.global_patch.update(values)
-                self.reset_all_figures(except_for=tabname)
-                self.rerun_and_update(tabname)
                 self.update_widgets_from_global_patch(only_param=param)
+                logger.debug(f'about to reset figures')
+                self.reset_all_figures(except_for=tabname)
+                logger.debug(f'about to rerun')
+                self.rerun_and_update(tabname)
+                logger.debug(f'Done')
 
     def update_widgets_from_global_patch(self,only_param=None):
         #print("Updating widgets from global patch")
@@ -300,6 +323,20 @@ class SemiAutoOptimizerGui(CompositeWidget):
                             w.value=f"{spicenum_to_float(self.global_patch[param])*dscale:.5g}"
                         else:
                             w.value=spicenum_to_float(self.global_patch[param])*dscale
+        self.redo_widget_visibility()
+
+    def redo_widget_visibility(self):
+        logger.info(f"starting redo vis")
+        #bokeh.io.curdoc().hold()
+        #try:
+        for t,wlines in self._wlines.items():
+            for param, wline in wlines.items():
+                wline.styles={'display':{None:'none',False:'none',True:'flex'}[
+                                            not self._sao.global_patch.is_param_irrelevant(param)]}
+                #wline.visible=(not self._sao.global_patch.is_param_irrelevant(param))
+        #finally:
+        #    bokeh.io.curdoc().unhold()
+        logger.info(f"done redo vis")
 
     def rerun_and_update(self,tabname):
         try:

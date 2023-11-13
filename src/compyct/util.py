@@ -3,6 +3,7 @@ from contextlib import redirect_stderr, contextmanager
 from functools import cache
 from io import StringIO
 import re
+import logging
 
 
 # Copied from https://stackoverflow.com/a/22424821
@@ -39,3 +40,32 @@ def catch_stderr(ignore_regexes,unmatched='stderr'):
                 raise Exception(l)
             else:
                 raise Exception(f"What is '{unmatched}'?")
+
+class MyHandler(logging.StreamHandler):
+    def __init__(self):
+        super().__init__(sys.stdout)
+        self.unset_current_callback()
+
+        # See https://stackoverflow.com/a/7517430
+        self.setFormatter(logging.Formatter('%(asctime)s.%(msecs)03d: %(message)s', '%H:%M:%S'))
+
+    def set_current_callback(self,callback):
+        self._callback=callback
+
+    def unset_current_callback(self):
+        self._callback=(lambda record, formatter: True)
+
+    def emit(self, record):
+        if self._callback(record,self.formatter):
+            super().emit(record)
+
+logger=logging.getLogger('compyct')
+logger.setLevel('DEBUG')
+log_handler=MyHandler()
+logger.handlers.clear()
+logger.addHandler(log_handler)
+
+def set_logging_callback(callback):
+    log_handler.set_current_callback(callback)
+def unset_logging_callback():
+    log_handler.unset_current_callback()
