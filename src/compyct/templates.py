@@ -11,6 +11,7 @@ from compyct.backends.backend import Netlister
 from compyct.gui import fig_legend_config, get_tools
 
 from compyct.paramsets import ParamSet, spicenum_to_float, ParamPlace
+from compyct.util import s2y
 
 
 
@@ -565,6 +566,11 @@ class SParTemplate(MultiSweepSimTemplate):
     def postparse_return(self,parsed_result):
         df=parsed_result[0]
 
+        df['freq']=np.real(df['freq'])
+        
+        if 'Y11' not in df.columns:
+            df['Y11'],df['Y12'],df['Y21'],df['Y22']=s2y(df['S11'],df['S12'],df['S21'],df['S22'])
+
         # h21 is a current ratio, so 20x log
         df[f'|h21| [dB]']=20*np.log10(np.abs(df.Y21/df.Y11))
 
@@ -578,12 +584,14 @@ class SParTemplate(MultiSweepSimTemplate):
         # https://www.microwaves101.com/encyclopedias/stability-factor
         Delta=df.S11*df.S22-df.S12*df.S21
         K = (1-np.abs(df.S11)**2-np.abs(df.S22)**2+np.abs(Delta)**2)/(2*np.abs(df.S21*df.S12))
+        
         # this formula with 1/(K+sqrt(K^2-1)) is less common but more robust for large K
         # according to Microwaves 101 and easy to show it's equal.
-        MAG = (1/(K+np.sqrt(K**2-1))) * np.abs(df.S21)/np.abs(df.S12)
+        k2m1=np.clip(K**2-1,0,np.inf) # we only use the K>1 values of MAG anyway, so clip to avoid sqrt(-)
+        MAG = (1/(K+np.sqrt(k2m1))) * np.abs(df.S21)/np.abs(df.S12)
         MSG = np.abs(df.S21)/np.abs(df.S12)
-
         df['MAG-MSG [dB]']=20*np.log10(np.choose(K>=1,[MSG,MAG]))
+        
         # S-parameters
         for ii in ['11','12','21','22']:
             for comp,func in (('Re',np.real),('Im',np.imag)):
