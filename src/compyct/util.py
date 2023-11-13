@@ -69,3 +69,20 @@ def set_logging_callback(callback):
     log_handler.set_current_callback(callback)
 def unset_logging_callback():
     log_handler.unset_current_callback()
+
+def s2y(s11,s12,s21,s22, z0=50):
+    y0=1/z0
+    deltas=(1+s11)*(1+s22)-s12*s21
+    y11=((1-s11)*(1+s22)+s12*s21)/deltas * y0
+    y12=-2*s12/deltas * y0
+    y21=-2*s21/deltas * y0
+    y22=((1+s11)*(1-s22)+s12*s21)/deltas * y0
+    return y11,y12,y21,y22
+
+def y2s(y11,y12,y21,y22, z0=50):
+    delta=(1+z0*y11)*(1+z0*y22)-z0**2*y12*y21
+    s11=((1-z0*y11)*(1+z0*y22)+z0**2*y12*y21)/delta
+    s12=-2*z0*y12/delta
+    s21=-2*z0*y21/delta
+    s22=((1+z0*y11)*(1-z0*y22)+z0**2*y12*y21)/delta
+    return s11,s12,s21,s22
