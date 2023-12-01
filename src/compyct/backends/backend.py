@@ -25,8 +25,11 @@ class Netlister():
 
     def astr_altervdc(self,whichv, tovalue, name=None):
         raise NotImplementedError
-        
+
     def astr_sweepvdc(self,whichv, start, stop, step, name=None):
+        raise NotImplementedError
+
+    def astr_sweepidc(self,whichi, start, stop, step, name=None):
         raise NotImplementedError
         
     def astr_sweepvac(self,whichv, start, stop, step, freq, name=None):

@@ -17,7 +17,8 @@ def get_tools():
     return ['wheel_zoom',
             'pan',
             LassoSelectTool(mode='append' if is_notebook() else 'replace'),
-            'reset']
+            'reset',
+            'hover']
 
 def make_widget(model_paramset, param_name, center):
     true_units=model_paramset.get_units(param_name)

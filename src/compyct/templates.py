@@ -378,6 +378,72 @@ class DCIVTemplate(JointTemplate):
             self._dcidvg.parsed_results_to_vector(parsed_results['IdVg'],roi['IdVg'], meas_parsed_results['IdVg']),
             self._dcidvd.parsed_results_to_vector(parsed_results['IdVd'],roi['IdVd'], meas_parsed_results['IdVd'])])
 
+class DCKelvinIDVDTemplate(MultiSweepSimTemplate):
+
+    def __init__(self, *args, pol='n', temp=27, yscale='linear',
+                 vg_values=[0,.6,1.2,1.8], idow_range=(.1,.1,1), **kwargs):
+        self.yscale=yscale
+        super().__init__(outer_variable='VG', inner_variable=('ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]'),
+                         outer_values=vg_values, inner_range=idow_range,
+                         ynames=['RW [kohm.um]'],
+                         *args, **kwargs)
+        self.temp=temp
+        self.pol=pol
+
+        num_id=(idow_range[2]-idow_range[0])/idow_range[1]
+        assert abs(num_id-round(num_id))<1e-3, f"Make sure the KelvinIdVd range gives even steps {str(idow_range)}"
+
+    @property
+    def vg_values(self): return self.outer_values
+    @property
+    def idow_range(self): return self.inner_range
+
+    def get_schematic_listing(self,netlister:Netlister):
+        return [
+            netlister.nstr_iabstol('1e-15'),
+            netlister.nstr_temp(temp=self.temp),
+            netlister.nstr_modeled_xtor("inst",netd='netd',netg='netg',
+                                        nets=netlister.GND,netb=netlister.GND,dt=None),
+            netlister.nstr_IDC("D",netp='netd',netm=netlister.GND,dc=0),
+            netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=0)]
+
+    def get_analysis_listing(self,netlister:Netlister):
+        w=self.model_paramset.get_total_device_width()
+        analysis_listing=[]
+        for i_vg,vg in enumerate(self.vg_values,start=1):
+            analysis_listing.append(netlister.astr_altervdc('G',vg))
+            analysis_listing.append(netlister.astr_sweepidc('D',name=f'idvd_vgnum{i_vg}',
+                            start=-self.idow_range[0]*w,step=-self.idow_range[1]*w,stop=-self.idow_range[2]*w))
+        return analysis_listing
+
+    def parse_return(self,result):
+        parsed_result={}
+        for i_vg,vg in enumerate(self.vg_values,start=1):
+            for key in result:
+                if f'idvd_vgnum{i_vg}' in key:
+                    df=result[key].copy()
+                    sgn=-1 if self.pol=='p' else 1
+                    sgnstr="-" if self.pol=='p' else ''
+                    # You'd think this line would be 'id#p' instead of '#p'
+                    # But for some reason Ngspice or PySpice is not attaching a name to this sweeping-current branch
+                    # The '#p' only comes from my backend-code that smooths over the spectre-vs-spice deltas
+                    df[f'{sgnstr}ID/W [uA/um]']=-sgn*df['#p']/ \
+                                                self.model_paramset.get_total_device_width()
+                    df[f'{sgnstr}IG/W [uA/um]']=-sgn*df['vg#p']/ \
+                                                self.model_paramset.get_total_device_width()
+                    df['RW [kohm.um]']=df['netd']/(sgn*df[f'{sgnstr}ID/W [uA/um]']) * 1e3
+                    parsed_result[vg]=df.rename(columns= \
+                                                    {'netd':'VD','netg':'VG'}) \
+                        [['VD','VG',f'{sgnstr}ID/W [uA/um]',f'{sgnstr}IG/W [uA/um]','RW [kohm.um]']]
+        return parsed_result
+
+    def generate_figures(self,*args,**kwargs):
+        kwargs['y_axis_type']=kwargs.get('y_axis_type',self.yscale)
+        return super().generate_figures(*args,**kwargs)
+
+    def _rescale_vector(self, arr, col, meas_arr):
+        return arr
+
 class CVTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args,
@@ -606,18 +672,18 @@ class SParTemplate(MultiSweepSimTemplate):
     def _make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params, y_axis_type='log',x_axis_type='log'):
         assert y_axis_type=='log'
         assert x_axis_type=='log'
-        figpow=bokeh.plotting.figure(tools=get_tools(),x_axis_type='log',**layout_params)
-        figpow.circle(x='x',y='|h21| [dB]',source=meas_cds_c,color='blue',legend_label='h21')
-        figpow.multi_line(xs='x',ys='|h21| [dB]',source=meas_cds_l,color='blue',legend_label='h21')
-        figpow.multi_line(xs='x',ys='|h21| [dB]',source=sim_cds,color='red',legend_label='h21')
+        figpow=bokeh.plotting.figure(tools=get_tools(),x_axis_type='log',**layout_params,tooltips=[('','$x Hz'),('','$name = $y')])
+        figpow.circle(x='x',y='|h21| [dB]',source=meas_cds_c,color='blue',legend_label='h21',name='|h21| meas')
+        figpow.multi_line(xs='x',ys='|h21| [dB]',source=meas_cds_l,color='blue',legend_label='h21',name='|h21| meas')
+        figpow.multi_line(xs='x',ys='|h21| [dB]',source=sim_cds,color='red',legend_label='h21',name='|h21| sim')
 
-        figpow.circle(x='x',y='U [dB]',source=meas_cds_c,color='green',legend_label='U')
-        figpow.multi_line(xs='x',ys='U [dB]',source=meas_cds_l,color='green',legend_label='U')
-        figpow.multi_line(xs='x',ys='U [dB]',source=sim_cds,color='orange',legend_label='U')
+        figpow.circle(x='x',y='U [dB]',source=meas_cds_c,color='green',legend_label='U',name='U meas')
+        figpow.multi_line(xs='x',ys='U [dB]',source=meas_cds_l,color='green',legend_label='U',name='U meas')
+        figpow.multi_line(xs='x',ys='U [dB]',source=sim_cds,color='orange',legend_label='U',name='U sim')
 
-        figpow.circle(x='x',y='MAG-MSG [dB]',source=meas_cds_c,color='lightblue',legend_label='MAG/MSG')
-        figpow.multi_line(xs='x',ys='MAG-MSG [dB]',source=meas_cds_l,color='lightblue',legend_label='MAG/MSG')
-        figpow.multi_line(xs='x',ys='MAG-MSG [dB]',source=sim_cds,color='burlywood',legend_label='MAG/MSG')
+        figpow.circle(x='x',y='MAG-MSG [dB]',source=meas_cds_c,color='lightblue',legend_label='MAG/MSG',name='MAG/MSG meas')
+        figpow.multi_line(xs='x',ys='MAG-MSG [dB]',source=meas_cds_l,color='lightblue',legend_label='MAG/MSG',name='MAG/MSG meas')
+        figpow.multi_line(xs='x',ys='MAG-MSG [dB]',source=sim_cds,color='burlywood',legend_label='MAG/MSG',name='MAG/MSG sim')
 
         figpow.yaxis.axis_label='Power Gain [dB]'
         figpow.xaxis.axis_label='Frequency [Hz]'

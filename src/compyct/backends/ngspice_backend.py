@@ -59,7 +59,11 @@ class NgspiceNetlister(Netlister):
     @staticmethod
     def nstr_VDC(name,netp,netm,dc):
         return f"V{name} {netp} {netm} dc {dc}"
-        
+
+    @staticmethod
+    def nstr_IDC(name,netp,netm,dc):
+        return f"I{name} {netp} {netm} dc {dc}"
+
     @staticmethod
     def nstr_VAC(name,netp,netm,dc,ac=1):
         return f"V{name} {netp} {netm} dc {dc} ac {ac}"
@@ -89,7 +93,7 @@ class NgspiceNetlister(Netlister):
     def astr_altervdc(self,whichv, tovalue, name=None):
         return lambda ngss:\
                     (None,ngss.alter_device(f'v{whichv.lower()}',dc=tovalue))
-        
+
     def astr_sweepvdc(self,whichv, start, stop, step, name=None):
         def sweepvdc(ngss):
             ngss.exec_command(f"dc v{whichv.lower()} {start} {stop} {step}")
@@ -98,6 +102,15 @@ class NgspiceNetlister(Netlister):
             ngss.destroy()
             return ret
         return sweepvdc
+
+    def astr_sweepidc(self,whichi, start, stop, step, name=None):
+        def sweepidc(ngss):
+            ngss.exec_command(f"dc i{whichi.lower()} {start} {stop} {step}")
+            with catch_stderr(["Unit is None"]):
+                ret=name, self.analysis_to_df(ngss.plot(None,ngss.last_plot).to_analysis())
+            ngss.destroy()
+            return ret
+        return sweepidc
         
     def astr_sweepvac(self, whichv, start, stop, step, freq, name=None):
         def sweepvac(ngss):
