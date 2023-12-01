@@ -56,6 +56,10 @@ class SpectreNetlister(Netlister):
     def nstr_VAC(name,netp,netm,dc,ac=1):
         return f"V{name} ({netp} {netm}) vsource dc={n2scs(dc)} mag={n2scs(ac)} type=dc"
 
+    @staticmethod
+    def nstr_port(name,netp,netm,dc,portnum,z0=50):
+        return f"PORT{portnum} ({netp} {netm}) port r={n2scs(z0)} dc={n2scs(dc)} type=sine"
+    
     def nstr_iabstol(self,abstol):
         return f"simulatorOptions options iabstol={n2scs(abstol)}"
 
@@ -81,6 +85,12 @@ class SpectreNetlister(Netlister):
             self._analysiscount+=1
         return f"{name} ac dev=V{whichv} param=dc start={n2scs(start)}"\
             f" stop={n2scs(stop)} step={n2scs(step)} freq={n2scs(freq)}"
+        
+    def astr_spar(self, pts_per_dec, fstart, fstop, name=None):
+        if name is None:
+            name=f"sweepspar{self._analysiscount}"
+            self._analysiscount+=1
+        return f"{name} sp ports=[PORT1 PORT2] start={n2scs(fstart)} stop={n2scs(fstop)} dec={pts_per_dec} annotate=status"
         
     # def nstr_alter(dev,param,value,name=None):
     #     if name is None:
@@ -149,6 +159,8 @@ class SpectreNetlister(Netlister):
         def standardize_col(k):
             if k=='dc':
                 return 'v-sweep'
+            elif k in ['s11','s12','s21','s22']:
+                return k.upper()
             else:
                 return (k.lower().replace(":","#"))
         def standardize_swname(k):
