@@ -381,15 +381,16 @@ class DCIVTemplate(JointTemplate):
 
 class DCKelvinIDVDTemplate(MultiSweepSimTemplate):
 
-    def __init__(self, *args, pol='n', temp=27, yscale='linear',
-                 vg_values=[0,.6,1.2,1.8], idow_range=(.1,.1,1), **kwargs):
+    def __init__(self, *args, pol='n', temp=27, yscale='linear', shunt=None,
+                 vg_values=[0,.6,1.2,1.8], idow_range=(.1e3,.1e3,1e3), **kwargs):
         self.yscale=yscale
-        super().__init__(outer_variable='VG', inner_variable=('ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]'),
-                         outer_values=vg_values, inner_range=idow_range,
+        super().__init__(outer_variable='VG', inner_variable=('ID/W [mA/um]' if pol=='n' else '-ID/W [mA/um]'),
+                         outer_values=vg_values, inner_range=np.array(idow_range)/1e3,
                          ynames=['RW [kohm.um]'],
                          *args, **kwargs)
         self.temp=temp
         self.pol=pol
+        self.shunt=shunt
 
         num_id=(idow_range[2]-idow_range[0])/idow_range[1]
         assert abs(num_id-round(num_id))<1e-3, f"Make sure the KelvinIdVd range gives even steps {str(idow_range)}"
@@ -397,7 +398,7 @@ class DCKelvinIDVDTemplate(MultiSweepSimTemplate):
     @property
     def vg_values(self): return self.outer_values
     @property
-    def idow_range(self): return self.inner_range
+    def idow_range(self): return self.inner_range*1e3
 
     def get_schematic_listing(self,netlister:Netlister):
         return [
@@ -405,6 +406,7 @@ class DCKelvinIDVDTemplate(MultiSweepSimTemplate):
             netlister.nstr_temp(temp=self.temp),
             netlister.nstr_modeled_xtor("inst",netd='netd',netg='netg',
                                         nets=netlister.GND,netb=netlister.GND,dt=None),
+            *([netlister.nstr_R("shunt",netp='netd',netm=netlister.GND,r=self.shunt)] if self.shunt else[]),
             netlister.nstr_IDC("D",netp='netd',netm=netlister.GND,dc=0),
             netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=0)]
 
@@ -428,14 +430,14 @@ class DCKelvinIDVDTemplate(MultiSweepSimTemplate):
                     # You'd think this line would be 'id#p' instead of '#p'
                     # But for some reason Ngspice or PySpice is not attaching a name to this sweeping-current branch
                     # The '#p' only comes from my backend-code that smooths over the spectre-vs-spice deltas
-                    df[f'{sgnstr}ID/W [uA/um]']=-sgn*df['#p']/ \
+                    df[f'{sgnstr}ID/W [mA/um]']=-sgn*df['#p']/1e3/ \
                                                 self.model_paramset.get_total_device_width()
-                    df[f'{sgnstr}IG/W [uA/um]']=-sgn*df['vg#p']/ \
+                    df[f'{sgnstr}IG/W [mA/um]']=-sgn*df['vg#p']/1e3/ \
                                                 self.model_paramset.get_total_device_width()
-                    df['RW [kohm.um]']=df['netd']/(sgn*df[f'{sgnstr}ID/W [uA/um]']) * 1e3
+                    df['RW [kohm.um]']=df['netd']/(sgn*df[f'{sgnstr}ID/W [mA/um]'])
                     parsed_result[vg]=df.rename(columns= \
                                                     {'netd':'VD','netg':'VG'}) \
-                        [['VD','VG',f'{sgnstr}ID/W [uA/um]',f'{sgnstr}IG/W [uA/um]','RW [kohm.um]']]
+                        [['VD','VG',f'{sgnstr}ID/W [mA/um]',f'{sgnstr}IG/W [mA/um]','RW [kohm.um]']]
         return parsed_result
 
     def generate_figures(self,*args,**kwargs):

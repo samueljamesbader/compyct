@@ -336,9 +336,12 @@ class MVSGParamSet(CMCParamSet):
                 spicenum_to_float(self.get_value('ngf'))
         
 class ASMHEMTParamSet(CMCParamSet):
+    # TODO: actually assess terminals instead of defining here
     terminals=['d','g','s','b','dt']
+    asmhemt_model='asmhemt'
+    asmhemt_vaname='asmhemt.va'
     def __init__(self,**kwargs):
-        super().__init__(model='asmhemt',vaname="asmhemt.va",**kwargs)
+        super().__init__(model=self.asmhemt_model,vaname=self.asmhemt_vaname,**kwargs)
 
         # Overrides where ASMHEMT 101.2.0 documentation is incorrect
         self._shared_paramdict['cgso']['units']='F/m' # Documentation says F
@@ -368,5 +371,3 @@ class ASMHEMTParamSet(CMCParamSet):
     def get_total_device_width(self):
         return spicenum_to_float(self.get_value('w'))*\
                 spicenum_to_float(self.get_value('nf'))
-        
-# TODO: actually assess terminals instead of defining here

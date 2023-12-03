@@ -114,6 +114,10 @@ class SemiAutoOptimizer():
                         bounds_dict=dict(zip(actives,zip(*bounds)))
                         latest={a:self.global_patch[a] for a in actives}
                         raise OptimizationException(bounds=bounds_dict,latest=latest, sim_err=e)
+                    elif '`x0` is infeasible.' in str(e):
+                        bounds_dict=dict(zip(actives,zip(*bounds)))
+                        latest={a:self.global_patch[a] for a in actives}
+                        raise OptimizationException(bounds=bounds_dict,latest=latest, sim_err=e)
                     else:
                         raise
 

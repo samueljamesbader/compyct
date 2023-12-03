@@ -61,6 +61,10 @@ class NgspiceNetlister(Netlister):
         return f"V{name} {netp} {netm} dc {dc}"
 
     @staticmethod
+    def nstr_R(name,netp,netm,r):
+        return f"R{name} {netp} {netm} {r}"
+
+    @staticmethod
     def nstr_IDC(name,netp,netm,dc):
         return f"I{name} {netp} {netm} dc {dc}"
 
