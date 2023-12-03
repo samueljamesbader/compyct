@@ -715,9 +715,13 @@ class TemplateGroup:
         self.temps=templates
         self._panes={}
     def set_paramset(self,params_by_template):
-        assert set(params_by_template.keys())==set(self.temps.keys())
-        for k,t in self.temps.items():
-            t.set_paramset(params_by_template[k])
+        if isinstance(params_by_template,ParamSet):
+            for t in self.temps.values():
+                t.set_paramset(params_by_template)
+        else:
+            assert set(params_by_template.keys())==set(self.temps.keys())
+            for k,t in self.temps.items():
+                t.set_paramset(params_by_template[k])
     def __getitem__(self,key):
         return self.temps[key]
     def items(self) -> list[tuple[str,SimTemplate]]:
