@@ -182,6 +182,7 @@ class SemiAutoOptimizerGui(CompositeWidget):
         self._widgets={}
         self._checkboxes={}
         self._wlines={}
+        self._hovers={}
         self._wcols={}
         self._tabname_to_vizid={}
 
@@ -193,19 +194,40 @@ class SemiAutoOptimizerGui(CompositeWidget):
 
             self._widgets[tabname]={param:make_widget(self.global_patch._ps_example, param, self.global_patch[param])
                                     for param in self.tabbed_actives[tabname]}
+            self._hovers[tabname]={param:pn.widgets.Button(name='?') for param in self.tabbed_actives[tabname]}
+            for p,h in self._hovers[tabname].items():
+                h.on_click(lambda e,p=p: logger.info(f"{p}: {self.global_patch._ps_example.get_description(p)}"))
             self._checkboxes[tabname]={
                 param:pn.widgets.Checkbox(value=(self.global_patch._ps_example.get_dtype(param)==float),
                                           width=5,sizing_mode='stretch_height',
                                           disabled=(self.global_patch._ps_example.get_dtype(param)!=float))\
                     for param in self.tabbed_actives[tabname]}
             self._wlines[tabname]={p:pn.Row(pn.Column(
-                                             pn.VSpacer(),pn.VSpacer(),c,pn.VSpacer(),width=15,height=60),w)
-                                   for (p,c),w in zip(self._checkboxes[tabname].items(),
-                                                      [w for w,_ in self._widgets[tabname].values()])}
+                                             pn.VSpacer(),pn.VSpacer(),c,pn.VSpacer(),width=15,height=60),w,h)
+                                   for (p,c),w,h in zip(self._checkboxes[tabname].items(),
+                                                      [w for w,_ in self._widgets[tabname].values()],
+                                                      self._hovers[tabname].values())}
             for param,(w,_) in self._widgets[tabname].items():
                 w.param.watch((lambda event, tabname=tabname, param=param: self._updated_widget(tabname,param)),'value')
-            self._wcols[tabname]=pn.Column(*self._wlines[tabname].values(),
-                                     width=175,sizing_mode='stretch_height',scroll=True)
+
+            p_by_cat={}
+            pse=self._sao.global_patch._ps_example
+            for p in self._wlines[tabname]:
+                cat=pse._shared_paramdict[p].get("category","Misc")
+                if cat not in p_by_cat: p_by_cat[cat]=[]
+                p_by_cat[cat].append(p)
+            for cat in p_by_cat:
+                p_by_cat[cat]=list(sorted(p_by_cat[cat],key=lambda p: ((pse.get_dtype(p) is not int), p)))
+            self._wcols[tabname]=pn.Column(pn.layout.Accordion(
+                    *[(cat,pn.Column(*(self._wlines[tabname][p] for p in p_by_cat[cat])))
+                        for cat in sorted(p_by_cat)],
+                    active=list(range(len(p_by_cat))),
+                    sizing_mode='fixed',
+                    width=175,),
+                    width=200,sizing_mode='stretch_height',scroll=True)
+
+            #self._wcols[tabname]=pn.Column(acc,
+                                     #width=175,sizing_mode='stretch_height',scroll=True)
             content=pn.Row(self._wcols[tabname],fp)
 
             tabs.append((tabname,content))
@@ -214,7 +236,7 @@ class SemiAutoOptimizerGui(CompositeWidget):
         sesh_button=self._sesh_button=pn.widgets.Button(name="Start Sesh")
         opt_button=pn.widgets.Button(name="Optimize tab")
         running_ind=self.running_ind=pn.widgets.LoadingSpinner(value=False,size=25)
-        save_name_input=self._save_name_input=pn.widgets.TextInput(value=self._default_save_name,width=100)
+        save_name_input=self._save_name_input=pn.widgets.TextInput(value=self._default_save_name,width=200)
         save_button=pn.widgets.Button(name="Save")
         load_button=pn.widgets.Button(name="Load")
 
@@ -225,6 +247,7 @@ class SemiAutoOptimizerGui(CompositeWidget):
         self._tabs.param.watch(self._tab_changed,['active'])
         self._log_view=pn.widgets.TextAreaInput(sizing_mode='stretch_both')
 
+        logger.debug("Really should redo vis now.... ???")
         self.redo_widget_visibility()
         return pn.Column(pn.Row(sesh_button,opt_button,running_ind,pn.HSpacer(),save_name_input,save_button,load_button,sizing_mode='stretch_width'),
                          self._tabs,self._log_view,height=550)
@@ -335,9 +358,14 @@ class SemiAutoOptimizerGui(CompositeWidget):
         #try:
         for t,wlines in self._wlines.items():
             for param, wline in wlines.items():
-                wline.styles={'display':{None:'none',False:'none',True:'flex'}[
-                                            not self._sao.global_patch.is_param_irrelevant(param)]}
+                # standard invisible method
                 #wline.visible=(not self._sao.global_patch.is_param_irrelevant(param))
+                # hack invisible method
+                #wline.styles={'display':{None:'none',False:'none',True:'flex'}[
+                #                            not self._sao.global_patch.is_param_irrelevant(param)]}
+                # Disable method
+                wline.objects[1].disabled=(self._sao.global_patch.is_param_irrelevant(param) is True)
+                wline.objects[0].objects[2].disabled=(self._sao.global_patch.is_param_irrelevant(param) is True)
         #finally:
         #    bokeh.io.curdoc().unhold()
         logger.info(f"done redo vis")

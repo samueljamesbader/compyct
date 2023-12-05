@@ -7,6 +7,7 @@ import os
 from copy import copy as _copy
 import numpy as np
 
+from compyct import logger
 from compyct.backends.backend import get_va_path
 
 
@@ -59,6 +60,8 @@ class ParamSet():
 
     def get_units(self,param) -> str:
         return self._shared_paramdict[param]['units']
+    def get_description(self,param) -> str:
+        return self._shared_paramdict[param].get('desc',None)
     def get_display_units(self,param) -> str:
         d=self._shared_paramdict[param]
         return d.get('display_units',d['units'])
@@ -136,7 +139,9 @@ class ParamPatch(UserDict):
             if controller not in self:
                 return None
             else:
-                return not (self[controller] in values)
+                #if param=='rc':
+                #    logger.debug(f"Current controller value {self[controller]}, relevant values are {values}")
+                return not (int(self[controller]) in [int(v) for v in values])
 
 
     #def generate_from_example(self):
@@ -268,13 +273,13 @@ class CMCParamSet(ParamSet):
                    case 5:
                        macro,name,default,units,desc=[x.strip() for x in line]
                        paramset[name]=\
-                           {'macro':macro,'default':default,'units':units,'desc':desc}
+                           {'macro':macro,'default':default,'units':units,'desc':desc[:-1].strip()}
                    case 7:
                        macro,name,default,units,lower,upper,desc=\
                            [x.strip() for x in line]
                        paramset[name]=\
                            {'macro':macro,'default':default,'units':units,
-                            'desc':desc,'lower':lower,'upper':upper}
+                            'desc':desc[:-1].strip(),'lower':lower,'upper':upper}
                    case _:
                        raise Exception("Can't read line, best guess is "+",".join(l))
             self.__class__._shared_paramdict=paramset
@@ -356,17 +361,18 @@ class ASMHEMTParamSet(CMCParamSet):
         self._shared_paramdict['rth0']['units']=self._shared_paramdict['rth0']['units'].replace('w','W')
         self._shared_paramdict['cth0']['units']=self._shared_paramdict['cth0']['units'].replace('w','W')
 
-        for param in ['vsataccs',
-                      'ns0accs','ns0accd','k0accs','k0accd','u0accs','u0accd',
-                      'mexpaccs','mexpaccd',
-                      'rsc','rdc',
-                      'kns0','ats','utes','uted','krsc','krdc']:
-            self._shared_paramdict[param]['only_relevant_if']=('rdsmod',(1,))
-            self._shared_paramdict[param]['category']='Access & Contact'
-        for param in ['cdlag','rdlag','idio',
-                      'atrapvoff','btrapvoff','atrapeta0','btrapeta0','atraprs','btraprs','atraprd','btraprd']:
-            self._shared_paramdict[param]['only_relevant_if']=('trapmod',(1,))
-            self._shared_paramdict[param]['category']='Traps'
+        # Currently this is mostly overridden by changes in UserParamSets so...
+        #for param in ['vsataccs',
+        #              'ns0accs','ns0accd','k0accs','k0accd','u0accs','u0accd',
+        #              'mexpaccs','mexpaccd',
+        #              'rsc','rdc',
+        #              'kns0','ats','utes','uted','krsc','krdc']:
+        #    self._shared_paramdict[param]['only_relevant_if']=('rdsmod',(1,))
+        #    self._shared_paramdict[param]['category']='Access & Contact'
+        #for param in ['cdlag','rdlag','idio',
+        #              'atrapvoff','btrapvoff','atrapeta0','btrapeta0','atraprs','btraprs','atraprd','btraprd']:
+        #    self._shared_paramdict[param]['only_relevant_if']=('trapmod',(1,))
+        #    self._shared_paramdict[param]['category']='Traps'
 
     def get_total_device_width(self):
         return spicenum_to_float(self.get_value('w'))*\
