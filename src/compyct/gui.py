@@ -8,7 +8,7 @@ from bokeh.models.formatters import BasicTickFormatter
 
 from compyct.paramsets import spicenum_to_float, ParamPatch
 
-from compyct.util import is_notebook
+from compyct.util import is_notebook, logger
 from bokeh.models.tools import LassoSelectTool
 def get_tools():
     # Normally holding SHIFT switches the selection-mode to 'append'... but that doesn't work in Jupyter for some reason
@@ -25,31 +25,20 @@ def make_widget(model_paramset, param_name, center):
     disp_units=model_paramset.get_display_units(param_name)
     name_with_units=param_name+(f" [{disp_units}]"
                                 if (disp_units is not None and disp_units!="") else "")
-    bounds=model_paramset.get_bounds(param_name)
+    try:
+        bounds=model_paramset.get_bounds(param_name)
+    except:
+        logger.critical(f"Trouble getting bounds for {param_name}")
+        raise
     center=spicenum_to_float(center)
     #if bounds[1] is not None and bounds[1]<1e-16: raise Exception(f"Gonna have step error for {param_name}")
     if (dtype:=model_paramset.get_dtype(param_name)) is float:
+        disp_scale=model_paramset.get_display_scale(param_name)
         try:
-            disp_scale=(ureg.parse_expression(true_units)/ureg.parse_expression(disp_units)).to("").magnitude
-        except DimensionalityError as e:
-            raise Exception(f"Units of {true_units} and Display Units of {disp_units}"\
-                            f" for {param_name} are not compatible. Pint says \"{str(e)}\"")
-        except Exception as e:
-            raise Exception(f"Unit error on {param_name}. Pint says \"{str(e)}\"")
-        try:
-            #disp_scale=ureg.parse_expression(true_units).to(disp_units).magnitude
-            #w=pn.widgets.FloatInput(name=name_with_units,
-            #                             start=bounds[0]*disp_scale,
-            #                             step=bounds[1]*disp_scale,
-            #                             value=(center if center is not None\
-            #                                 else spicenum_to_float( model_paramset.get_default(param_name)))*disp_scale,
-            #                             sizing_mode='stretch_width',
-            #                             format=BasicTickFormatter(precision=5)
-            #                        )
             value=(center if center is not None\
                 else spicenum_to_float( model_paramset.get_default(param_name)))*disp_scale
             w=pn.widgets.TextInput(name=name_with_units,value=f"{value:.5g}",sizing_mode='stretch_width')
-            return w,disp_scale
+            return w
         except:
             print(name_with_units,bounds,center)
             raise
@@ -63,7 +52,7 @@ def make_widget(model_paramset, param_name, center):
                                 value=int(center),
                                 sizing_mode='stretch_width'
                                 )
-            return w,1
+            return w
         else:
             raise Exception(f"What to do for {param_name}?")
     else:

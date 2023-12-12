@@ -61,6 +61,8 @@ class SemiAutoOptimizer():
             pickle.dump({'global_values':dict(self.global_patch),'additional':additional},f)
 
     def start_sesh(self):
+        for _,t in self.global_template_group.items():
+            t.apply_patch(self.global_patch)
         self._mss.__enter__()
 
     def end_sesh(self):
@@ -79,21 +81,21 @@ class SemiAutoOptimizer():
         actives=only_actives if only_actives else self.tabbed_actives[tabname]
         #print(f"optimizing with {actives}")
         def _f(mss,*args):
-            pvs={a:v*self.global_patch._ps_example.get_scale(a) for a,v in zip(actives,args)}
+            pvs={a:v*self.global_patch.get_scale(a) for a,v in zip(actives,args)}
             self.global_patch.update(pvs)
             return self._tabbed_template_groups[tabname].parsed_results_to_vector(
                 mss.run_with_params(self.global_patch,
                                     only_temps=self._tabbed_template_groups[tabname],),
                     self.tabbed_rois[tabname], meas_parsed_results=self.global_meas_data)
 
-        bounds=list(zip(*[np.array(self.global_patch._ps_example.get_bounds(a,null=np.inf))[[0,2]]/self.global_patch._ps_example.get_scale(a) for a in actives]))
+        bounds=list(zip(*[np.array(self.global_patch.get_bounds(a,null=np.inf))[[0,2]]/self.global_patch.get_scale(a) for a in actives]))
         #bounds=[[(b if b is not None else np.inf) for b in bi] for bi in bounds]
         try:
             with self.ensure_within_sesh() as mss:
                 meas_vector=self._tabbed_template_groups[tabname].parsed_results_to_vector(
                     self.global_meas_data,self.tabbed_rois[tabname],meas_parsed_results=self.global_meas_data)
 
-                p0=[spicenum_to_float(self.global_patch[a])/self.global_patch._ps_example.get_scale(a) for a in actives]
+                p0=[spicenum_to_float(self.global_patch[a])/self.global_patch.get_scale(a) for a in actives]
                 #print(p0)
                 #print(f"Initial args {dict(zip(actives,p0))}")
                 #print(f"Meas vec {meas_vector}")
@@ -185,6 +187,7 @@ class SemiAutoOptimizerGui(CompositeWidget):
         self._hovers={}
         self._wcols={}
         self._tabname_to_vizid={}
+        self._param_to_widgets={}
 
         vizid_offset=round(datetime.now().timestamp()*1e3)
         for vizid_, (tabname, tg) in enumerate(self._tabbed_template_groups.items()):
@@ -192,32 +195,34 @@ class SemiAutoOptimizerGui(CompositeWidget):
             self._tabname_to_vizid[tabname]=vizid
             fp=tg.get_figure_pane(meas_data=self.global_meas_data,fig_layout_params=self._fig_layout_params,vizid=vizid)
 
-            self._widgets[tabname]={param:make_widget(self.global_patch._ps_example, param, self.global_patch[param])
+            self._widgets[tabname]={param:make_widget(self.global_patch.param_set, param, self.global_patch[param])
                                     for param in self.tabbed_actives[tabname]}
             self._hovers[tabname]={param:pn.widgets.Button(name='?') for param in self.tabbed_actives[tabname]}
             for p,h in self._hovers[tabname].items():
-                h.on_click(lambda e,p=p: logger.info(f"{p}: {self.global_patch._ps_example.get_description(p)}"))
+                h.on_click(lambda e,p=p: logger.info(f"{p}: {self.global_patch.get_description(p)}"))
             self._checkboxes[tabname]={
-                param:pn.widgets.Checkbox(value=(self.global_patch._ps_example.get_dtype(param)==float),
+                param:pn.widgets.Checkbox(value=(self.global_patch.get_dtype(param)==float),
                                           width=5,sizing_mode='stretch_height',
-                                          disabled=(self.global_patch._ps_example.get_dtype(param)!=float))\
+                                          disabled=(self.global_patch.get_dtype(param)!=float))\
                     for param in self.tabbed_actives[tabname]}
             self._wlines[tabname]={p:pn.Row(pn.Column(
                                              pn.VSpacer(),pn.VSpacer(),c,pn.VSpacer(),width=15,height=60),w,h)
                                    for (p,c),w,h in zip(self._checkboxes[tabname].items(),
-                                                      [w for w,_ in self._widgets[tabname].values()],
+                                                      self._widgets[tabname].values(),
                                                       self._hovers[tabname].values())}
-            for param,(w,_) in self._widgets[tabname].items():
+            for param,w in self._widgets[tabname].items():
                 w.param.watch((lambda event, tabname=tabname, param=param: self._updated_widget(tabname,param)),'value')
 
-            p_by_cat={}
-            pse=self._sao.global_patch._ps_example
-            for p in self._wlines[tabname]:
-                cat=pse._shared_paramdict[p].get("category","Misc")
-                if cat not in p_by_cat: p_by_cat[cat]=[]
-                p_by_cat[cat].append(p)
-            for cat in p_by_cat:
-                p_by_cat[cat]=list(sorted(p_by_cat[cat],key=lambda p: ((pse.get_dtype(p) is not int), p)))
+            p_by_cat=self._sao.global_patch.param_set.get_categorized(list(self.tabbed_actives[tabname]))
+            for p, w in self._widgets[tabname].items():
+                self._param_to_widgets[p]=self._param_to_widgets.get(p,[])+[w]
+            #pse=self._sao.global_patch._ps_example
+            #for p in self._wlines[tabname]:
+            #    cat=pse._shared_paramdict[p].get("category","Misc")
+            #    if cat not in p_by_cat: p_by_cat[cat]=[]
+            #    p_by_cat[cat].append(p)
+            #for cat in p_by_cat:
+            #    p_by_cat[cat]=list(sorted(p_by_cat[cat],key=lambda p: ((pse.get_dtype(p) is not int), p)))
             self._wcols[tabname]=pn.Column(pn.layout.Accordion(
                     *[(cat,pn.Column(*(self._wlines[tabname][p] for p in p_by_cat[cat])))
                         for cat in sorted(p_by_cat)],
@@ -316,8 +321,9 @@ class SemiAutoOptimizerGui(CompositeWidget):
     def reset_all_figures(self, except_for=None):
         for tn,vizid in self._tabname_to_vizid.items():
             if except_for==tn: continue
+            if not self._needs_rerun[tn]:
+                self._tabbed_template_groups[tn].update_figures(None,vizid=vizid)
             self._needs_rerun[tn]=True
-            self._tabbed_template_groups[tn].update_figures(None,vizid=vizid)
 
 
     def _tab_changed(self, event):
@@ -330,9 +336,11 @@ class SemiAutoOptimizerGui(CompositeWidget):
             #print('updated widget')
             if self._active_tab==tabname:
                 #import pdb; pdb.set_trace()
-                values={n:float(w.value)/dscale for n,(w,dscale) in self._widgets[tabname].items()}
+                values={n:float(w.value)/self.global_patch.get_display_scale(n) for n,w in self._widgets[tabname].items()}
                 self.global_patch.update(values)
-                self.update_widgets_from_global_patch(only_param=param)
+                logger.debug(f'Re-updating widgets from patch')
+                #self.update_widgets_from_global_patch(only_param="YYYYYYYYYYYY")
+                self.update_widgets_from_global_patch(only_param=param) # Can hopefully skip this, except would need to update visibility manually
                 logger.debug(f'about to reset figures')
                 self.reset_all_figures(except_for=tabname)
                 logger.debug(f'about to rerun')
@@ -342,14 +350,16 @@ class SemiAutoOptimizerGui(CompositeWidget):
     def update_widgets_from_global_patch(self,only_param=None):
         #print("Updating widgets from global patch")
         with self.dont_trigger_param_widgets():
-            for t,widgets in self._widgets.items():
-                for param in widgets:
-                    if (only_param is None) or (param==only_param):
-                        w,dscale=widgets[param]
-                        if isinstance(w,pn.widgets.TextInput):
-                            w.value=f"{spicenum_to_float(self.global_patch[param])*dscale:.5g}"
-                        else:
-                            w.value=spicenum_to_float(self.global_patch[param])*dscale
+            params=[only_param] if only_param else self._param_to_widgets.keys()
+            for param in params:
+                w0=self._param_to_widgets[param][0]
+                dscale=self.global_patch.get_display_scale(param)
+                if isinstance(w0,pn.widgets.TextInput):
+                    value=f"{spicenum_to_float(self.global_patch[param])*dscale:.5g}"
+                else:
+                    value=spicenum_to_float(self.global_patch[param])*dscale
+                for widget in self._param_to_widgets[param]:
+                    widget.value=value
         self.redo_widget_visibility()
 
     def redo_widget_visibility(self):

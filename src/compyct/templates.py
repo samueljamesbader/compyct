@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 import numpy as np
 import bokeh
 import bokeh.plotting
@@ -10,20 +12,21 @@ from compyct import logger
 from compyct.backends.backend import Netlister
 from compyct.gui import fig_legend_config, get_tools
 
-from compyct.paramsets import ParamSet, spicenum_to_float, ParamPlace
+from compyct.paramsets import ParamPatch, spicenum_to_float, ParamPlace
 from compyct.util import s2y
 
 
 
 class SimTemplate():
     title='Unnamed plot'
-    def __init__(self, model_paramset=None, internals_to_save=[]):
-        if model_paramset is not None:
-            self.set_paramset(model_paramset)
+    def __init__(self, patch=None, internals_to_save=[]):
+        if patch is not None:
+            self.set_patch(patch)
         self.internals_to_save=internals_to_save
 
-    def set_paramset(self,model_paramset):
-        self.model_paramset=model_paramset.copy() if model_paramset else None
+    def set_patch(self,patch):
+        assert isinstance(patch,ParamPatch)
+        self._patch=patch.copy() if patch else None
         
     def parse_return(self, result):
         return result
@@ -49,13 +52,26 @@ class SimTemplate():
             cds.data=data
         return cds
 
-    def _validate_parsed_result(self,parsed_result):
+    def _validated(self, parsed_result):
         raise NotImplementedError
+
+    @contextmanager
+    def tentative_deltas(self,params):
+        assert isinstance(params, ParamPatch)
+        bk=self._patch.copy()
+        try:
+            yield self._patch.update_inplace_and_return_changes(params)
+        except:
+            self._patch.update_inplace_and_return_changes(bk)
+            raise
+
+    def apply_patch(self,params):
+        self._patch.update_inplace_and_return_changes(params)
 
 
     # def _get_instance_param_part(self):
-    #     return ' '.join(f'{k}=instparam_{k}' for k in self.model_paramset
-    #                     if self.model_paramset.get_place(k)==ParamPlace.INSTANCE)
+    #     return ' '.join(f'{k}=instparam_{k}' for k in self._patch
+    #                     if self._patch.get_place(k)==ParamPlace.INSTANCE)
             
 
 class MultiSweepSimTemplate(SimTemplate):
@@ -94,7 +110,7 @@ class MultiSweepSimTemplate(SimTemplate):
                =[self._update_cds_with_parsed_result(cds=None,parsed_result=None)]
 
         if meas_data is not None:
-            self._validate_parsed_result(meas_data)
+            self._validated(meas_data)
 
         meas_cds_c=self._update_cds_with_parsed_result(cds=None,
                     parsed_result=meas_data,flattened=True)
@@ -120,7 +136,8 @@ class MultiSweepSimTemplate(SimTemplate):
 
             fig.yaxis.axis_label=self.ynames[i]#",".join(self.ynames)
             fig.xaxis.axis_label=self.inner_variable
-            fig_legend_config(fig)
+            #fig_legend_config(fig)
+            fig.legend.visible=False
             figs.append(fig)
         return figs
 
@@ -128,7 +145,7 @@ class MultiSweepSimTemplate(SimTemplate):
         if parsed_result is None and self._fig_is_clear:
             return False
         logger.debug(f"Updating figure {self.__class__.__name__}")
-        self._validate_parsed_result(parsed_result)
+        self._validated(parsed_result)
         self._update_cds_with_parsed_result(
             cds=self._sources[vizid][0],parsed_result=parsed_result)
         self._fig_is_clear=(parsed_result is None)
@@ -141,13 +158,16 @@ class MultiSweepSimTemplate(SimTemplate):
         for roi in rois:
             for k,sl in roi.items():
                 inds,col=sl
-                arr.append(self._rescale_vector(parsed_results[k].loc[sl],col,meas_parsed_results[k].loc[sl]))
+                arr.append(self._rescale_vector(
+                    parsed_results[k].reset_index().loc[sl],
+                    col,
+                    meas_parsed_results[k].reset_index().loc[sl]))
         return np.concatenate(arr)
         
     def _rescale_vector(self, arr, col, meas_arr):
         raise NotImplementedError
 
-    def _validate_parsed_result(self,parsed_result):
+    def _validated(self, parsed_result):
         if parsed_result is None: return
         if self.outer_variable is not None:
             assert parsed_result.keys()==set(self.outer_values), \
@@ -165,6 +185,7 @@ class MultiSweepSimTemplate(SimTemplate):
             assert np.allclose(np.diff(val[self.inner_variable]),self.inner_range[1],rtol=1e-3), \
                 f"{self.__class__.__name__} expects Δ{self.inner_variable}={self.inner_range[1]},"\
                 f" but results have {list(np.diff(val[self.inner_variable]))}"
+        return parsed_result
 
 
 class DCIdVdTemplate(MultiSweepSimTemplate):
@@ -215,9 +236,9 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
                     sgn=-1 if self.pol=='p' else 1
                     sgnstr="-" if self.pol=='p' else ''
                     df[f'{sgnstr}ID/W [uA/um]']=-sgn*df['vd#p']/\
-                            self.model_paramset.get_total_device_width()
+                            self._patch.get_total_device_width()
                     df[f'{sgnstr}IG/W [uA/um]']=-sgn*df['vg#p']/\
-                            self.model_paramset.get_total_device_width()
+                            self._patch.get_total_device_width()
                     parsed_result[vg]=df.rename(columns=\
                                 {'netd':'VD','netg':'VG'})\
                             [['VD','VG',f'{sgnstr}ID/W [uA/um]',f'{sgnstr}IG/W [uA/um]']]
@@ -284,9 +305,9 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
                     sgn=-1 if self.pol=='p' else 1
                     sgnstr="-" if self.pol=='p' else ''
                     df[f'{sgnstr}ID/W [uA/um]']=-sgn*df['vd#p']/\
-                            self.model_paramset.get_total_device_width()
+                            self._patch.get_total_device_width()
                     df[f'{sgnstr}IG/W [uA/um]']=-sgn*df['vg#p']/\
-                            self.model_paramset.get_total_device_width()
+                            self._patch.get_total_device_width()
                     # TODO: reinstate column restriction (removed for device internals testing)
                     parsed_result[vd]=df.rename(columns=\
                                 {'netd':'VD','netg':'VG'})#\
@@ -311,20 +332,20 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
             return 5*arr/np.max(meas_arr)
 
 class JointTemplate(SimTemplate):
-    def __init__(self,subtemplates:dict, *args, model_paramset:ParamSet=None, **kwargs):
+    def __init__(self,subtemplates:dict, *args, patch:ParamPatch=None, **kwargs):
         self.subtemplates=subtemplates
-        super().__init__(model_paramset=model_paramset,*args,**kwargs)
+        super().__init__(patch=patch,*args,**kwargs)
 
-    def set_paramset(self,model_paramset):
-        super().set_paramset(model_paramset)
+    def set_patch(self,patch):
+        super().set_patch(patch)
         for st in self.subtemplates.values():
-            st.model_paramset=self.model_paramset
+            st._patch=self._patch
 
     def postparse_return(self,parsed_result):
         return {k:t.postparse_return(parsed_result[k])for k,t in self.subtemplates.items()}
 
-    def _validate_parsed_result(self,parsed_result):
-        {k:t._validate_parsed_result(parsed_result[k])for k,t in self.subtemplates.items()}
+    def _validated(self, parsed_result):
+        return {k:t._validated(parsed_result[k]) for k,t in self.subtemplates.items()}
 
     def update_figures(self, parsed_result, vizid=None):
         actually_did_update=False
@@ -411,7 +432,7 @@ class DCKelvinIDVDTemplate(MultiSweepSimTemplate):
             netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=0)]
 
     def get_analysis_listing(self,netlister:Netlister):
-        w=self.model_paramset.get_total_device_width()
+        w=self._patch.get_total_device_width()
         analysis_listing=[]
         for i_vg,vg in enumerate(self.vg_values,start=1):
             analysis_listing.append(netlister.astr_altervdc('G',vg))
@@ -431,9 +452,9 @@ class DCKelvinIDVDTemplate(MultiSweepSimTemplate):
                     # But for some reason Ngspice or PySpice is not attaching a name to this sweeping-current branch
                     # The '#p' only comes from my backend-code that smooths over the spectre-vs-spice deltas
                     df[f'{sgnstr}ID/W [mA/um]']=-sgn*df['#p']/1e3/ \
-                                                self.model_paramset.get_total_device_width()
+                                                self._patch.get_total_device_width()
                     df[f'{sgnstr}IG/W [mA/um]']=-sgn*df['vg#p']/1e3/ \
-                                                self.model_paramset.get_total_device_width()
+                                                self._patch.get_total_device_width()
                     df['RW [kohm.um]']=df['netd']/(sgn*df[f'{sgnstr}ID/W [mA/um]'])
                     parsed_result[vg]=df.rename(columns= \
                                                     {'netd':'VD','netg':'VG'}) \
@@ -488,7 +509,7 @@ class CVTemplate(MultiSweepSimTemplate):
         df=list(result.values())[0]
         I=-df['vg#p']
         df['Cgg [fF/um]']=np.imag(I)/(2*np.pi*freq) /1e-15 /\
-            (self.model_paramset.get_total_device_width()/1e-6)
+            (self._patch.get_total_device_width()/1e-6)
         df['VG']=np.real(df['v-sweep'])
         # TODO: reinstate column restriction (removed for device internals testing)
         parsed_result={0:df}#[['VG','Cgg [fF/um]']]}
@@ -554,9 +575,9 @@ class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
             mask=slice((i_vg*len(vd_sweep)),((i_vg+1)*len(vd_sweep))-1)
             df={}
             df['ID/W [uA/um]']=-result.loc[mask,'vd#p']/\
-                    self.model_paramset.get_total_device_width()
+                    self._patch.get_total_device_width()
             df['IG/W [uA/um]']=-result.loc[mask,'vg#p']/\
-                    self.model_paramset.get_total_device_width()
+                    self._patch.get_total_device_width()
             df['VD']=result.loc[mask,'netd']
             df['VG']=result.loc[mask,'netg']
             parsed_result[vg]=pd.DataFrame(df)
@@ -569,8 +590,8 @@ class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
     def _rescale_vector(self,arr,col, meas_arr):
         return arr
         
-    def _validate_parsed_result(self,parsed_result):
-        pass
+    def _validated(self, parsed_result):
+        return parsed_result
         #assert parsed_result.keys()==set([0])
         # TODO: check EVERYTHING
 
@@ -626,7 +647,7 @@ class SParTemplate(MultiSweepSimTemplate):
         #df=list(result.values())[0]
         #I=-df['vg#p']
         #df['Cgg [fF/um]']=np.imag(I)/(2*np.pi*freq) /1e-15 / \
-        #                  (self.model_paramset.get_total_device_width()/1e-6)
+        #                  (self._patch.get_total_device_width()/1e-6)
         #df['VG']=np.real(df['v-sweep'])
         #parsed_result={0:df[['VG','Cgg [fF/um]']]}
         return parsed_result
@@ -669,10 +690,10 @@ class SParTemplate(MultiSweepSimTemplate):
     def _rescale_vector(self,arr,col, meas_arr):
         return arr
 
-    def _validate_parsed_result(self,parsed_result):
+    def _validated(self, parsed_result):
         # Overriding because this does freq num points instead of freq delta
         # TODO: implement this
-        pass
+        return parsed_result
 
     def generate_figures(self,*args,**kwargs):
         kwargs['y_axis_type']=kwargs.get('y_axis_type','log')
@@ -714,16 +735,16 @@ class SParTemplate(MultiSweepSimTemplate):
 
 class TemplateGroup:
     def __init__(self,**templates):
-        self.temps=templates
+        self.temps: dict[str,SimTemplate] = templates
         self._panes={}
-    def set_paramset(self,params_by_template):
-        if isinstance(params_by_template,ParamSet):
+    def set_patch(self,params_by_template):
+        if isinstance(params_by_template,ParamPatch):
             for t in self.temps.values():
-                t.set_paramset(params_by_template)
+                t.set_patch(params_by_template)
         else:
             assert set(params_by_template.keys())==set(self.temps.keys())
             for k,t in self.temps.items():
-                t.set_paramset(params_by_template[k])
+                t.set_patch(params_by_template[k])
     def __getitem__(self,key):
         return self.temps[key]
     def items(self) -> list[tuple[str,SimTemplate]]:

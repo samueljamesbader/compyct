@@ -17,7 +17,7 @@ from io import StringIO
 from compyct.templates import SimTemplate
 from .backend import Netlister, MultiSimSesh, get_va_path, get_va_paths, SimulatorCommandException
 from compyct.paramsets import ParamSet, ParamPlace, spicenum_to_float, float_to_spicenum
-from ..util import catch_stderr
+from ..util import catch_stderr, logger
 
 PseudoAnalysis=namedtuple("PseudoAnalysis",["branches","nodes"])
 
@@ -34,7 +34,7 @@ class NgspiceNetlister(Netlister):
         self.__class__._netlist_num+=1
         self.circuit_name=f"Netlist{num}_{self.simtemp.__class__.__name__}"
         self.analyses=self.simtemp.get_analysis_listing(self)
-        self.modelcard_name=f"{self.simtemp.model_paramset.model}_standin"
+        self.modelcard_name=f"{self.simtemp._patch.model}_standin"
 
     def nstr_iabstol(self,abstol):
         return f".option abstol={float_to_spicenum(abstol)}"
@@ -45,12 +45,11 @@ class NgspiceNetlister(Netlister):
     def nstr_modeled_xtor(self,name,netd,netg,nets,netb,dt,inst_param_ovrd={},internals_to_save=[]):
         assert len(inst_param_ovrd)==0
         assert dt is None
-        ps=self.simtemp.model_paramset
-        assert ps.terminals[:4]==['d','g','s','b']
+        patch=self.simtemp._patch
+        assert patch.terminals[:4]==['d','g','s','b']
         inst_paramstr=' '.join(f'{k}={v}'\
-                for k,v in ps.get_values().items()
-                               if ps.get_place(k)==ParamPlace.INSTANCE)
-        has_dt_terminal='dt' in ps.terminals
+                for k,v in patch.filled().break_into_model_and_instance()[1].items())
+        has_dt_terminal='dt' in patch.terminals
         intstr=f"\n.save all "+\
                 " ".join([f"@n{name.lower()}[{k}]" for k in internals_to_save])
         return f"N{name.lower()} {netd} {netg} {nets} {netb} {'dt' if has_dt_terminal else ''}"\
@@ -100,7 +99,7 @@ class NgspiceNetlister(Netlister):
 
     def astr_sweepvdc(self,whichv, start, stop, step, name=None):
         def sweepvdc(ngss):
-            ngss.exec_command(f"dc v{whichv.lower()} {start} {stop} {step}")
+            ngss.exec_command(f"dc v{whichv.lower()} {start:.5g} {stop:.5g} {step:.5g}")
             with catch_stderr(["Unit is None"]):
                 ret=name, self.analysis_to_df(ngss.plot(None,ngss.last_plot).to_analysis())
             ngss.destroy()
@@ -109,7 +108,7 @@ class NgspiceNetlister(Netlister):
 
     def astr_sweepidc(self,whichi, start, stop, step, name=None):
         def sweepidc(ngss):
-            ngss.exec_command(f"dc i{whichi.lower()} {start} {stop} {step}")
+            ngss.exec_command(f"dc i{whichi.lower()} {start:.5g} {stop:.5g} {step:.5g}")
             with catch_stderr(["Unit is None"]):
                 ret=name, self.analysis_to_df(ngss.plot(None,ngss.last_plot).to_analysis())
             ngss.destroy()
@@ -179,18 +178,17 @@ class NgspiceNetlister(Netlister):
         return spar
 
     def get_netlist(self):
-        ps:ParamSet=self.simtemp.model_paramset
+        patch=self.simtemp._patch
         netlist=f".title {self.circuit_name}\n"
-        if len(ps.va_includes):
+        if len(patch.param_set.va_includes):
             netlist+=".control\n"
-            for vaname in ps.va_includes:
+            for vaname in patch.param_set.va_includes:
                 netlist+=f"pre_osdi {get_confirmed_osdi_path(vaname)}\n"
             netlist+=".endc\n"
-        if ps is not None:
+        if patch is not None:
             paramstr=" ".join([f"{k}={v}"
-                               for k,v in ps.get_values().items()
-                                   if ps.get_place(k)==ParamPlace.MODEL])
-            netlist+=f".model {self.modelcard_name} {ps.model} {paramstr}\n"
+                               for k,v in patch.filled().break_into_model_and_instance()[0].items()])
+            netlist+=f".model {self.modelcard_name} {patch.model} {paramstr}\n"
 
         sl=self.simtemp.get_schematic_listing(self)
         # Don't really like collecting this here without having a 
@@ -277,33 +275,43 @@ class NgspiceMultiSimSesh(MultiSimSesh):
         if hasattr(self,'_ngspice'):
             del self._ngspice
 
-    def run_with_params(self, params={}, full_resync=False, only_temps=None):
-        assert (params=={} or hasattr(params,'patch_paramset_and_return_changes'))
+    def run_with_params(self, params=None, full_resync=False, only_temps=None):
         results={}
-        #import time
+        import time
         for (simname, simtemp) in self.simtemps.items():
             if only_temps is not None and simname not in only_temps: continue
-            #print(f"Running {simname}", time.time())
+            logger.debug(f"Running {simname}")
             unparsed_result={}
             nl=self._sessions[simname]
             self._ngspice.set_circuit(self._circuit_numbers[simname])
-            if params != {}:
-                ps=simtemp.model_paramset
-                nv=params.patch_paramset_and_return_changes(ps)
-                if full_resync:
-                    nv=simtemp.model_paramset.get_values()
-                #print("Changes: ",nv, time.time())
-                self._ngspice.alter_model(nl.modelcard_name,
-                    **{k:v for k,v in nv.items() if ps.get_place(k)==ParamPlace.MODEL})
+            if params is not None:
+
+                sparams_modl,sparams_inst=params.translated_to(simtemp._patch.param_set)\
+                    .break_into_model_and_instance()
+
+                with simtemp.tentative_deltas(sparams_modl) as deltas:
+                    if full_resync: deltas=simtemp._patch
+                    if len(deltas):
+                        logger.debug(f"Model param changes: {deltas}")
+                        self._ngspice.alter_model(nl.modelcard_name,**deltas)
+                        logger.debug("Done model param changes: ")
+
                 #print("Made model changes: ",time.time())
-                for dev in nl._modeled_xtors:
-                    self._ngspice.alter_device(dev,
-                        **{k:v for k,v in nv.items() if ps.get_place(k)==ParamPlace.INSTANCE})
-            #print("Made inst changes: ",time.time())
+                with simtemp.tentative_deltas(sparams_inst) as deltas:
+                    if full_resync: deltas=simtemp._patch
+                    if len(deltas):
+                        for dev in nl._modeled_xtors:
+                            logger.debug(f"Instance param changes: {deltas}")
+                            self._ngspice.alter_device(dev,**deltas)
+                            logger.debug("Done instance param changes: ")
+                #print("Made inst changes: ",time.time())
+
             for an in nl.analyses:
+                logger.debug(f"Running an analysis")
                 name,subresult=an(self._ngspice)
                 if name is not None:
-                    unparsed_result[name]=subresult    
+                    unparsed_result[name]=subresult
+            logger.debug(f"Done analyses")
                 #print(f"Ran analysis {name}",time.time())
             #print("About to parse: ",time.time())
             #results[simname]=simtemp.parse_return(nl.preparse_return(unparsed_result))
