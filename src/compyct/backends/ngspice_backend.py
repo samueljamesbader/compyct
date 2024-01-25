@@ -154,9 +154,11 @@ class NgspiceNetlister(Netlister):
             return name,pd.concat(dfs).reset_index()
         return idealpulsed
 
-    def astr_spar(self, pts_per_dec, fstart, fstop, name=None):
+    def astr_spar(self, fstart, fstop, pts_per_dec=None, points=None, sweep_option='dec', name=None):
         def spar(ngss):
-            ngss.exec_command(f"sp dec {pts_per_dec} {fstart} {fstop}")
+            narg={'lin':points,'dec':pts_per_dec}[sweep_option]
+            assert narg is not None
+            ngss.exec_command(f"sp {sweep_option} {narg} {fstart} {fstop}")
             # PySpice doesn't have an s-parameter analysis class yet so we'll extract it differently
             #df=self.analysis_to_df(ngss.plot(None,ngss.last_plot).to_analysis())
             plot=ngss.plot(None,ngss.last_plot)
@@ -257,7 +259,7 @@ class NgspiceMultiSimSesh(MultiSimSesh):
             self._ngspice.load_circuit(nl.get_netlist())
 
         self._circuit_numbers={simname:i for i,(simname,_) in\
-                enumerate(reversed(self.simtemps.items()),start=1)}
+                enumerate(reversed(list(self.simtemps.items())),start=1)}
         return self
     
     def __exit__(self, exc_type, exc_value, traceback):

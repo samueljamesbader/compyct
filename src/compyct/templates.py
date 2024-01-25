@@ -1,4 +1,6 @@
 from contextlib import contextmanager
+from itertools import product
+from collections import UserDict
 
 import numpy as np
 import bokeh
@@ -41,10 +43,10 @@ class SimTemplate():
         data=self._parsed_result_to_cds_data(parsed_result)
         if flattened and len(list(data.values())[0]):
             flattened_data={k:np.concatenate(v) for k,v in data.items()
-                                 if hasattr(v[0],'__len__')}
+                                 if k!='legend' and hasattr(v[0],'__len__')}
             npts=len(data[list(flattened_data.keys())[0]][0])
             flattened_data.update({k:np.repeat(v,npts) for k,v in data.items()
-                                 if (not hasattr(v[0],'__len__'))})
+                                 if k=='legend' or (not hasattr(v[0],'__len__'))})
             data=flattened_data
         if cds is None:
             cds=bokeh.models.ColumnDataSource(data)
@@ -78,15 +80,19 @@ class MultiSweepSimTemplate(SimTemplate):
     def __init__(self, *args,
                  outer_variable=None, inner_variable=None,
                  outer_values=None, inner_range=None,
-                 ynames=[], **kwargs):
+                 ynames=[], directions=['f','r'], **kwargs):
         super().__init__(*args, **kwargs)
         self.outer_variable=outer_variable
         self.inner_variable=inner_variable
         self.outer_values=outer_values
         self.inner_range=inner_range
         self.ynames=ynames
+        self.directions=directions
         self._sources={}
         self._fig_is_clear=True
+
+    #def __copy__(self):
+    #    return copy(super()
         
     def _parsed_result_to_cds_data(self,parsed_result):
         #assert len(self.ynames)==1
@@ -94,11 +100,18 @@ class MultiSweepSimTemplate(SimTemplate):
         
         data=dict(x=[],legend=[],**{yname:[] for yname in self.ynames})
         if parsed_result is None: parsed_result={}
-        for key, df in parsed_result.items():
-            data['x'].append(df[self.inner_variable].to_numpy())
-            for i,yname in enumerate(self.ynames):
-                data[yname].append(df[yname].to_numpy())
-            data['legend'].append(key)
+        #for key, df in parsed_result.items():
+        if len(parsed_result):
+            for key in self._required_keys():
+                try:
+                    df=parsed_result[key]
+                except:
+                    import pdb; pdb.set_trace()
+                    raise
+                data['x'].append(df[self.inner_variable].to_numpy())
+                for yname in set(self.ynames):
+                    data[yname].append(df[yname].to_numpy())
+                data['legend'].append(str(key))
         return data
         
         
@@ -157,21 +170,31 @@ class MultiSweepSimTemplate(SimTemplate):
         arr=[]
         for roi in rois:
             for k,sl in roi.items():
-                inds,col=sl
-                arr.append(self._rescale_vector(
-                    parsed_results[k].reset_index().loc[sl],
-                    col,
-                    meas_parsed_results[k].reset_index().loc[sl]))
+                if k is None:
+                    ks=product(self.outer_values,self.directions)
+                else:
+                    ks=[k]
+                for k in ks:
+                    inds,col=sl
+                    arr.append(self._rescale_vector(
+                        parsed_results[k].reset_index().loc[sl],
+                        col,
+                        meas_parsed_results[k].reset_index().loc[sl]))
         return np.concatenate(arr)
         
     def _rescale_vector(self, arr, col, meas_arr):
         raise NotImplementedError
 
+    def _required_keys(self):
+        return set(product(self.outer_values,self.directions))
+
     def _validated(self, parsed_result):
         if parsed_result is None: return
+        required_keys=self._required_keys()
         if self.outer_variable is not None:
-            assert parsed_result.keys()==set(self.outer_values), \
-                f"{self.__class__.__name__} requests {self.outer_variable} {self.outer_values},"\
+            assert all(k in parsed_result.keys() for k in required_keys), \
+                f"{self.__class__.__name__} requests {self.outer_variable}"\
+                f" {list(required_keys)},"\
                 f" but results are {list(parsed_result.keys())}"
         for val in parsed_result.values():
             assert np.isclose(val[self.inner_variable].to_numpy()[0],self.inner_range[0]),\
@@ -239,9 +262,11 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
                             self._patch.get_total_device_width()
                     df[f'{sgnstr}IG/W [uA/um]']=-sgn*df['vg#p']/\
                             self._patch.get_total_device_width()
-                    parsed_result[vg]=df.rename(columns=\
+                    parsed_result[(vg,'f')]=df.rename(columns=\
                                 {'netd':'VD','netg':'VG'})\
                             [['VD','VG',f'{sgnstr}ID/W [uA/um]',f'{sgnstr}IG/W [uA/um]']]
+                    # DC sim doesn't distinguish f/r
+                    parsed_result[(vg,'r')]=parsed_result[(vg,'f')]
         return parsed_result
         
     def generate_figures(self,*args,**kwargs):
@@ -256,7 +281,7 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args, pol='n', temp=27,
                  vd_values=[.05,1.8], vg_range=(0,.03,1.8), plot_gm=True, **kwargs):
-        ynames=['ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]']
+        ynames=['ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]']*2
         if plot_gm: ynames+=['GM/W [uS/um]']
         super().__init__(outer_variable='VD', inner_variable='VG',
                          outer_values=vd_values, inner_range=vg_range,
@@ -309,9 +334,11 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
                     df[f'{sgnstr}IG/W [uA/um]']=-sgn*df['vg#p']/\
                             self._patch.get_total_device_width()
                     # TODO: reinstate column restriction (removed for device internals testing)
-                    parsed_result[vd]=df.rename(columns=\
+                    parsed_result[(vd,'f')]=df.rename(columns=\
                                 {'netd':'VD','netg':'VG'})#\
                             #[['VD','VG',f'{sgnstr}ID/W [uA/um]',f'{sgnstr}IG/W [uA/um]']]
+                    # DC sim doesn't distinguish f/r
+                    parsed_result[(vd,'r')]=parsed_result[(vd,'f')]
         return parsed_result
 
     def postparse_return(self,parsed_result):
@@ -322,7 +349,7 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
         return parsed_result
         
     def generate_figures(self,*args,**kwargs):
-        kwargs['y_axis_type']=[kwargs.get('y_axis_type','log'),'linear']
+        kwargs['y_axis_type']=[*kwargs.get('y_axis_type',['log','linear']),'linear']
         return super().generate_figures(*args,**kwargs)
 
     def _rescale_vector(self, arr, col, meas_arr):
@@ -456,9 +483,10 @@ class DCKelvinIDVDTemplate(MultiSweepSimTemplate):
                     df[f'{sgnstr}IG/W [mA/um]']=-sgn*df['vg#p']/1e3/ \
                                                 self._patch.get_total_device_width()
                     df['RW [kohm.um]']=df['netd']/(sgn*df[f'{sgnstr}ID/W [mA/um]'])
-                    parsed_result[vg]=df.rename(columns= \
+                    parsed_result[(vg,'f')]=df.rename(columns= \
                                                     {'netd':'VD','netg':'VG'}) \
                         [['VD','VG',f'{sgnstr}ID/W [mA/um]',f'{sgnstr}IG/W [mA/um]','RW [kohm.um]']]
+                    parsed_result[(vg,'r')]=parsed_result[(vg,'f')]
         return parsed_result
 
     def generate_figures(self,*args,**kwargs):
@@ -472,7 +500,7 @@ class CVTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args,
                  vg_range=(0,.03,1.8), freq='1meg', **kwargs):
-        super().__init__(outer_variable=None, inner_variable='VG', inner_range=vg_range,
+        super().__init__(outer_variable=None, outer_values=[freq], inner_variable='VG', inner_range=vg_range,
                          ynames=['Cgg [fF/um]'],
                          *args, **kwargs)
         
@@ -512,7 +540,7 @@ class CVTemplate(MultiSweepSimTemplate):
             (self._patch.get_total_device_width()/1e-6)
         df['VG']=np.real(df['v-sweep'])
         # TODO: reinstate column restriction (removed for device internals testing)
-        parsed_result={0:df}#[['VG','Cgg [fF/um]']]}
+        parsed_result={(self.freq,'f'):df,(self.freq,'r'):df}#[['VG','Cgg [fF/um]']]}
         return parsed_result
 
     def _rescale_vector(self,arr,col,meas_arr):
@@ -580,7 +608,7 @@ class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
                     self._patch.get_total_device_width()
             df['VD']=result.loc[mask,'netd']
             df['VG']=result.loc[mask,'netg']
-            parsed_result[vg]=pd.DataFrame(df)
+            parsed_result[(vg,'f')]=parsed_result[(vg,'r')]=pd.DataFrame(df)
         return parsed_result
         
     def generate_figures(self,*args,**kwargs):
@@ -598,23 +626,32 @@ class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
 class SParTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args,
-                 vg, vd, pts_per_dec, fstart, fstop, temp=27, **kwargs):
+                 vg, vd, fstart, fstop, temp=27, pts_per_dec=None, fstep=None, **kwargs):
         try:
             fstart=spicenum_to_float(fstart)
             fstop=spicenum_to_float(fstop)
         except:
             raise Exception(f"Invalid frequency range: {fstart} - {fstop}")
 
-        super().__init__(outer_variable=None, inner_variable='freq', inner_range=(fstart,pts_per_dec,fstop),
+        super().__init__(outer_variable=None, outer_values=[(vg,vd)], inner_variable='freq',
+                         inner_range=(fstart,pts_per_dec,fstop),
                          ynames=['|h21| [dB]','U [dB]','MAG-MSG [dB]','ReS11','ImS11','ReS22','ImS22','ReS12','ImS12'],
                          *args, **kwargs)
-        self.vg=vg
-        self.vd=vd
         self.temp=temp
 
-        num_f=(np.log10(fstop)-np.log10(fstart))*pts_per_dec+1
-        assert abs(num_f-round(num_f))<1e-3,\
-            f"Make sure the SPar range gives log-even steps {pts_per_dec,str(fstart),str(fstop)}"
+        assert ((pts_per_dec is not None) != (fstep is not None)), \
+            "Supply EITHER pts_per_dec for a log sweep, OR fstep for a linear sweep"
+
+        if pts_per_dec is not None:
+            num_f=(np.log10(fstop)-np.log10(fstart))*pts_per_dec+1
+            assert abs(num_f-round(num_f))<1e-3,\
+                f"Make sure the SPar range gives log-even steps {pts_per_dec,str(fstart),str(fstop)}"
+            self.frequency_sweep_option='log'
+        if fstep is not None:
+            num_f=(fstop-fstart)/fstep+1
+            assert abs(num_f-round(num_f))<1e-3, f"Make sure the frequency range gives even steps {self.inner_range}"
+            self.frequency_sweep_option='lin'
+        self.num_f=int(round(num_f))
 
     @property
     def fstart(self):
@@ -624,24 +661,43 @@ class SParTemplate(MultiSweepSimTemplate):
         return self.inner_range[2]
     @property
     def pts_per_dec(self):
+        assert self.frequency_sweep_option=='log', "Can't give pts_per_dec if it's not a log-sweep"
         return self.inner_range[1]
+    @property
+    def fstep(self):
+        assert self.frequency_sweep_option=='lin', "Can't give fstep if it's not a linear-sweep"
+        return self.inner_range[1]
+
+    def _required_keys(self):
+        return self.outer_values
 
     def get_schematic_listing(self,netlister:Netlister):
         #netlister.nstr_param(params={'vg':0,'vd':0})+\
+        vg,vd=self.outer_values[0]
         return [
             netlister.nstr_iabstol('1e-15'),
             netlister.nstr_temp(temp=self.temp),
             netlister.nstr_modeled_xtor("inst",netd='netd',netg='netg',
                                         nets=netlister.GND,netb=netlister.GND,dt=None),
-            netlister.nstr_port("D",netp='netd',netm=netlister.GND,dc=self.vd,portnum=2),
-            netlister.nstr_port("G",netp='netg',netm=netlister.GND,dc=self.vg,portnum=1)]
+            netlister.nstr_port("D",netp='netd',netm=netlister.GND,dc=vd,portnum=2),
+            netlister.nstr_port("G",netp='netg',netm=netlister.GND,dc=vg,portnum=1)]
 
     def get_analysis_listing(self,netlister:Netlister):
-        return [netlister.astr_spar(pts_per_dec=self.pts_per_dec, fstart=self.fstart, fstop=self.fstop, name='spar')]
-        return analysis_listing
+        assert len(self.outer_values)==1, "if more than one bias point, gotta alter DC values between sweeps"
+        match self.frequency_sweep_option:
+            case 'log':
+                return [netlister.astr_spar(pts_per_dec=self.pts_per_dec,sweep_option='dec',
+                                            fstart=self.fstart, fstop=self.fstop, name='spar')]
+            case 'lin':
+                return [netlister.astr_spar(points=self.num_f,sweep_option='lin',
+                                            fstart=self.fstart, fstop=self.fstop, name='spar')]
+            case _:
+                raise NotImplementedError(self.frequency_sweep_option)
 
     def parse_return(self,result):
-        parsed_result={0: result['spar']}
+        assert len(self.outer_values)==1
+        vg,vd=self.outer_values[0]
+        parsed_result={(vg,vd): result['spar']}
         #assert len(result)==1
         #freq=spicenum_to_float(self.freq)
         #df=list(result.values())[0]
@@ -653,38 +709,39 @@ class SParTemplate(MultiSweepSimTemplate):
         return parsed_result
 
     def postparse_return(self,parsed_result):
-        df=parsed_result[0]
+        for df in parsed_result.values():
 
-        df['freq']=np.real(df['freq'])
-        
-        if 'Y11' not in df.columns:
-            df['Y11'],df['Y12'],df['Y21'],df['Y22']=s2y(df['S11'],df['S12'],df['S21'],df['S22'])
+            df['freq']=np.real(df['freq'])
 
-        # h21 is a current ratio, so 20x log
-        df[f'|h21| [dB]']=20*np.log10(np.abs(df.Y21/df.Y11))
+            if 'Y11' not in df.columns:
+                df['Y11'],df['Y12'],df['Y21'],df['Y22']=s2y(df['S11'],df['S12'],df['S21'],df['S22'])
 
-        # https://en.wikipedia.org/wiki/Mason%27s_invariant#Derivation_of_U
-        # U is already a power ratio so just 10x log
-        re=np.real; im=np.imag
-        df[f'U [dB]']=10*np.log10(
-            (np.abs(df.Y21-df.Y12)**2 /
-                  (4*(re(df.Y11)*re(df.Y22)-re(df.Y12)*re(df.Y21)))))
+            # h21 is a current ratio, so 20x log
+            df[f'|h21| [dB]']=20*np.log10(np.abs(df.Y21/df.Y11))
 
-        # https://www.microwaves101.com/encyclopedias/stability-factor
-        Delta=df.S11*df.S22-df.S12*df.S21
-        K = (1-np.abs(df.S11)**2-np.abs(df.S22)**2+np.abs(Delta)**2)/(2*np.abs(df.S21*df.S12))
-        
-        # this formula with 1/(K+sqrt(K^2-1)) is less common but more robust for large K
-        # according to Microwaves 101 and easy to show it's equal.
-        k2m1=np.clip(K**2-1,0,np.inf) # we only use the K>1 values of MAG anyway, so clip to avoid sqrt(-)
-        MAG = (1/(K+np.sqrt(k2m1))) * np.abs(df.S21)/np.abs(df.S12)
-        MSG = np.abs(df.S21)/np.abs(df.S12)
-        df['MAG-MSG [dB]']=20*np.log10(np.choose(K>=1,[MSG,MAG]))
-        
-        # S-parameters
-        for ii in ['11','12','21','22']:
-            for comp,func in (('Re',np.real),('Im',np.imag)):
-                df[f'{comp}S{ii}']=func(df[f'S{ii}'])
+            # https://en.wikipedia.org/wiki/Mason%27s_invariant#Derivation_of_U
+            # U is already a power ratio so just 10x log
+            re=np.real; im=np.imag
+            with np.errstate(invalid='ignore'):
+                df[f'U [dB]']=10*np.log10(
+                    (np.abs(df.Y21-df.Y12)**2 /
+                          (4*(re(df.Y11)*re(df.Y22)-re(df.Y12)*re(df.Y21)))))
+
+            # https://www.microwaves101.com/encyclopedias/stability-factor
+            Delta=df.S11*df.S22-df.S12*df.S21
+            K = (1-np.abs(df.S11)**2-np.abs(df.S22)**2+np.abs(Delta)**2)/(2*np.abs(df.S21*df.S12))
+
+            # this formula with 1/(K+sqrt(K^2-1)) is less common but more robust for large K
+            # according to Microwaves 101 and easy to show it's equal.
+            k2m1=np.clip(K**2-1,0,np.inf) # we only use the K>1 values of MAG anyway, so clip to avoid sqrt(-)
+            MAG = (1/(K+np.sqrt(k2m1))) * np.abs(df.S21)/np.abs(df.S12)
+            MSG = np.abs(df.S21)/np.abs(df.S12)
+            df['MAG-MSG [dB]']=20*np.log10(np.choose(K>=1,[MSG,MAG]))
+
+            # S-parameters
+            for ii in ['11','12','21','22']:
+                for comp,func in (('Re',np.real),('Im',np.imag)):
+                    df[f'{comp}S{ii}']=func(df[f'S{ii}'])
         return parsed_result
 
     def _rescale_vector(self,arr,col, meas_arr):
@@ -703,7 +760,7 @@ class SParTemplate(MultiSweepSimTemplate):
     def _make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params, y_axis_type='log',x_axis_type='log'):
         assert y_axis_type=='log'
         assert x_axis_type=='log'
-        figpow=bokeh.plotting.figure(tools=get_tools(),x_axis_type='log',**layout_params,tooltips=[('','$x Hz'),('','$name = $y')])
+        figpow=bokeh.plotting.figure(tools=get_tools(),x_axis_type='log',**layout_params,tooltips=[('','$snap_x Hz'),('','$name = $snap_y')])
         figpow.circle(x='x',y='|h21| [dB]',source=meas_cds_c,color='blue',legend_label='h21',name='|h21| meas')
         figpow.multi_line(xs='x',ys='|h21| [dB]',source=meas_cds_l,color='blue',legend_label='h21',name='|h21| meas')
         figpow.multi_line(xs='x',ys='|h21| [dB]',source=sim_cds,color='red',legend_label='h21',name='|h21| sim')
@@ -720,6 +777,7 @@ class SParTemplate(MultiSweepSimTemplate):
         figpow.xaxis.axis_label='Frequency [Hz]'
         fig_legend_config(figpow)
         figpow.legend.location='top_right'
+        figpow.title=str(self.outer_values)
 
         figsmi=smith_chart(**layout_params)
         figsmi.circle(x='ReS11',y='ImS11',source=meas_cds_c,color='blue',legend_label='S11',line_width=2)
@@ -733,42 +791,34 @@ class SParTemplate(MultiSweepSimTemplate):
 
         return [figpow,figsmi]
 
-class TemplateGroup:
+class TemplateGroup(UserDict):
     def __init__(self,**templates):
-        self.temps: dict[str,SimTemplate] = templates
+        super().__init__(**templates)
         self._panes={}
     def set_patch(self,params_by_template):
         if isinstance(params_by_template,ParamPatch):
-            for t in self.temps.values():
+            for t in self.values():
                 t.set_patch(params_by_template)
         else:
-            assert set(params_by_template.keys())==set(self.temps.keys())
-            for k,t in self.temps.items():
+            assert set(params_by_template.keys())==set(self.keys())
+            for k,t in self.items():
                 t.set_patch(params_by_template[k])
-    def __getitem__(self,key):
-        return self.temps[key]
-    def items(self) -> list[tuple[str,SimTemplate]]:
-        return self.temps.items()
-    def __iter__(self):
-        return iter(self.temps)
-    def __len__(self):
-        return len(self.temps)
     def only(self,*names):
-        assert all(n in self.temps for n in names)
-        return self.__class__(**{k:v for k,v in self.temps.items() if k in names})
+        assert all(n in self for n in names)
+        return self.__class__(**{k:v for k,v in self.items() if k in names})
 
     def get_figure_pane(self, meas_data=None, fig_layout_params={},vizid=None):
         figs=sum([t.generate_figures(
                             meas_data=meas_data.get(stname,None),
                             layout_params=fig_layout_params, vizid=vizid)
-                       for stname,t in self.temps.items()],[])
+                       for stname,t in self.items()],[])
         self._panes[vizid]=pn.pane.Bokeh(bokeh.layouts.gridplot([figs]))
         return self._panes[vizid]
 
     def update_figures(self, new_results, vizid=None):
         actually_did_update=False
-        for stname in self.temps:
-            if self.temps[stname].update_figures((new_results[stname] if new_results else None),vizid=vizid):
+        for stname in self:
+            if self[stname].update_figures((new_results[stname] if new_results else None),vizid=vizid):
                 actually_did_update=True
         if actually_did_update:
             logger.debug(f"(Not) pushing bokeh update to notebook for vizid {vizid}")

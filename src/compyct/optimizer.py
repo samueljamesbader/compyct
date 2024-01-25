@@ -51,7 +51,7 @@ class SemiAutoOptimizer():
     def load(self, save_name, rerun=True):
         with open(OUTPUT_DIR/(save_name+".pkl"),'rb') as f:
             saved=pickle.load(f)
-        self.global_patch.update(saved['global_values'])
+        self.global_patch.update({k:v for k,v in saved['global_values'].items() if k in self.global_patch})
         if rerun:
             self.rerun(None)
         return saved['additional']
@@ -226,7 +226,7 @@ class SemiAutoOptimizerGui(CompositeWidget):
             self._wcols[tabname]=pn.Column(pn.layout.Accordion(
                     *[(cat,pn.Column(*(self._wlines[tabname][p] for p in p_by_cat[cat])))
                         for cat in sorted(p_by_cat)],
-                    active=list(range(len(p_by_cat))),
+                    active=(list(range(len(p_by_cat))) if len(p_by_cat)<=2 else []),
                     sizing_mode='fixed',
                     width=175,),
                     width=200,sizing_mode='stretch_height',scroll=True)
@@ -252,7 +252,6 @@ class SemiAutoOptimizerGui(CompositeWidget):
         self._tabs.param.watch(self._tab_changed,['active'])
         self._log_view=pn.widgets.TextAreaInput(sizing_mode='stretch_both')
 
-        logger.debug("Really should redo vis now.... ???")
         self.redo_widget_visibility()
         return pn.Column(pn.Row(sesh_button,opt_button,running_ind,pn.HSpacer(),save_name_input,save_button,load_button,sizing_mode='stretch_width'),
                          self._tabs,self._log_view,height=550)

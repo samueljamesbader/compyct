@@ -71,6 +71,9 @@ class ParamSet():
         for p,v in self._disp_yaml.get("unit_overrides",{}).items(): self._pdict[p]['units']=v
         for p,disp_units in self._disp_yaml.get('display_units',{}).items():
             assert p in self._pdict, f"Display units provided for unknown parameter {p}"
+            self._pdict[p]['display_units']=disp_units
+        for p in self._pdict:
+            disp_units=self._pdict[p].get('display_units',self._pdict[p]['units'])
             units=self._pdict[p]['units']
             try:
                 disp_scale=(ureg.parse_expression(units)/ureg.parse_expression(disp_units)).to("").magnitude
@@ -79,7 +82,6 @@ class ParamSet():
                                 f" for {p} are not compatible. Pint says \"{str(e)}\"")
             except Exception as e:
                 raise Exception(f"Unit error on {p}. Pint says \"{str(e)}\"")
-            self._pdict[p]['display_units']=disp_units
             self._pdict[p]['display_scale']=disp_scale
 
         # Categorization
@@ -98,7 +100,7 @@ class ParamSet():
                 self._pdict[p]['category']=cat
 
         # Irrelevancies
-        self._irrelevancies: dict[str,dict[int,list[str]]] = self._disp_yaml.get('irrelevancies',{})
+        self._irrelevancies: dict[str,dict[str,list[str]]] = self._disp_yaml.get('irrelevancies',{})
         for p,i in self._irrelevancies.items():
             assert p in self._pdict, f"Specified an irrelevancy using unknown controller param {p}"
             for v, p2s in list(i.items()):
@@ -155,9 +157,10 @@ class ParamSet():
 
     @lru_cache
     def get_potential_irrelevancies_for(self,param):
-        return [(c,v) for c, vdict in self._irrelevancies.items()
-                    for v,irrs in vdict.items()
-                        if param in irrs]
+        return [(c,int(v)) for c, vdict in self._irrelevancies.items()
+                    for vs,irrs in vdict.items()
+                        for v in str(vs).split('+')
+                            if param in irrs]
 
     def translate_patch(self, patch: Union['ParamPatch',dict], other_param_set: 'ParamSet') -> 'ParamPatch':
         if hasattr(patch,'param_set'):
@@ -194,7 +197,11 @@ class ParamPatch(UserDict):
         self.param_set=param_set
         super().__init__(*args,**kwargs)
         for k in self:
-            assert k in param_set._pdict, f"Unknown parameter {k}"
+            try:
+                assert k in param_set._pdict, f"Unknown parameter {k}"
+            except:
+                import pdb; pdb.set_trace()
+                raise
 
     def translated_to(self, param_set):
         return self.param_set.translate_patch(self,param_set)
