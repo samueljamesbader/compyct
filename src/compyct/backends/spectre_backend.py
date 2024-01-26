@@ -127,7 +127,8 @@ class SpectreNetlister(Netlister):
                     self._tf.write(f"ahdl_include \"{i}\"\n")
                         
                 self._tf.write(f"model {ps.model}_standin {ps.model}\n")
-                paramlinedict={("modparam_"+k):ps.get_value(k) for k in ps}
+                paramlinedict={("modparam_"+k):ps.get_value(k) for k in ps
+                        if ps.get_place(k)==ParamPlace.INSTANCE}
                 self._tf.write(
                     f"parameters "+\
                     ' '.join([f'{k}={n2scs(v)}' for k,v in paramlinedict.items()])\
@@ -144,7 +145,8 @@ class SpectreNetlister(Netlister):
                 self._tf.write(
                     f"set_modparams altergroup {{\nmodel {ps.model}_standin"\
                     f" {ps.model} "+\
-                    " ".join((f"{k}=modparam_{k}" for k in ps))\
+                    " ".join((f"{k}=modparam_{k}" for k in ps
+                                if ps.get_place(k)==ParamPlace.INSTANCE))\
                     +"\n}\n\n")
             self._tf.write("\n".join(self.simtemp.get_analysis_listing(self))+"\n")
             self._tf.flush()
