@@ -296,7 +296,7 @@ class NgspiceMultiSimSesh(MultiSimSesh):
                     if len(deltas):
                         logger.debug(f"Model param changes: {deltas}")
                         self._ngspice.alter_model(nl.modelcard_name,**deltas)
-                        logger.debug("Done model param changes: ")
+                        logger.debug("Done model param changes")
 
                 #print("Made model changes: ",time.time())
                 with simtemp.tentative_deltas(sparams_inst) as deltas:
@@ -305,7 +305,7 @@ class NgspiceMultiSimSesh(MultiSimSesh):
                         for dev in nl._modeled_xtors:
                             logger.debug(f"Instance param changes: {deltas}")
                             self._ngspice.alter_device(dev,**deltas)
-                            logger.debug("Done instance param changes: ")
+                            logger.debug("Done instance param changes")
                 #print("Made inst changes: ",time.time())
 
             for an in nl.analyses:

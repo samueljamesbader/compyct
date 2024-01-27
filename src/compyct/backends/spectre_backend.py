@@ -2,8 +2,9 @@ import numpy as np
 import pyspectre as psp
 from tempfile import NamedTemporaryFile
 from compyct.templates import SimTemplate
-from .backend import Netlister, MultiSimSesh
+from .backend import Netlister, MultiSimSesh, get_va_path
 from compyct.paramsets import ParamPlace
+from ..util import logger
 
 def n2scs(num):
     if type(num) is str:
@@ -23,6 +24,7 @@ class SpectreNetlister(Netlister):
         self.simtemp: SimTemplate=template
         self._tf = None
         self._analysiscount=0
+        self.modelcard_name=f"{self.simtemp._patch.model}_standin"
         #self.additional_includes=additional_includes
         #self.override_model_subckt=override_model_subckt
 
@@ -35,15 +37,16 @@ class SpectreNetlister(Netlister):
         assert len(inst_param_ovrd)==0
         #assert len(internals_to_save)==0, "Haven't implemented internal saving for spectre backend"
         assert dt is None
-        ps=self.simtemp.model_paramset
+        patch=self.simtemp._patch
+        terms=[t for t in patch.param_set.terminals if t!='dt']
         if True:
         #    assert ps.terminals==['d','g','s','b']
-            terms=" ".join([{'d':netd,'g':netg,'s':nets,'b':netb}[k] for k in ps.terminals])
+            terms=" ".join([{'d':netd,'g':netg,'s':nets,'b':netb}[k] for k in terms])
         #if self.override_model_subckt is None:
             inst_paramstr=' '.join(f'{k}=instparam_{k}'\
-                    for k in ps if ps.get_place(k)==ParamPlace.INSTANCE)
+                    for k in patch.filled().break_into_model_and_instance()[1])
             return f"X{name} ({terms})"\
-                        f" {ps.model}_standin {inst_paramstr}"
+                        f" {self.modelcard_name} {inst_paramstr}"
         #else:
         #    return f"X{name} ({netd} {netg} {nets} {netb})"\
         #                f" {self.override_model_subckt}"
@@ -86,12 +89,14 @@ class SpectreNetlister(Netlister):
         return f"{name} ac dev=V{whichv} param=dc start={n2scs(start)}"\
             f" stop={n2scs(stop)} step={n2scs(step)} freq={n2scs(freq)}"
         
-    def astr_spar(self, pts_per_dec, fstart, fstop, name=None):
+    #def astr_spar(self, pts_per_dec, fstart, fstop, name=None):
+    def astr_spar(self, fstart, fstop, pts_per_dec=None, points=None, sweep_option='dec', name=None):
         if name is None:
             name=f"sweepspar{self._analysiscount}"
             self._analysiscount+=1
-        return f"{name} sp ports=[PORT1 PORT2] start={n2scs(fstart)} stop={n2scs(fstop)} dec={pts_per_dec} annotate=status"
-        
+        narg = {'lin': points, 'dec': pts_per_dec}[sweep_option]
+        return f"{name} sp ports=[PORT1 PORT2] start={n2scs(fstart)} stop={n2scs(fstop)} {sweep_option}={narg} annotate=status"
+
     # def nstr_alter(dev,param,value,name=None):
     #     if name is None:
     #         name=f"alter{self._altercount}"
@@ -108,45 +113,42 @@ class SpectreNetlister(Netlister):
             self._tf=NamedTemporaryFile(prefix=self.simtemp.__class__.__name__,mode='w')
             self._tf.write(f"// {self.simtemp.__class__.__name__}\n")
             self._tf.write(f"simulator lang = spectre\n")
-            ps=self.simtemp.model_paramset
+            patch=self.simtemp._patch
             # for i in self.additional_includes:
             #     if type(i)==str:
             #         self._tf.write(f"include \"{i}\"\n")
             #     else:
             #         self._tf.write(
             #             f"include \"{i[0]}\" {' '.join(i[1:])}\n")
-            if ps is not None:
-                for i in ps.scs_includes:
+            if patch is not None:
+                for i in patch.param_set.scs_includes:
                     if type(i)==str:
                         self._tf.write(f"include \"{i}\"\n")
                     else:
                         self._tf.write(
                             f"include \"{i[0]}\" {' '.join(i[1:])}\n")
-                for i in ps.va_includes:
+                for i in patch.param_set.va_includes:
                     assert type(i)==str
-                    self._tf.write(f"ahdl_include \"{i}\"\n")
+                    self._tf.write(f"ahdl_include \"{get_va_path(i)}\"\n")
                         
-                self._tf.write(f"model {ps.model}_standin {ps.model}\n")
-                paramlinedict={("modparam_"+k):ps.get_value(k) for k in ps
-                        if ps.get_place(k)==ParamPlace.INSTANCE}
+                self._tf.write(f"model {self.modelcard_name} {patch.model}\n")
+                paramlinedict={f"modparam_{k}":v for k,v in patch.filled().break_into_model_and_instance()[0].items()}
                 self._tf.write(
                     f"parameters "+\
                     ' '.join([f'{k}={n2scs(v)}' for k,v in paramlinedict.items()])\
                     +"\n\n")
-                instance_params={k:ps.get_value(k)
-                    for k in ps if ps.get_place(k)==ParamPlace.INSTANCE}
+                instance_params = {k: v for k, v in patch.filled().break_into_model_and_instance()[1].items()}
                 if len(instance_params):
                     self._tf.write(f"parameters "+\
                                        ' '.join(f'instparam_{k}={n2scs(v)}'
                                             for k,v in instance_params.items())+\
                                    "\n")
             self._tf.write("\n".join(self.simtemp.get_schematic_listing(self))+"\n")
-            if ps is not None:                
+            if patch is not None:
                 self._tf.write(
-                    f"set_modparams altergroup {{\nmodel {ps.model}_standin"\
-                    f" {ps.model} "+\
-                    " ".join((f"{k}=modparam_{k}" for k in ps
-                                if ps.get_place(k)==ParamPlace.INSTANCE))\
+                    f"set_modparams altergroup {{\nmodel {self.modelcard_name}"\
+                    f" {patch.model} "+\
+                    " ".join((f"{k}=modparam_{k}" for k in patch.filled().break_into_model_and_instance()[0]))\
                     +"\n}\n\n")
             self._tf.write("\n".join(self.simtemp.get_analysis_listing(self))+"\n")
             self._tf.flush()
@@ -154,7 +156,7 @@ class SpectreNetlister(Netlister):
 
     def get_spectre_names_for_param(self,param):
         prefix={ParamPlace.MODEL.value:'mod',ParamPlace.INSTANCE.value:'inst'}\
-                    [self.simtemp.model_paramset.get_place(param).value]+'param_'
+                    [self.simtemp._patch.param_set.get_place(param).value]+'param_'
         return prefix+param
         
     def preparse_return(self,result):
@@ -186,6 +188,7 @@ class SpectreMultiSimSesh(MultiSimSesh):
         super().__enter__()
         for simname,simtemp in self.simtemps.items():
             try:
+                logger.debug(f"  {simname}")
                 nl=SpectreNetlister(simtemp, **self._netlist_kwargs)
                 sesh=psp.start_session(net_path=nl.get_netlist_file())
             except Exception as myexc:
@@ -207,22 +210,22 @@ class SpectreMultiSimSesh(MultiSimSesh):
         print("Deleting S MSS")
         super().__del__()
 
-    def run_with_params(self, params={}, full_resync=False, only_temps=None):
-        assert params=={} or hasattr(params,'patch_paramset_and_return_changes')
-        #print(f"Running with params {params}")
+    def run_with_params(self, params=None, full_resync=False, only_temps=None):
         results={}
         #import time
         for simname,(nl,sesh) in self._sessions.items():
             if only_temps is not None and simname not in only_temps: continue
-            #print(f"Running {simname}")
+            logger.debug(f"Running {simname}")
             simtemp=self.simtemps[simname]
-            if params != {}:
-                nv=params.patch_paramset_and_return_changes(simtemp.model_paramset)
-                if full_resync:
-                    nv=simtemp.model_paramset.get_values()
-                re_p_changed={nl.get_spectre_names_for_param(k):n2scs(v) for k,v in nv.items()}
-                #print('setting params',re_p_changed,time.time())
-                psp.set_parameters(sesh,re_p_changed)
+            if params is not None:
+                sparams=params.translated_to(simtemp._patch.param_set)
+
+                with simtemp.tentative_deltas(sparams) as deltas:
+                    if full_resync: deltas=simtemp._patch
+                    logger.debug(f"Param changes: {deltas}")
+                    logger.debug(f"Done param changes")
+                    psp.set_parameters(sesh,{nl.get_spectre_names_for_param(k):n2scs(v)
+                                             for k,v in deltas.items()})
             #print('running', time.time())
             results[simname]=simtemp.postparse_return(simtemp.parse_return(nl.preparse_return(psp.run_all(sesh))))
             #print('done', time.time())
