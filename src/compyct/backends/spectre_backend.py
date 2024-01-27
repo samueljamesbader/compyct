@@ -61,7 +61,8 @@ class SpectreNetlister(Netlister):
 
     @staticmethod
     def nstr_port(name,netp,netm,dc,portnum,z0=50):
-        return f"PORT{portnum} ({netp} {netm}) port r={n2scs(z0)} dc={n2scs(dc)} type=sine"
+        return f"PORT{portnum} ({netp} {netm} portdc{portnum}) port r={n2scs(z0)}\n"\
+               f"VPort{portnum} (portdc{portnum} {netm}) vsource dc={n2scs(dc)}"
     
     def nstr_iabstol(self,abstol):
         return f"simulatorOptions options iabstol={n2scs(abstol)}"

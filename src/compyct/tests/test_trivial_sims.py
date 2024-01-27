@@ -67,7 +67,15 @@ def test_trivial_xtor_spar(backend):
     tg=TemplateGroup(thespar=SParTemplate(vg=vg,vd=vd,pts_per_dec=4,fstart='10meg',fstop='10e9',patch=patch))
     meas_data={'thespar':TrivialXtor(patch=patch).evaluate_template(tg['thespar'])}
     with MultiSimSesh.get_with_backend(tg,backend=backend) as sim:
+        # sim.print_netlists()
         res=sim.run_with_params()
+
+    # print(meas_data['thespar'][(vg,vd)].columns)
+    # print(res['thespar'][(vg,vd)].columns)
+    # print(f"ideal:")
+    # print(meas_data['thespar'][(vg,vd)][['Y11','Y21']])
+    # print('res:')
+    # print(res['thespar'][(vg,vd)][['Y11','Y21']])
 
     assert np.allclose(
         meas_data['thespar'][(vg,vd)]["freq"],
@@ -95,5 +103,10 @@ def test_trivial_xtor_spar(backend):
 if __name__=='__main__':
     #test_get_with_backend()
     #test_get_osdi_path()
-    test_trivial_xtor_dciv()
-    #test_trivial_xtor_spar()
+    #test_trivial_xtor_dciv(backend='spectre')
+    #print('passed dciv')
+    #test_trivial_xtor_psiv(backend='spectre')
+    test_trivial_xtor_spar(backend='ngspice')
+    print("passed ngspice")
+    test_trivial_xtor_spar(backend='spectre')
+    print("passed spectre")

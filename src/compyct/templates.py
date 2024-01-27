@@ -713,6 +713,7 @@ class SParTemplate(MultiSweepSimTemplate):
 
             df['freq']=np.real(df['freq'])
 
+            #print(df[['S11', 'S12', 'S21', 'S22']])
             if 'Y11' not in df.columns:
                 df['Y11'],df['Y12'],df['Y21'],df['Y22']=s2y(df['S11'],df['S12'],df['S21'],df['S22'])
 
