@@ -1,4 +1,7 @@
 import typing
+
+from compyct import logger
+
 if typing.TYPE_CHECKING:
     from compyct.templates import TemplateGroup
     from compyct.paramsets import ParamPatch
@@ -43,7 +46,11 @@ class MultiSimSesh():
             backend_module=importlib.import_module('.'+backend+"_backend",package=__package__)
         except Exception as e:
             backends=[f.name.split("_backend")[0] for f in Path(__file__).parent.glob("*_backend.py")]
-            raise Exception(f"Unrecognized backend {backend}, valid options are: {','.join(backends)}")
+            if backend not in backends:
+                raise Exception(f"Unrecognized backend {backend}, valid options are: {','.join(backends)}")
+            else:
+                logger.critical(f"Can't load backend {backend}")
+                raise e
         return next(getattr(backend_module,k)(simtemps,**kwargs) for k in dir(backend_module)
              if k.lower()==(backend.lower()+"multisimsesh")
                  and issubclass(getattr(backend_module,k),MultiSimSesh))
