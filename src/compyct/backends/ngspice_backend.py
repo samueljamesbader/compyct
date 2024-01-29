@@ -73,7 +73,11 @@ class NgspiceNetlister(Netlister):
 
     @staticmethod
     def nstr_port(name,netp,netm,dc,portnum,z0=50):
-        return f"V{name} {netp} {netm} dc {dc} portnum {portnum} z0 {z0}"
+        #return f"V{name} {netp} {netm} dc {dc} portnum {portnum} z0 {z0}"
+        return f"V{name} port_{name}_ac {netm} portnum {portnum} z0 {z0} dc 0\n"\
+               f"Cport{name} {netp} port_{name}_ac 1\n" \
+               f"Lport{name} {netp} port_{name}_dc 1meg\n"\
+               f"Vdc_{name} port_{name}_dc {netm} dc {dc}\n"
 
     @staticmethod
     def nstr_VPulses(name,netp,netm,dc, pulse_width, pulse_period, rise_time, fall_time, vpulses):

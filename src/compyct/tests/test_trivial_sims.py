@@ -67,32 +67,32 @@ def test_trivial_xtor_spar(backend):
     tg=TemplateGroup(thespar=SParTemplate(vg=vg,vd=vd,pts_per_dec=4,fstart='10meg',fstop='10e9',patch=patch))
     meas_data={'thespar':TrivialXtor(patch=patch).evaluate_template(tg['thespar'])}
     with MultiSimSesh.get_with_backend(tg,backend=backend) as sim:
-        # sim.print_netlists()
+        sim.print_netlists()
         res=sim.run_with_params()
 
-    # print(meas_data['thespar'][(vg,vd)].columns)
-    # print(res['thespar'][(vg,vd)].columns)
-    # print(f"ideal:")
-    # print(meas_data['thespar'][(vg,vd)][['Y11','Y21']])
-    # print('res:')
-    # print(res['thespar'][(vg,vd)][['Y11','Y21']])
+    print(meas_data['thespar'][(vg,vd)].columns)
+    print(res['thespar'][(vg,vd)].columns)
+    print(f"ideal:")
+    print(meas_data['thespar'][(vg,vd)][['Y11','Y21']])
+    print('res:')
+    print(res['thespar'][(vg,vd)][['Y11','Y21']])
 
     assert np.allclose(
         meas_data['thespar'][(vg,vd)]["freq"],
         res['thespar'][(vg,vd)]["freq"],
-        rtol=1e-3,atol=1e-6)
+        rtol=1e-4,atol=1e-6)
     assert np.allclose(
         meas_data['thespar'][(vg,vd)]["Y11"],
         res['thespar'][(vg,vd)]["Y11"],
-        rtol=1e-2,atol=1e-6)
+        rtol=5e-3,atol=1e-6)
     assert np.allclose(
         meas_data['thespar'][(vg,vd)]["Y12"],
         res['thespar'][(vg,vd)]["Y12"],
-        rtol=1e-2,atol=1e-6)
+        rtol=1e-4,atol=1e-6)
     assert np.allclose(
         meas_data['thespar'][(vg,vd)]["Y21"],
         res['thespar'][(vg,vd)]["Y21"],
-        rtol=1e-2,atol=1e-6)
+        rtol=1e-4,atol=1e-6)
     #assert np.allclose(
     #    meas_data['thespar'][(vg,vd)]["Y22"],
     #    res['thespar'][(vg,vd)]["Y11"],

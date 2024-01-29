@@ -117,6 +117,7 @@ class TrivialXtor():
 
             vg,vd=simtemp.outer_values[0]
             Cgs=self.Cgg(VD=vd,VG=vg,VS=0,VB=0,T=simtemp.temp)
+            print(f"CGS: {Cgs}")
             gm=self.GM(VD=vd,VG=vg,VS=0,VB=0,T=simtemp.temp,traps_move=False)
 
             results[(vg,vd)]=pd.DataFrame({
