@@ -191,7 +191,7 @@ class SpectreMultiSimSesh(MultiSimSesh):
             try:
                 logger.debug(f"  {simname}")
                 nl=SpectreNetlister(simtemp, **self._netlist_kwargs)
-                sesh=psp.start_session(net_path=nl.get_netlist_file())
+                sesh=psp.start_session(net_path=nl.get_netlist_file(), timeout=600) # longer timeout in-case compiling ahdl
             except Exception as myexc:
                 args=next((k for k in myexc.value.split("\n") if k.startswith("args:")))
                 print(" ".join(eval(args.split(":")[1])))
