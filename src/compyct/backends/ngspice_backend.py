@@ -48,7 +48,7 @@ class NgspiceNetlister(Netlister):
         patch=self.simtemp._patch
         assert patch.terminals[:4]==['d','g','s','b']
         inst_paramstr=' '.join(f'{k}={v}'\
-                for k,v in patch.filled().break_into_model_and_instance()[1].items())
+                for k,v in patch.filled().to_base().break_into_model_and_instance()[1].items())
         has_dt_terminal='dt' in patch.terminals
         intstr=f"\n.save all "+\
                 " ".join([f"@n{name.lower()}[{k}]" for k in internals_to_save])
@@ -193,7 +193,7 @@ class NgspiceNetlister(Netlister):
             netlist+=".endc\n"
         if patch is not None:
             paramstr=" ".join([f"{k}={v}"
-                               for k,v in patch.filled().break_into_model_and_instance()[0].items()])
+                               for k,v in patch.filled().to_base().break_into_model_and_instance()[0].items()])
             netlist+=f".model {self.modelcard_name} {patch.model} {paramstr}\n"
 
         sl=self.simtemp.get_schematic_listing(self)
@@ -292,25 +292,18 @@ class NgspiceMultiSimSesh(MultiSimSesh):
             self._ngspice.set_circuit(self._circuit_numbers[simname])
             if params is not None:
 
-                sparams_modl,sparams_inst=params.translated_to(simtemp._patch.param_set)\
-                    .break_into_model_and_instance()
-
-                with simtemp.tentative_deltas(sparams_modl) as deltas:
+                with simtemp.tentative_base_deltas(params) as deltas:
                     if full_resync: deltas=simtemp._patch
-                    if len(deltas):
-                        logger.debug(f"Model param changes: {deltas}")
-                        self._ngspice.alter_model(nl.modelcard_name,**deltas)
+                    dmodl,dinst=deltas.break_into_model_and_instance()
+                    if len(dmodl):
+                        logger.debug(f"Model param changes: {dmodl}")
+                        self._ngspice.alter_model(nl.modelcard_name,**dmodl)
                         logger.debug("Done model param changes")
-
-                #print("Made model changes: ",time.time())
-                with simtemp.tentative_deltas(sparams_inst) as deltas:
-                    if full_resync: deltas=simtemp._patch
-                    if len(deltas):
+                    if len(dinst):
                         for dev in nl._modeled_xtors:
-                            logger.debug(f"Instance param changes: {deltas}")
-                            self._ngspice.alter_device(dev,**deltas)
+                            logger.debug(f"Instance param changes: {dinst}")
+                            self._ngspice.alter_device(dev,**dinst)
                             logger.debug("Done instance param changes")
-                #print("Made inst changes: ",time.time())
 
             for an in nl.analyses:
                 logger.debug(f"Running an analysis")

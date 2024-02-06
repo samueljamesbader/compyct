@@ -73,8 +73,11 @@ class ParamSet():
             assert p in self._pdict, f"Display units provided for unknown parameter {p}"
             self._pdict[p]['display_units']=disp_units
         for p in self._pdict:
+            try:
+                units=self._pdict[p]['units']
+            except KeyError:
+                raise Exception(f"No units provided for {p}")
             disp_units=self._pdict[p].get('display_units',self._pdict[p]['units'])
-            units=self._pdict[p]['units']
             try:
                 disp_scale=(ureg.parse_expression(units)/ureg.parse_expression(disp_units)).to("").magnitude
             except DimensionalityError as e:
@@ -137,11 +140,18 @@ class ParamSet():
         categorized={cat:[p for p in cparams if p in params] for cat, cparams in self._cat_to_params.items()}
         return {cat:cparams for cat,cparams in categorized.items() if len(cparams)}
 
+    def is_hidden(self,param):
+        return self._pdict[param].get('hidden',False)
+
     def __copy__(self):
         raise Exception("You shouldn't be copying a ParamSet")
 
-    def get_defaults_patch(self, ignore_keys=[]):
-        return ParamPatch(self,{k:v['default'] for k,v in self._pdict.items() if k not in ignore_keys})
+    def get_defaults_patch(self, ignore_keys=None, only_keys=None):
+        assert not (only_keys and ignore_keys), "Can only supply one of ignore_keys or only_keys"
+        if only_keys:
+            return ParamPatch(self,{k:self._pdict[k]['default'] for k in only_keys})
+        else:
+            return ParamPatch(self,{k:v['default'] for k,v in self._pdict.items() if k not in (ignore_keys or [])})
 
     def make_complete_patch(self, **kwargs):
         for k in kwargs: assert k in self._pdict, f"Unknown parameter {k}"
@@ -162,7 +172,7 @@ class ParamSet():
                         for v in str(vs).split('+')
                             if param in irrs]
 
-    def translate_patch(self, patch: Union['ParamPatch',dict], other_param_set: 'ParamSet') -> 'ParamPatch':
+    def translate_patch(self, patch: Union['ParamPatch',dict], other_param_set: 'ParamSet', affected_only: bool = False) -> 'ParamPatch':
         if hasattr(patch,'param_set'):
             assert patch.param_set is self, "Can only translate patches that belong to this ParamSet"
         else:
@@ -171,21 +181,26 @@ class ParamSet():
         if other_param_set is self:
             return patch.copy()
         else:
-            ret=self._sub_translate_patch(patch, other_param_set)
+            ret=self._sub_translate_patch(patch, other_param_set, affected_only=affected_only)
             if isinstance(ret,ParamPatch):
-                assert ret.param_set is other_param_set, "_sub_transate_patch returned a patch of the wrong ParamSet"
+                assert ret.param_set is other_param_set, "_sub_translate_patch returned a patch of the wrong ParamSet"
             elif type(ret) is dict:
                 return ParamPatch(other_param_set,**ret)
             else:
-                raise Exception("_sub_transate_patch returned something that's not a ParamPatch or dict")
+                raise Exception(f"_sub_translate_patch returned something ({type(ret)} that's not a ParamPatch or dict"\
+                                f" when trying to go from {patch.param_set} to {other_param_set}")
             return ret
 
-    def _sub_translate_patch(self, patch: Union['ParamPatch',dict], other_param_set: 'ParamSet')\
+    def _sub_translate_patch(self, patch: Union['ParamPatch',dict], other_param_set: 'ParamSet', affected_only: bool = False)\
             -> Union['ParamPatch',dict]:
         raise NotImplementedError
 
     def get_bounds(self, param):
-        raise NotImplementedError
+        deets=self._pdict[param]
+        lower=spicenum_to_float(deets['lower'])
+        upper=spicenum_to_float(deets['upper'])
+        step=np.abs(spicenum_to_float(deets['default']))*.01
+        return (lower,step,upper)
 
     @staticmethod
     def get_total_device_width_for_patch(patch):
@@ -194,7 +209,7 @@ class ParamSet():
 class ParamPatch(UserDict):
 
     def __init__(self, param_set:ParamSet, *args, **kwargs):
-        self.param_set=param_set
+        self.param_set: ParamSet=param_set
         super().__init__(*args,**kwargs)
         for k in self:
             try:
@@ -203,8 +218,8 @@ class ParamPatch(UserDict):
                 import pdb; pdb.set_trace()
                 raise
 
-    def translated_to(self, param_set):
-        return self.param_set.translate_patch(self,param_set)
+    def translated_to(self, param_set: ParamSet, affected_only: bool = False):
+        return self.param_set.translate_patch(self,param_set, affected_only=affected_only)
 
     def with_updates(self, other:Union['ParamPatch',dict]):
         n=self.copy()
@@ -224,7 +239,22 @@ class ParamPatch(UserDict):
             if (k not in self) or (self[k]!=other[k]):
                 self[k]=v
                 changes[k]=v
-        return changes
+        return ParamPatch(self.param_set,**changes)
+
+    def update_inplace_and_return_base_changes(self, other: 'ParamPatch'):
+        if not hasattr(self.param_set,'base'):
+            return self.update_inplace_and_return_changes(other)
+        base_1=self.translated_to(self.param_set.base)
+        self.update_inplace_and_return_changes(other)
+        base_2=self.translated_to(self.param_set.base)
+        return base_1.update_inplace_and_return_changes(base_2)
+
+    def to_base(self, affected_only: bool = False):
+        if hasattr(self.param_set,'base'):
+            return self.translated_to(self.param_set.base, affected_only=affected_only)
+        else:
+            return self
+
 
     def get_nondefault_values(self):
         return {k:v for k,v in self.items() if self.param_set.get_default(k)!=v}
@@ -241,7 +271,7 @@ class ParamPatch(UserDict):
 
     def __getattr__(self, item):
         if item in ['get_scale','get_dtype','get_description','get_bounds','get_units',
-                    'model','terminals','get_place','get_display_scale']:
+                    'model','terminals','get_place','get_display_scale','is_hidden']:
             return getattr(self.param_set,item)
         else:
             raise AttributeError(item)
@@ -406,6 +436,12 @@ class CMCParamSet(ParamSet):
         else:
             upper_null=lower_null=null
         deets=self._pdict[param]
+        if 'macro' not in deets:
+            #return super().get_bounds(param)
+            # ^^ This causes issues because currently CMCParamSet.get_bounds is
+            # sometimes called where self=SimplifierParamSet, which is not an instance of CMCParamSet
+            # so let's spell it out
+            return ParamSet.get_bounds(self,param)
         match deets['macro'][3:]:
             case 'co':
                 lower=spicenum_to_float(deets['lower'])
@@ -455,11 +491,20 @@ class SimplifierParamSet(ParamSet):
         used_from_this_pset={}
         adds=[]
         drops=[]
+        self._homonyms=[]
         for l in trans_code.split("\n"):
             l=l.strip()
             if l=='' or l.startswith("#"): continue
             for_this_pset,for_base_psets=[x.strip() for x in l.split("->")]
-            for_base_psets=[x.strip() for x in for_base_psets.split(',')]
+            for_base_psets=[x.strip() for x in for_base_psets.split(',') if len(x)]
+            if len(for_base_psets)==0:
+                for i in [x.strip() for x in for_this_pset.split(',')]:
+                    print(f"Grabbing do-nothing {i}")
+                    if (i not in pdict) and (i not in additional_parameters):
+                        pdict[i]={'hidden':True}
+                        adds.append(i)
+                        used_from_this_pset[i]=[]
+                continue
 
             if for_this_pset=="":
                 just_default=True
@@ -495,8 +540,11 @@ class SimplifierParamSet(ParamSet):
                         used_from_this_pset[i]=used_from_this_pset.get(i,[])+for_base_psets
 
             for for_base_pset in for_base_psets:
-                del pdict[for_base_pset]
-                drops.append(for_base_pset)
+                if for_base_pset in used_from_this_pset:
+                    self._homonyms.append(for_base_pset)
+                else:
+                    del pdict[for_base_pset]
+                    drops.append(for_base_pset)
                 if just_default:
                     self._translations.append([self.base.get_default(for_base_pset),for_base_pset])
                 else:
@@ -509,7 +557,7 @@ class SimplifierParamSet(ParamSet):
         pdict.update(additional_parameters)
         adds+=list(additional_parameters)
         for i in used_from_this_pset:
-            assert i in pdict
+            assert i in pdict, f"Not finding {i} in this paramset, was it dropped earlier in translation code?"
 
         if display_yaml is None:
             display_yaml=deepcopy(self.base._disp_yaml)
@@ -532,14 +580,16 @@ class SimplifierParamSet(ParamSet):
                         if p in ips: ips.remove(p)
 
 
+        for p,pd in overrides.items():
+            assert p in pdict, f"Override provided for unknown parameter {p}"
+            pdict[p].update(**pd)
         super().__init__(model=self.base.model, terminals=self.base.terminals, pdict=pdict,
                          scs_includes=self.base.scs_includes, va_includes=self.base.va_includes,
                          display_yaml=display_yaml)
         for p,pd in overrides.items():
-            assert p in pdict, f"Override provided for unknown parameter {p}"
             pdict[p].update(**pd)
 
-    def _sub_translate_patch(self, patch: Union['ParamPatch',dict], other_param_set: 'ParamSet'):
+    def _sub_translate_patch(self, patch: Union['ParamPatch',dict], other_param_set: 'ParamSet', affected_only=False):
         assert other_param_set is self.base, f"{self} can only translate to its underlying model {self.base}"
         d={}
         for for_this_pset, for_base_pset in self._translations:
@@ -548,10 +598,12 @@ class SimplifierParamSet(ParamSet):
                 if for_this_pset in patch:
                     d[for_base_pset]=patch[for_this_pset]
             elif type(for_this_pset) is str and for_this_pset[0] in '+-0123456789.':
-                d[for_base_pset]=for_this_pset
+                if not affected_only:
+                    d[for_base_pset]=for_this_pset
             elif type(for_this_pset) in [float,int]:
                 #print(f'{for_this_pset:35g}','    ->    ',for_base_pset)
-                d[for_base_pset]=for_this_pset
+                if not affected_only:
+                    d[for_base_pset]=for_this_pset
             elif type(for_this_pset) is tuple:
                 #print((f"{','.join(for_this_pset[0])}: {for_this_pset[2]}").rjust(35),'    ->    ',for_base_pset)
                 if any(k in patch for k in for_this_pset[0]):
@@ -561,12 +613,53 @@ class SimplifierParamSet(ParamSet):
                 raise Exception(f"What is {for_this_pset}")
         return ParamPatch(other_param_set,**d)
 
+    def minimal_completion_of_pcell(self):
+        assert hasattr(self,'pcell_params'), "Must have pcell_params defined"
+        prev_reqs=set()
+        reqs=set(self.pcell_params)
+        while prev_reqs!=reqs:
+            prev_reqs=reqs
+            reqs_sing=set([for_this_pset for for_this_pset, for_base_pset in self._translations
+                      if type(for_this_pset) is str and for_this_pset in prev_reqs ])
+            reqs_mult=set([r for for_this_pset, for_base_pset in self._translations
+                                if (type(for_this_pset) is tuple and any( k in for_this_pset[0] for k in prev_reqs))
+                           for r in for_this_pset[0]
+                           ])
+            reqs=reqs_sing.union(reqs_mult).union(prev_reqs)
+        return reqs
+
+    def check_param_placements(self):
+        simple_inst_reqs=self.minimal_completion_of_pcell()
+        base_must_be_inst=list(self.get_defaults_patch(only_keys=simple_inst_reqs).to_base(affected_only=True))
+        trouble=[p for p in base_must_be_inst if self.base.get_place(p)!=ParamPlace.INSTANCE]
+        assert not len(trouble), f"In order to have a subcircuit control this model, {trouble} should be made instance parameters!"
+
     # TODO: regularize pdict to move more of this into ParamSet superclass and not use this hack
     def get_bounds(self, param, *args, **kwargs):
         return self.base.__class__.get_bounds(self, param, *args, **kwargs)
     def get_dtype(self, param):
         return self.base.__class__.get_dtype(self, param)
 
+    @classmethod
+    def from_yaml(cls,yaml_path,base):
+        from scipy.constants import epsilon_0, elementary_charge as q
+        with open(yaml_path,'r') as f:
+            yl=yaml.safe_load(f)
+        psSimple=cls(
+            base_param_set=base,
+            trans_code=yl['trans_code'],
+            overrides=yl['overrides'],
+            constants={'EPS_SIO2':3.9*epsilon_0, 'Q':q},
+            additional_parameters=yl.get('additional_parameters',{}),
+        )
+        for attr,val in yl.get('attributes',{}).items():
+            print(f"Setting Attribute {attr}={val}")
+            setattr(psSimple,attr,val)
+        return psSimple
+
+    @staticmethod
+    def get_total_device_width_for_patch(patch):
+        return patch.to_base().get_total_device_width()
 
 class MVSGParamSet(CMCParamSet):
 

@@ -1,21 +1,11 @@
-import numpy as np
 import pyspectre as psp
 from tempfile import NamedTemporaryFile
 from compyct.templates import SimTemplate
 from .backend import Netlister, MultiSimSesh, get_va_path
 from compyct.paramsets import ParamPlace
 from ..util import logger
+from .spectre_util import n2scs
 
-def n2scs(num):
-    if type(num) is str:
-        return num.replace("meg","M")
-    else:
-        if num==0: return '0'
-        ord=np.clip(np.floor(np.log10(np.abs(num))/3)*3,-18,15)
-        si={-18:'a',-15:'f',-12:'p',-9:'n',-6:'u',-3:'m',
-            0:'',
-            3:'k',6:'M',9:'G',12:'T',15:'P'}[ord]
-        return f'{(num/10**ord):g}{si}'
 
 class SpectreNetlister(Netlister):
     GND='0'
@@ -212,6 +202,7 @@ class SpectreMultiSimSesh(MultiSimSesh):
         super().__del__()
 
     def run_with_params(self, params=None, full_resync=False, only_temps=None):
+        raise NotImplementedError("Need to update this to match base_delta stuff")
         results={}
         #import time
         for simname,(nl,sesh) in self._sessions.items():

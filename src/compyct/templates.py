@@ -58,11 +58,11 @@ class SimTemplate():
         raise NotImplementedError
 
     @contextmanager
-    def tentative_deltas(self,params):
+    def tentative_base_deltas(self,params) -> ParamPatch:
         assert isinstance(params, ParamPatch)
         bk=self._patch.copy()
         try:
-            yield self._patch.update_inplace_and_return_changes(params)
+            yield self._patch.update_inplace_and_return_base_changes(params)
         except:
             self._patch.update_inplace_and_return_changes(bk)
             raise
@@ -792,7 +792,7 @@ class SParTemplate(MultiSweepSimTemplate):
 
         return [figpow,figsmi]
 
-class TemplateGroup(UserDict):
+class TemplateGroup(UserDict[str,SimTemplate]):
     def __init__(self,**templates):
         super().__init__(**templates)
         self._panes={}
