@@ -34,7 +34,7 @@ class SpectreNetlister(Netlister):
             terms=" ".join([{'d':netd,'g':netg,'s':nets,'b':netb}[k] for k in terms])
         #if self.override_model_subckt is None:
             inst_paramstr=' '.join(f'{k}=instparam_{k}'\
-                    for k in patch.filled().break_into_model_and_instance()[1])
+                    for k in patch.filled().to_base().break_into_model_and_instance()[1])
             return f"X{name} ({terms})"\
                         f" {self.modelcard_name} {inst_paramstr}"
         #else:
@@ -123,12 +123,12 @@ class SpectreNetlister(Netlister):
                     self._tf.write(f"ahdl_include \"{get_va_path(i)}\"\n")
                         
                 self._tf.write(f"model {self.modelcard_name} {patch.model}\n")
-                paramlinedict={f"modparam_{k}":v for k,v in patch.filled().break_into_model_and_instance()[0].items()}
+                paramlinedict={f"modparam_{k}":v for k,v in patch.filled().to_base().break_into_model_and_instance()[0].items()}
                 self._tf.write(
                     f"parameters "+\
                     ' '.join([f'{k}={n2scs(v)}' for k,v in paramlinedict.items()])\
                     +"\n\n")
-                instance_params = {k: v for k, v in patch.filled().break_into_model_and_instance()[1].items()}
+                instance_params = {k: v for k, v in patch.filled().to_base().break_into_model_and_instance()[1].items()}
                 if len(instance_params):
                     self._tf.write(f"parameters "+\
                                        ' '.join(f'instparam_{k}={n2scs(v)}'
@@ -139,7 +139,7 @@ class SpectreNetlister(Netlister):
                 self._tf.write(
                     f"set_modparams altergroup {{\nmodel {self.modelcard_name}"\
                     f" {patch.model} "+\
-                    " ".join((f"{k}=modparam_{k}" for k in patch.filled().break_into_model_and_instance()[0]))\
+                    " ".join((f"{k}=modparam_{k}" for k in patch.filled().to_base().break_into_model_and_instance()[0]))\
                     +"\n}\n\n")
             self._tf.write("\n".join(self.simtemp.get_analysis_listing(self))+"\n")
             self._tf.flush()
@@ -147,7 +147,7 @@ class SpectreNetlister(Netlister):
 
     def get_spectre_names_for_param(self,param):
         prefix={ParamPlace.MODEL.value:'mod',ParamPlace.INSTANCE.value:'inst'}\
-                    [self.simtemp._patch.param_set.get_place(param).value]+'param_'
+                    [self.simtemp._patch.to_base().param_set.get_place(param).value]+'param_'
         return prefix+param
         
     def preparse_return(self,result):
@@ -202,7 +202,6 @@ class SpectreMultiSimSesh(MultiSimSesh):
         super().__del__()
 
     def run_with_params(self, params=None, full_resync=False, only_temps=None):
-        raise NotImplementedError("Need to update this to match base_delta stuff")
         results={}
         #import time
         for simname,(nl,sesh) in self._sessions.items():
@@ -210,14 +209,13 @@ class SpectreMultiSimSesh(MultiSimSesh):
             logger.debug(f"Running {simname}")
             simtemp=self.simtemps[simname]
             if params is not None:
-                sparams=params.translated_to(simtemp._patch.param_set)
 
-                with simtemp.tentative_deltas(sparams) as deltas:
+                with simtemp.tentative_base_deltas(params) as deltas:
                     if full_resync: deltas=simtemp._patch
                     logger.debug(f"Param changes: {deltas}")
-                    logger.debug(f"Done param changes")
                     psp.set_parameters(sesh,{nl.get_spectre_names_for_param(k):n2scs(v)
                                              for k,v in deltas.items()})
+                    logger.debug(f"Done param changes")
             #print('running', time.time())
             results[simname]=simtemp.postparse_return(simtemp.parse_return(nl.preparse_return(psp.run_all(sesh))))
             #print('done', time.time())
