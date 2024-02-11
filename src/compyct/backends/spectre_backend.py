@@ -53,7 +53,13 @@ class SpectreNetlister(Netlister):
     def nstr_port(name,netp,netm,dc,portnum,z0=50):
         return f"PORT{portnum} ({netp} {netm} portdc{portnum}) port r={n2scs(z0)}\n"\
                f"VPort{portnum} (portdc{portnum} {netm}) vsource dc={n2scs(dc)}"
-    
+
+    def astr_altervportdc(self, whichv, tovalue, portnum, name=None):
+        if name is None:
+            name = f"alter{self._analysiscount}"
+            self._analysiscount += 1
+        return f"{name} alter dev=VPort{portnum} param=dc value={n2scs(tovalue)}"
+
     def nstr_iabstol(self,abstol):
         return f"simulatorOptions options iabstol={n2scs(abstol)}"
 
@@ -85,8 +91,11 @@ class SpectreNetlister(Netlister):
         if name is None:
             name=f"sweepspar{self._analysiscount}"
             self._analysiscount+=1
-        narg = {'lin': points, 'dec': pts_per_dec}[sweep_option]
-        return f"{name} sp ports=[PORT1 PORT2] start={n2scs(fstart)} stop={n2scs(fstop)} {sweep_option}={narg} annotate=status"
+        if fstart==fstop:
+            return f"{name} sp ports=[PORT1 PORT2] freq={n2scs(fstart)} annotate=status"
+        else:
+            narg = {'lin': points, 'dec': pts_per_dec}[sweep_option]
+            return f"{name} sp ports=[PORT1 PORT2] start={n2scs(fstart)} stop={n2scs(fstop)} {sweep_option}={narg} annotate=status"
 
     # def nstr_alter(dev,param,value,name=None):
     #     if name is None:

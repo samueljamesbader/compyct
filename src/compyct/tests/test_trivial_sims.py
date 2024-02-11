@@ -2,7 +2,8 @@ import numpy as np
 from compyct.backends import ngspice_backend
 from compyct.backends.backend import MultiSimSesh
 from compyct.examples.trivial_xtor_defs import TrivialXtorParamSet, TrivialXtor
-from compyct.templates import TemplateGroup, DCIVTemplate, CVTemplate, IdealPulsedIdVdTemplate, SParTemplate
+from compyct.templates import TemplateGroup, DCIVTemplate, CVTemplate, IdealPulsedIdVdTemplate, SParTemplate, \
+    SParVFreqTemplate, SParVBiasTemplate
 
 from _pytest.python import Metafunc
 import os
@@ -61,10 +62,10 @@ def test_trivial_xtor_psiv(backend):
             res['thepsiv'][vg]["ID/W [uA/um]"],
             rtol=1e-3,atol=1e-6)
 
-def test_trivial_xtor_spar(backend):
+def test_trivial_xtor_sparvfreq(backend):
     patch=TrivialXtorParamSet().mcp_(gtrap=0)
     vg=.6;vd=1.8
-    tg=TemplateGroup(thespar=SParTemplate(vg=vg,vd=vd,pts_per_dec=4,fstart='10meg',fstop='10e9',patch=patch))
+    tg=TemplateGroup(thespar=SParVFreqTemplate(vg=vg,vd=vd,pts_per_dec=4,fstart='10meg',fstop='10e9',patch=patch))
     meas_data={'thespar':TrivialXtor(patch=patch).evaluate_template(tg['thespar'])}
     with MultiSimSesh.get_with_backend(tg,backend=backend) as sim:
         sim.print_netlists()
@@ -99,6 +100,45 @@ def test_trivial_xtor_spar(backend):
     #    rtol=1e-2,atol=1e-6)
     #print(res['thespar'][0])
     # Actual comparison
+def test_trivial_xtor_sparvbias(backend):
+    patch=TrivialXtorParamSet().mcp_(gtrap=0)
+    vgvds=[(.6,1.8),(.7,1.8)]
+    tg=TemplateGroup(thespar=SParVBiasTemplate(vgvds=vgvds,frequency='1e9',patch=patch))
+    meas_data={'thespar':TrivialXtor(patch=patch).evaluate_template(tg['thespar'])}
+    with MultiSimSesh.get_with_backend(tg,backend=backend) as sim:
+        sim.print_netlists()
+        res=sim.run_with_params()
+
+    for vg,vd in vgvds:
+        print(meas_data['thespar'][(vg,vd)].columns)
+        print(res['thespar'][(vg,vd)].columns)
+        print(f"ideal:")
+        print(meas_data['thespar'][(vg,vd)][['Y11','Y21']])
+        print('res:')
+        print(res['thespar'][(vg,vd)][['Y11','Y21']])
+
+        assert np.allclose(
+            meas_data['thespar'][(vg,vd)]["freq"],
+            res['thespar'][(vg,vd)]["freq"],
+            rtol=1e-4,atol=1e-6)
+        assert np.allclose(
+            meas_data['thespar'][(vg,vd)]["Y11"],
+            res['thespar'][(vg,vd)]["Y11"],
+            rtol=5e-3,atol=1e-6)
+        assert np.allclose(
+            meas_data['thespar'][(vg,vd)]["Y12"],
+            res['thespar'][(vg,vd)]["Y12"],
+            rtol=1e-4,atol=1e-6)
+        assert np.allclose(
+            meas_data['thespar'][(vg,vd)]["Y21"],
+            res['thespar'][(vg,vd)]["Y21"],
+            rtol=1e-4,atol=1e-6)
+        #assert np.allclose(
+        #    meas_data['thespar'][(vg,vd)]["Y22"],
+        #    res['thespar'][(vg,vd)]["Y11"],
+        #    rtol=1e-2,atol=1e-6)
+        #print(res['thespar'][0])
+        # Actual comparison
 
 if __name__=='__main__':
     #test_get_with_backend()
@@ -106,7 +146,9 @@ if __name__=='__main__':
     #test_trivial_xtor_dciv(backend='spectre')
     #print('passed dciv')
     #test_trivial_xtor_psiv(backend='spectre')
-    test_trivial_xtor_spar(backend='ngspice')
-    print("passed ngspice")
-    test_trivial_xtor_spar(backend='spectre')
+    #test_trivial_xtor_sparvfreq(backend='ngspice')
+    #test_trivial_xtor_sparvbias(backend='ngspice')
+    #print("passed ngspice")
+    #test_trivial_xtor_sparvfreq(backend='spectre')
+    test_trivial_xtor_sparvbias(backend='spectre')
     print("passed spectre")

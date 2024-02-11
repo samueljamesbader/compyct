@@ -105,7 +105,7 @@ class MultiSweepSimTemplate(SimTemplate):
         data=dict(x=[],legend=[],color=[],**{yname:[] for yname in self.ynames})
         if parsed_result is None: parsed_result={}
         #for key, df in parsed_result.items():
-        k0s=list(sorted([k[0] for k in self._required_keys()]))
+        k0s=list(sorted(set([k[0] for k in self._required_keys()])))
         colors=dict(zip(k0s,TolRainbow[max(len(k0s),3)]))
         if len(parsed_result):
             for key in self._required_keys():
@@ -840,13 +840,14 @@ class SParVBiasTemplate(SParTemplate):
         assert self.frequency_sweep_option=='log'
         lst=[]
         for i,(vg,vd) in enumerate(self.outer_values):
-            lst.append(netlister.astr_altervportdc('G',vg))
-            lst.append(netlister.astr_altervportdc('D',vd))
+            lst.append(netlister.astr_altervportdc('G',vg,portnum=1))
+            lst.append(netlister.astr_altervportdc('D',vd,portnum=2))
             lst.append(netlister.astr_spar(pts_per_dec=self.pts_per_dec,sweep_option='dec',
                                         fstart=self.fstart, fstop=self.fstop, name=f'spar{i}'))
         return lst
 
     def parse_return(self,result):
+        result={k:v for k,v in result.items() if k.startswith('spar')}
         assert len(result)==len(self.outer_values)
         parsed_result={}
         for i,(vg,vd) in enumerate(self.outer_values):

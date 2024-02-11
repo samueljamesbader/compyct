@@ -1,5 +1,5 @@
 from compyct.templates import TemplateGroup, DCIVTemplate, DCIdVgTemplate, DCIdVdTemplate, JointTemplate, CVTemplate, \
-    IdealPulsedIdVdTemplate, SParTemplate
+    IdealPulsedIdVdTemplate, SParTemplate, SParVFreqTemplate, SParVBiasTemplate
 from compyct.paramsets import CMCParamSet, spicenum_to_float
 from scipy.constants import elementary_charge as q, Boltzmann as kb
 import pandas as pd
@@ -109,7 +109,7 @@ class TrivialXtor():
                                              trap_state={'VD':simtemp.vdq,'VG':simtemp.vgq,'VS':0})/w})
             return results
 
-        elif isinstance(simtemp,SParTemplate):
+        elif isinstance(simtemp,SParVFreqTemplate):
             results={}
 
             freq=np.power(10,np.arange(np.log10(simtemp.fstart),np.log10(simtemp.fstop)+1e-6,1/simtemp.pts_per_dec))
@@ -127,6 +127,25 @@ class TrivialXtor():
                 'Y21':gm,
                 'Y22': freq*np.NaN
             })
+            return results
+        elif isinstance(simtemp,SParVBiasTemplate):
+            results={}
+
+            freq=np.array([simtemp.fstart])
+            w=2*np.pi*freq
+
+            for vg,vd in simtemp.outer_values:
+                Cgs=self.Cgg(VD=vd,VG=vg,VS=0,VB=0,T=simtemp.temp)
+                print(f"CGS: {Cgs}")
+                gm=self.GM(VD=vd,VG=vg,VS=0,VB=0,T=simtemp.temp,traps_move=False)
+
+                results[(vg,vd)]=pd.DataFrame({
+                    'freq':freq,
+                    'Y11':1j*w*Cgs,
+                    'Y12':freq*0,
+                    'Y21':gm,
+                    'Y22': freq*np.NaN
+                })
             return results
 
         elif isinstance(simtemp,JointTemplate):

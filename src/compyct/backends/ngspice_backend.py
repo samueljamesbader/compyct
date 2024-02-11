@@ -78,7 +78,7 @@ class NgspiceNetlister(Netlister):
                f"Cport{name} {netp} port_{name}_ac 1\n" \
                f"Lport{name} {netp} port_{name}_dc 1meg\n"\
                f"Vdc_{name} port_{name}_dc {netm} dc {dc}\n"
-    def astr_altervportdc(self,whichv, tovalue, name=None):
+    def astr_altervportdc(self,whichv, tovalue, portnum, name=None):
         return lambda ngss: \
             (None,ngss.alter_device(f'vdc_{whichv.lower()}',dc=tovalue))
 
