@@ -8,6 +8,7 @@ import bokeh.plotting
 import pandas as pd
 import bokeh.layouts
 import panel as pn
+from bokeh.palettes import TolRainbow
 
 from bokeh_smith import smith_chart
 from compyct import logger
@@ -15,9 +16,7 @@ from compyct.backends.backend import Netlister
 from compyct.gui import fig_legend_config, get_tools
 
 from compyct.paramsets import ParamPatch, spicenum_to_float, ParamPlace
-from compyct.util import s2y
-
-
+from compyct.util import s2y, s2z, form_multisweep
 
 class SimTemplate():
     title='Unnamed plot'
@@ -43,10 +42,15 @@ class SimTemplate():
         data=self._parsed_result_to_cds_data(parsed_result)
         if flattened and len(list(data.values())[0]):
             flattened_data={k:np.concatenate(v) for k,v in data.items()
-                                 if k!='legend' and hasattr(v[0],'__len__')}
-            npts=len(data[list(flattened_data.keys())[0]][0])
-            flattened_data.update({k:np.repeat(v,npts) for k,v in data.items()
-                                 if k=='legend' or (not hasattr(v[0],'__len__'))})
+                                 if k not in ['legend','color'] and hasattr(v[0],'__len__')}
+            swpkey=list(flattened_data.keys())[0]
+            flattened_data.update({k:[v[i] for i in range(len(data[swpkey])) for _ in data[swpkey][i]]
+                                   for k,v in data.items()
+                                       if k in ['legend','color'] or (not hasattr(v[0],'__len__'))})
+            # Only works for rectangular arrays
+            #npts=len(data[list(flattened_data.keys())[0]][0])
+            #flattened_data.update({k:np.repeat(v,npts) for k,v in data.items()
+                                 #if k=='legend' or (not hasattr(v[0],'__len__'))})
             data=flattened_data
         if cds is None:
             cds=bokeh.models.ColumnDataSource(data)
@@ -98,9 +102,11 @@ class MultiSweepSimTemplate(SimTemplate):
         #assert len(self.ynames)==1
         #yname=self.ynames[0]
         
-        data=dict(x=[],legend=[],**{yname:[] for yname in self.ynames})
+        data=dict(x=[],legend=[],color=[],**{yname:[] for yname in self.ynames})
         if parsed_result is None: parsed_result={}
         #for key, df in parsed_result.items():
+        k0s=list(sorted([k[0] for k in self._required_keys()]))
+        colors=dict(zip(k0s,TolRainbow[max(len(k0s),3)]))
         if len(parsed_result):
             for key in self._required_keys():
                 try:
@@ -111,7 +117,8 @@ class MultiSweepSimTemplate(SimTemplate):
                 data['x'].append(df[self.inner_variable].to_numpy())
                 for yname in set(self.ynames):
                     data[yname].append(df[yname].to_numpy())
-                data['legend'].append(str(key))
+                data['legend'].append(' '.join(str(ki) for ki in key))
+                data['color'].append(colors[key[0]])
         return data
         
         
@@ -143,9 +150,13 @@ class MultiSweepSimTemplate(SimTemplate):
         for i in range(num_ys):
             fig=bokeh.plotting.figure(tools=get_tools(),#x_range=self.vg_range,y_range=(1e-8,1),
                                       y_axis_type=y_axis_type[i],x_axis_type=x_axis_type[i],**layout_params)
-            fig.circle(x='x',y=self.ynames[i],source=meas_cds_c,legend_field='legend')
-            fig.multi_line(xs='x',ys=self.ynames[i],source=meas_cds_l)
-            fig.multi_line(xs='x',ys=self.ynames[i],source=sim_cds,color='red')
+            # blue-red scheme
+            #fig.circle(x='x',y=self.ynames[i],source=meas_cds_c,legend_field='legend')
+            #fig.multi_line(xs='x',ys=self.ynames[i],source=meas_cds_l)
+            #fig.multi_line(xs='x',ys=self.ynames[i],source=sim_cds,color='red')
+            # technicolor
+            fig.circle(x='x',y=self.ynames[i],source=meas_cds_c,legend_field='legend',color='color')
+            fig.multi_line(xs='x',ys=self.ynames[i],source=sim_cds,color='color')
 
             fig.yaxis.axis_label=self.ynames[i]#",".join(self.ynames)
             fig.xaxis.axis_label=self.inner_variable
@@ -189,25 +200,26 @@ class MultiSweepSimTemplate(SimTemplate):
         return set(product(self.outer_values,self.directions))
 
     def _validated(self, parsed_result):
-        if parsed_result is None: return
+        if parsed_result is None: return parsed_result
         required_keys=self._required_keys()
         if self.outer_variable is not None:
             assert all(k in parsed_result.keys() for k in required_keys), \
                 f"{self.__class__.__name__} requests {self.outer_variable}"\
                 f" {list(required_keys)},"\
                 f" but results are {list(parsed_result.keys())}"
-        for val in parsed_result.values():
-            assert np.isclose(val[self.inner_variable].to_numpy()[0],self.inner_range[0]),\
-                f"{self.__class__.__name__} expects {self.inner_variable}[0]={self.inner_range[0]},"\
-                f" but results have {val[self.inner_variable].to_numpy()[0]}"
-            assert np.isclose(val[self.inner_variable].to_numpy()[-1],self.inner_range[2]),\
-                f"{self.__class__.__name__} expects {self.inner_variable}[-1]={self.inner_range[-1]},"\
-                f" but results have {val[self.inner_variable].to_numpy()[-1]}"
-            #print(val[self.inner_variable])
-            #import pdb; pdb.set_trace()
-            assert np.allclose(np.diff(val[self.inner_variable]),self.inner_range[1],rtol=1e-3), \
-                f"{self.__class__.__name__} expects Δ{self.inner_variable}={self.inner_range[1]},"\
-                f" but results have {list(np.diff(val[self.inner_variable]))}"
+        if self.inner_range is not None:
+            for val in parsed_result.values():
+                assert np.isclose(val[self.inner_variable].to_numpy()[0],self.inner_range[0]),\
+                    f"{self.__class__.__name__} expects {self.inner_variable}[0]={self.inner_range[0]},"\
+                    f" but results have {val[self.inner_variable].to_numpy()[0]}"
+                assert np.isclose(val[self.inner_variable].to_numpy()[-1],self.inner_range[2]),\
+                    f"{self.__class__.__name__} expects {self.inner_variable}[-1]={self.inner_range[-1]},"\
+                    f" but results have {val[self.inner_variable].to_numpy()[-1]}"
+                #print(val[self.inner_variable])
+                #import pdb; pdb.set_trace()
+                assert np.allclose(np.diff(val[self.inner_variable]),self.inner_range[1],rtol=1e-3), \
+                    f"{self.__class__.__name__} expects Δ{self.inner_variable}={self.inner_range[1]},"\
+                    f" but results have {list(np.diff(val[self.inner_variable]))}"
         return parsed_result
 
 
@@ -626,14 +638,14 @@ class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
 class SParTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args,
-                 vg, vd, fstart, fstop, temp=27, pts_per_dec=None, fstep=None, **kwargs):
+                 vgvds, fstart, fstop, temp=27, pts_per_dec=None, fstep=None, **kwargs):
         try:
             fstart=spicenum_to_float(fstart)
             fstop=spicenum_to_float(fstop)
         except:
             raise Exception(f"Invalid frequency range: {fstart} - {fstop}")
 
-        super().__init__(outer_variable=None, outer_values=[(vg,vd)], inner_variable='freq',
+        super().__init__(outer_variable=None, outer_values=vgvds, inner_variable='freq',
                          inner_range=(fstart,pts_per_dec,fstop),
                          ynames=['|h21| [dB]','U [dB]','MAG-MSG [dB]','ReS11','ImS11','ReS22','ImS22','ReS12','ImS12'],
                          *args, **kwargs)
@@ -682,6 +694,72 @@ class SParTemplate(MultiSweepSimTemplate):
             netlister.nstr_port("D",netp='netd',netm=netlister.GND,dc=vd,portnum=2),
             netlister.nstr_port("G",netp='netg',netm=netlister.GND,dc=vg,portnum=1)]
 
+
+
+    def postparse_return(self,parsed_result):
+        for df in parsed_result.values():
+
+            df['freq']=np.real(df['freq'])
+
+            #print(df[['S11', 'S12', 'S21', 'S22']])
+            if 'Y11' not in df.columns:
+                df['Y11'],df['Y12'],df['Y21'],df['Y22']=s2y(df['S11'],df['S12'],df['S21'],df['S22'])
+            if 'Z11' not in df.columns:
+                df['Z11'],df['Z12'],df['Z21'],df['Z22']=s2z(df['S11'],df['S12'],df['S21'],df['S22'])
+
+            # h21 is a current ratio, so 20x log
+            df[f'|h21| [dB]']=20*np.log10(np.abs(df.Y21/df.Y11))
+
+            # https://en.wikipedia.org/wiki/Mason%27s_invariant#Derivation_of_U
+            # U is already a power ratio so just 10x log
+            re=np.real; im=np.imag
+            with np.errstate(invalid='ignore'):
+                df[f'U [dB]']=10*np.log10(
+                    (np.abs(df.Y21-df.Y12)**2 /
+                          (4*(re(df.Y11)*re(df.Y22)-re(df.Y12)*re(df.Y21)))))
+
+            # https://www.microwaves101.com/encyclopedias/stability-factor
+            Delta=df.S11*df.S22-df.S12*df.S21
+            K = (1-np.abs(df.S11)**2-np.abs(df.S22)**2+np.abs(Delta)**2)/(2*np.abs(df.S21*df.S12))
+
+            # this formula with 1/(K+sqrt(K^2-1)) is less common but more robust for large K
+            # according to Microwaves 101 and easy to show it's equal.
+            k2m1=np.clip(K**2-1,0,np.inf) # we only use the K>1 values of MAG anyway, so clip to avoid sqrt(-)
+            MAG = (1/(K+np.sqrt(k2m1))) * np.abs(df.S21)/np.abs(df.S12)
+            MSG = np.abs(df.S21)/np.abs(df.S12)
+            df['MAG-MSG [dB]']=20*np.log10(np.choose(K>=1,[MSG,MAG]))
+
+            # RF small-signal circuit parameters
+            w=2*np.pi*df['freq']
+            df['Cgd']=-im(df.Y12) / w
+            df['Cgs']=im(df.Y11 + df.Y12) / w
+            df['Cds']=im(df.Y22+df.Y12) / w
+            df['Rds']=1/re(df.Y22+df.Y12)
+            df['Gm']=np.abs(df.Y21-df.Y12)
+            df['Rs']=re(df.Z12)
+            df['Rd']=re(df.Z22)-df.Rs
+            df['Rg']=re(df.Z11)-df.Rs
+
+            # S-parameters
+            for ii in ['11','12','21','22']:
+                for comp,func in (('Re',np.real),('Im',np.imag)):
+                    df[f'{comp}S{ii}']=func(df[f'S{ii}'])
+        return parsed_result
+
+    def _rescale_vector(self,arr,col, meas_arr):
+        return arr
+
+    def _validated(self, parsed_result):
+        # Overriding because this does freq num points instead of freq delta
+        # TODO: implement this
+        return parsed_result
+
+class SParVFreqTemplate(SParTemplate):
+    def __init__(self, *args,
+                 vg, vd, fstart, fstop, temp=27, pts_per_dec=None, fstep=None, **kwargs):
+        super().__init__(*args,vgvds=[(vg,vd)],fstart=fstart,fstop=fstop,temp=temp,
+                         pts_per_dec=pts_per_dec,fstep=fstep,**kwargs)
+
     def get_analysis_listing(self,netlister:Netlister):
         assert len(self.outer_values)==1, "if more than one bias point, gotta alter DC values between sweeps"
         match self.frequency_sweep_option:
@@ -706,51 +784,6 @@ class SParTemplate(MultiSweepSimTemplate):
         #                  (self._patch.get_total_device_width()/1e-6)
         #df['VG']=np.real(df['v-sweep'])
         #parsed_result={0:df[['VG','Cgg [fF/um]']]}
-        return parsed_result
-
-    def postparse_return(self,parsed_result):
-        for df in parsed_result.values():
-
-            df['freq']=np.real(df['freq'])
-
-            #print(df[['S11', 'S12', 'S21', 'S22']])
-            if 'Y11' not in df.columns:
-                df['Y11'],df['Y12'],df['Y21'],df['Y22']=s2y(df['S11'],df['S12'],df['S21'],df['S22'])
-
-            # h21 is a current ratio, so 20x log
-            df[f'|h21| [dB]']=20*np.log10(np.abs(df.Y21/df.Y11))
-
-            # https://en.wikipedia.org/wiki/Mason%27s_invariant#Derivation_of_U
-            # U is already a power ratio so just 10x log
-            re=np.real; im=np.imag
-            with np.errstate(invalid='ignore'):
-                df[f'U [dB]']=10*np.log10(
-                    (np.abs(df.Y21-df.Y12)**2 /
-                          (4*(re(df.Y11)*re(df.Y22)-re(df.Y12)*re(df.Y21)))))
-
-            # https://www.microwaves101.com/encyclopedias/stability-factor
-            Delta=df.S11*df.S22-df.S12*df.S21
-            K = (1-np.abs(df.S11)**2-np.abs(df.S22)**2+np.abs(Delta)**2)/(2*np.abs(df.S21*df.S12))
-
-            # this formula with 1/(K+sqrt(K^2-1)) is less common but more robust for large K
-            # according to Microwaves 101 and easy to show it's equal.
-            k2m1=np.clip(K**2-1,0,np.inf) # we only use the K>1 values of MAG anyway, so clip to avoid sqrt(-)
-            MAG = (1/(K+np.sqrt(k2m1))) * np.abs(df.S21)/np.abs(df.S12)
-            MSG = np.abs(df.S21)/np.abs(df.S12)
-            df['MAG-MSG [dB]']=20*np.log10(np.choose(K>=1,[MSG,MAG]))
-
-            # S-parameters
-            for ii in ['11','12','21','22']:
-                for comp,func in (('Re',np.real),('Im',np.imag)):
-                    df[f'{comp}S{ii}']=func(df[f'S{ii}'])
-        return parsed_result
-
-    def _rescale_vector(self,arr,col, meas_arr):
-        return arr
-
-    def _validated(self, parsed_result):
-        # Overriding because this does freq num points instead of freq delta
-        # TODO: implement this
         return parsed_result
 
     def generate_figures(self,*args,**kwargs):
@@ -791,6 +824,52 @@ class SParTemplate(MultiSweepSimTemplate):
         figsmi.legend.location='top_right'
 
         return [figpow,figsmi]
+
+class SParVBiasTemplate(SParTemplate):
+    def __init__(self, *args,
+                 vgvds, frequency, temp=27, **kwargs):
+        super().__init__(*args,vgvds=vgvds,fstart=frequency,fstop=frequency,pts_per_dec=1,temp=temp,**kwargs)
+        ssps_vs_vg=['Gm','Cgs','Cgd']
+        ssps_vs_vd=['Rds','Cds']
+        vgs=list(sorted(set([k[0] for k in vgvds])))
+        vds=list(sorted(set([k[1] for k in vgvds])))
+        self._vsvg=MultiSweepSimTemplate(outer_variable='VD',inner_variable='VG',ynames=ssps_vs_vg,outer_values=vds,directions=['f'])
+        self._vsvd=MultiSweepSimTemplate(outer_variable='VG',inner_variable='VD',ynames=ssps_vs_vd,outer_values=vgs,directions=['f'])
+
+    def get_analysis_listing(self,netlister:Netlister):
+        assert self.frequency_sweep_option=='log'
+        lst=[]
+        for i,(vg,vd) in enumerate(self.outer_values):
+            lst.append(netlister.astr_altervportdc('G',vg))
+            lst.append(netlister.astr_altervportdc('D',vd))
+            lst.append(netlister.astr_spar(pts_per_dec=self.pts_per_dec,sweep_option='dec',
+                                        fstart=self.fstart, fstop=self.fstop, name=f'spar{i}'))
+        return lst
+
+    def parse_return(self,result):
+        assert len(result)==len(self.outer_values)
+        parsed_result={}
+        for i,(vg,vd) in enumerate(self.outer_values):
+            parsed_result[(vg,vd)]=result[f'spar{i}']
+        return parsed_result
+
+
+    def generate_figures(self, meas_data=None,
+                         layout_params={}, y_axis_type=None, x_axis_type=None,
+                         vizid=None):
+        assert (y_axis_type is None) and (x_axis_type is None)
+        vg_sweeps=form_multisweep(meas_data,1,0,'VG',query=f'freq == {self.fstart}')
+        vd_sweeps=form_multisweep(meas_data,0,1,'VD',query=f'freq == {self.fstart}')
+        return [
+            *self._vsvg.generate_figures(meas_data=vg_sweeps,layout_params=layout_params,vizid=vizid),
+            *self._vsvd.generate_figures(meas_data=vd_sweeps,layout_params=layout_params,vizid=vizid)]
+
+    def update_figures(self, parsed_result, vizid=None):
+        vg_sweeps=form_multisweep(parsed_result,1,0,'VG',query=f'freq == {self.fstart}')
+        vd_sweeps=form_multisweep(parsed_result,0,1,'VD',query=f'freq == {self.fstart}')
+        self._vsvg.update_figures(vg_sweeps, vizid=vizid)
+        self._vsvd.update_figures(vd_sweeps, vizid=vizid)
+
 
 class TemplateGroup(UserDict[str,SimTemplate]):
     def __init__(self,**templates):

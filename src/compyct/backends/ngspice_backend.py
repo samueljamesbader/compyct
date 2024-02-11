@@ -78,6 +78,9 @@ class NgspiceNetlister(Netlister):
                f"Cport{name} {netp} port_{name}_ac 1\n" \
                f"Lport{name} {netp} port_{name}_dc 1meg\n"\
                f"Vdc_{name} port_{name}_dc {netm} dc {dc}\n"
+    def astr_altervportdc(self,whichv, tovalue, name=None):
+        return lambda ngss: \
+            (None,ngss.alter_device(f'vdc_{whichv.lower()}',dc=tovalue))
 
     @staticmethod
     def nstr_VPulses(name,netp,netm,dc, pulse_width, pulse_period, rise_time, fall_time, vpulses):
@@ -179,6 +182,7 @@ class NgspiceNetlister(Netlister):
                 'Y21':  plot['Y_2_1'].to_waveform(),
                 'Y22':  plot['Y_2_2'].to_waveform(),
             })
+            ngss.destroy()
             # If we want, there are also Y parameters, Z parameters here ripe for picking
             return name, df
         return spar

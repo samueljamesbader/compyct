@@ -14,6 +14,7 @@ from pint import DimensionalityError
 
 from compyct import logger, ureg
 from compyct.backends.backend import get_va_path
+from compyct.util import ExprFunc
 
 
 def spicenum_to_float(spicenum):
@@ -519,7 +520,7 @@ class SimplifierParamSet(ParamSet):
                     else: return True
                 involved=[i for i in involved if i not in self._constants and not is_numerical(i)]
                 if len(involved)==0:
-                    for_this_pset=eval(for_this_pset,self._constants)
+                    for_this_pset=eval(for_this_pset,_copy(self._constants))
                 elif len(involved)==1:
                     i=involved[0]
                     if (i not in pdict) and (i not in additional_parameters):
@@ -533,9 +534,10 @@ class SimplifierParamSet(ParamSet):
                         assert (i in pdict) or (i in additional_parameters), f"Provide more info about {i}"
 
                 if len(involved) and (for_this_pset!=involved[0]):
-                    for_this_pset=(involved,
-                                   eval("lambda "+",".join(involved)+": "+for_this_pset,self._constants),
-                                   for_this_pset)
+                    #for_this_pset=(involved,
+                    #               eval("lambda "+",".join(involved)+": "+for_this_pset,_copy(self._constants)),
+                    #               for_this_pset)
+                    for_this_pset=(involved,ExprFunc(for_this_pset,involved,self._constants),for_this_pset)
                     for i in involved:
                         used_from_this_pset[i]=used_from_this_pset.get(i,[])+for_base_psets
 
@@ -590,7 +592,7 @@ class SimplifierParamSet(ParamSet):
             pdict[p].update(**pd)
 
     def _sub_translate_patch(self, patch: Union['ParamPatch',dict], other_param_set: 'ParamSet', affected_only=False):
-        assert other_param_set is self.base, f"{self} can only translate to its underlying model {self.base}"
+        assert other_param_set is self.base, f"{self} can only translate to its underlying model {self.base}, not {other_param_set}"
         d={}
         for for_this_pset, for_base_pset in self._translations:
             if type(for_this_pset) is str and for_this_pset in self._pdict:

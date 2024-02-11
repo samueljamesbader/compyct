@@ -64,10 +64,10 @@ def fig_legend_config(fig,location='bottom_right'):
     fig.legend.margin=0
     fig.legend.spacing=0
     fig.legend.padding=4
-    fig.legend.label_text_font_size='8pt'
-    fig.legend.label_height=10
-    fig.legend.label_text_line_height=10
-    fig.legend.glyph_height=10
+    fig.legend.label_text_font_size='6pt'
+    fig.legend.label_height=8
+    fig.legend.label_text_line_height=8
+    fig.legend.glyph_height=8
     fig.legend.location=location
 
 class ManualOptimizer(pn.widgets.base.CompositeWidget):
