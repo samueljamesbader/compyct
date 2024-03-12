@@ -42,18 +42,18 @@ class NgspiceNetlister(Netlister):
     def nstr_temp(self, temp=27, tnom=27):
         return f".option temp={float_to_spicenum(temp)} tnom={float_to_spicenum(tnom)}"
 
-    def nstr_modeled_xtor(self,name,netd,netg,nets,netb,dt,inst_param_ovrd={},internals_to_save=[]):
+    def nstr_modeled_xtor(self,name,netmap,inst_param_ovrd={},internals_to_save=[]):
         assert len(inst_param_ovrd)==0
-        assert dt is None
         patch=self.simtemp._patch
-        assert patch.terminals[:4]==['d','g','s','b']
+        for tterm in ['t','dt']:
+            if tterm in patch.terminals: assert netmap.get(tterm,None) is None
+        #assert patch.terminals[:4]==['d','g','s','b']
+        termpart=" ".join([netmap[t] for t in patch.terminals if netmap.get(t,None) is not None])
         inst_paramstr=' '.join(f'{k}={v}'\
                 for k,v in patch.filled().to_base().break_into_model_and_instance()[1].items())
-        has_dt_terminal='dt' in patch.terminals
         intstr=f"\n.save all "+\
                 " ".join([f"@n{name.lower()}[{k}]" for k in internals_to_save])
-        return f"N{name.lower()} {netd} {netg} {nets} {netb} {'dt' if has_dt_terminal else ''}"\
-                    f" {self.modelcard_name} {inst_paramstr}"+ intstr
+        return f"N{name.lower()} {termpart} {self.modelcard_name} {inst_paramstr}"+ intstr
 
     @staticmethod
     def nstr_VDC(name,netp,netm,dc):
@@ -125,7 +125,8 @@ class NgspiceNetlister(Netlister):
     def astr_sweepvac(self, whichv, start, stop, step, freq, name=None):
         def sweepvac(ngss):
             dfs=[]
-            for v in np.arange(start,stop+1e-9,step):
+            #import pdb; pdb.set_trace()
+            for v in np.arange(start,stop+1e-3*step,step):
                 try:
                     ngss.alter_device(f'v{whichv.lower()}',dc=v)
                     ngss.exec_command(f"ac lin 1 {freq} {freq}")

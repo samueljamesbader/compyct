@@ -95,6 +95,14 @@ class MultiSweepSimTemplate(SimTemplate):
         self._sources={}
         self._fig_is_clear=True
 
+        fnpt=(inner_range[2]-inner_range[0])/inner_range[1]
+        #if self.__class__ is CVTemplate:
+        #    import pdb; pdb.set_trace()
+        #if np.abs(np.round(fnpt)-fnpt)<1e-3:
+        #    if inner_range[1]*np.round(fnpt)>(inner_range[2]-inner_range[0]):
+        #        logger.debug(f"Tuning step for {self.__class__.__name__}")
+        #        inner_range[1]=(inner_range[2]-inner_range[0])/np.round(fnpt)*.99999
+
     #def __copy__(self):
     #    return copy(super()
         
@@ -246,11 +254,12 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
 
     def get_schematic_listing(self,netlister:Netlister):
             #netlister.nstr_param(params={'vg':0,'vd':0})+\
+        gnded=[t for t in self._patch.terminals if t not in ['d','g','t','dt']]
+        netmap=dict(**{'d':'netd','g':'netg'},**{k:netlister.GND for k in gnded})
         return [
             netlister.nstr_iabstol('1e-15'),
             netlister.nstr_temp(temp=self.temp),
-            netlister.nstr_modeled_xtor("inst",netd='netd',netg='netg',
-                                        nets=netlister.GND,netb=netlister.GND,dt=None),
+            netlister.nstr_modeled_xtor("inst",netmap=netmap),
             netlister.nstr_VDC("D",netp='netd',netm=netlister.GND,dc=0),
             netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=0)]
 
@@ -266,7 +275,7 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
         parsed_result={}
         for i_vg,vg in enumerate(self.vg_values,start=1):
             for key in result:
-                if f'idvd_vgnum{i_vg}' in key:
+                if key==f'idvd_vgnum{i_vg}':
                     df=result[key].copy()
                     sgn=-1 if self.pol=='p' else 1
                     sgnstr="-" if self.pol=='p' else ''
@@ -314,11 +323,12 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
 
     def get_schematic_listing(self,netlister:Netlister):
             #netlister.nstr_param(params={'vg':0,'vd':0})+\
+        gnded=[t for t in self._patch.terminals if t not in ['d','g','t','dt']]
+        netmap=dict(**{'d':'netd','g':'netg'},**{k:netlister.GND for k in gnded})
         return [
             netlister.nstr_iabstol('1e-15'),
             netlister.nstr_temp(temp=self.temp),
-            netlister.nstr_modeled_xtor("inst",netd='netd',netg='netg',
-                                        nets=netlister.GND,netb=netlister.GND,dt=None,
+            netlister.nstr_modeled_xtor("inst",netmap=netmap,
                                         internals_to_save=self.internals_to_save),
             netlister.nstr_VDC("D",netp='netd',netm=netlister.GND,dc=0),
             netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=0)]
@@ -333,9 +343,10 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
         
     def parse_return(self,result):
         parsed_result={}
+        #print(f"Result keys: {list(result.keys())}")
         for i_vd,vd in enumerate(self.vd_values,start=1):
             for key in result:
-                if f'idvg_vdnum{i_vd}' in key:
+                if key==f'idvg_vdnum{i_vd}':
                     #import pdb; pdb.set_trace()
                     df=result[key].copy()
                     #print(vd,"gmi:",list(df['@ninst[gmi]']))
@@ -461,11 +472,12 @@ class DCKelvinIDVDTemplate(MultiSweepSimTemplate):
     def idow_range(self): return self.inner_range*1e3
 
     def get_schematic_listing(self,netlister:Netlister):
+        gnded=[t for t in self._patch.terminals if t not in ['d','g','t','dt']]
+        netmap=dict(**{'d':'netd','g':'netg'},**{k:netlister.GND for k in gnded})
         return [
             netlister.nstr_iabstol('1e-15'),
             netlister.nstr_temp(temp=self.temp),
-            netlister.nstr_modeled_xtor("inst",netd='netd',netg='netg',
-                                        nets=netlister.GND,netb=netlister.GND,dt=None),
+            netlister.nstr_modeled_xtor("inst",netmap=netmap),
             *([netlister.nstr_R("shunt",netp='netd',netm=netlister.GND,r=self.shunt)] if self.shunt else[]),
             netlister.nstr_IDC("D",netp='netd',netm=netlister.GND,dc=0),
             netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=0)]
@@ -510,12 +522,12 @@ class DCKelvinIDVDTemplate(MultiSweepSimTemplate):
 
 class CVTemplate(MultiSweepSimTemplate):
 
-    def __init__(self, *args,
+    def __init__(self, *args, temp=27,
                  vg_range=(0,.03,1.8), freq='1meg', **kwargs):
         super().__init__(outer_variable=None, outer_values=[freq], inner_variable='VG', inner_range=vg_range,
                          ynames=['Cgg [fF/um]'],
                          *args, **kwargs)
-        
+        self.temp=temp
         num_vg=(vg_range[2]-vg_range[0])/vg_range[1]+1
         assert abs(num_vg-round(num_vg))<1e-3, f"Make sure the CV VG range gives even steps {str(vg_range)}"
         
@@ -531,9 +543,11 @@ class CVTemplate(MultiSweepSimTemplate):
 
     def get_schematic_listing(self,netlister:Netlister):
             #netlister.nstr_param(params={'vg':0})+\
+        gnded=[t for t in self._patch.terminals if t not in ['g','t','dt']]
+        netmap=dict(**{'g':'netg'},**{k:netlister.GND for k in gnded})
         return [
-            netlister.nstr_modeled_xtor("inst",netd=netlister.GND,netg='netg',
-                                        nets=netlister.GND,netb=netlister.GND,dt=None),
+            netlister.nstr_temp(temp=self.temp),
+            netlister.nstr_modeled_xtor("inst",netmap=netmap),
             netlister.nstr_VAC("G",netp='netg',netm=netlister.GND,dc=0)]
     
     def get_analysis_listing(self,netlister:Netlister):
@@ -590,10 +604,11 @@ class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
     def vd_range(self): return self.inner_range
 
     def get_schematic_listing(self,netlister:Netlister):
+        gnded=[t for t in self._patch.terminals if t not in ['d','g','t','dt']]
+        netmap=dict(**{'d':'netd','g':'netg'},**{k:netlister.GND for k in gnded})
         return [
-            netlister.nstr_modeled_xtor("inst",netd='netd',netg='netg',
-                                        nets=netlister.GND,netb=netlister.GND,dt=None),
-            netlister.nstr_VStep("D",netp='netd',netm=netlister.GND,dc=self.vdq, rise_time=self.rise_time, final_v=0),
+            netlister.nstr_modeled_xtor("inst",netmap=netmap),
+            netlister.nstr_VStep("D",netp='netd',netm=netlister.GND,dc=self.vdq,rise_time=self.rise_time, final_v=0),
             netlister.nstr_VStep("G",netp='netg',netm=netlister.GND,dc=self.vgq,rise_time=self.rise_time,final_v=0)]
 
     def get_analysis_listing(self,netlister:Netlister):
@@ -686,11 +701,12 @@ class SParTemplate(MultiSweepSimTemplate):
     def get_schematic_listing(self,netlister:Netlister):
         #netlister.nstr_param(params={'vg':0,'vd':0})+\
         vg,vd=self.outer_values[0]
+        gnded=[t for t in self._patch.terminals if t not in ['d','g','t','dt']]
+        netmap=dict(**{'d':'netd','g':'netg'},**{k:netlister.GND for k in gnded})
         return [
             netlister.nstr_iabstol('1e-15'),
             netlister.nstr_temp(temp=self.temp),
-            netlister.nstr_modeled_xtor("inst",netd='netd',netg='netg',
-                                        nets=netlister.GND,netb=netlister.GND,dt=None),
+            netlister.nstr_modeled_xtor("inst",netmap=netmap),
             netlister.nstr_port("D",netp='netd',netm=netlister.GND,dc=vd,portnum=2),
             netlister.nstr_port("G",netp='netg',netm=netlister.GND,dc=vg,portnum=1)]
 
@@ -730,15 +746,18 @@ class SParTemplate(MultiSweepSimTemplate):
             df['MAG-MSG [dB]']=20*np.log10(np.choose(K>=1,[MSG,MAG]))
 
             # RF small-signal circuit parameters
+            Wum=self._patch.get_total_device_width()/1e-6
+            fF=1e-15; uS=1e-6
             w=2*np.pi*df['freq']
-            df['Cgd']=-im(df.Y12) / w
-            df['Cgs']=im(df.Y11 + df.Y12) / w
-            df['Cds']=im(df.Y22+df.Y12) / w
-            df['Rds']=1/re(df.Y22+df.Y12)
-            df['Gm']=np.abs(df.Y21-df.Y12)
-            df['Rs']=re(df.Z12)
-            df['Rd']=re(df.Z22)-df.Rs
-            df['Rg']=re(df.Z11)-df.Rs
+            df['Cgd/W [fF/um]']=-im(df.Y12) / w / Wum /fF
+            df['Cgs/W [fF/um]']=im(df.Y11 + df.Y12) / w / Wum /fF
+            df['Cds/W [fF/um]']=im(df.Y22+df.Y12) / w / Wum /fF
+            df['Rds*W [Ohm.um]']=1/re(df.Y22+df.Y12) * Wum
+            df['GM/W [uS/um]']=np.abs(df.Y21-df.Y12) / Wum / uS
+            Rs=df['Rs [Ohm.um]']=re(df.Z12) * Wum
+            df['Rd*W [Ohm.um]']=(re(df.Z22)-Rs) * Wum
+            df['Rg*W [Ohm.um]']=(re(df.Z11)-Rs) * Wum
+            df['ft_calc [GHz]']=df['GM/W [uS/um]']/df['Cgs/W [fF/um]'] #uS/fF=GHz
 
             # S-parameters
             for ii in ['11','12','21','22']:
@@ -829,8 +848,8 @@ class SParVBiasTemplate(SParTemplate):
     def __init__(self, *args,
                  vgvds, frequency, temp=27, **kwargs):
         super().__init__(*args,vgvds=vgvds,fstart=frequency,fstop=frequency,pts_per_dec=1,temp=temp,**kwargs)
-        ssps_vs_vg=['Gm','Cgs','Cgd']
-        ssps_vs_vd=['Rds','Cds']
+        ssps_vs_vg=['GM/W [uS/um]','Cgs/W [fF/um]','Cgd/W [fF/um]','ft_calc [GHz]']
+        ssps_vs_vd=['Rds*W [Ohm.um]','Cds/W [fF/um]']
         vgs=list(sorted(set([k[0] for k in vgvds])))
         vds=list(sorted(set([k[1] for k in vgvds])))
         self._vsvg=MultiSweepSimTemplate(outer_variable='VD',inner_variable='VG',ynames=ssps_vs_vg,outer_values=vds,directions=['f'])

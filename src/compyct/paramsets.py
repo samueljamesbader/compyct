@@ -25,7 +25,10 @@ def spicenum_to_float(spicenum):
             f"'M' is an ambiguous unit between spice (case-insensitive)"\
             f"and spectre (case-sensitive)"
         spicenum=spicenum.lower().replace("meg","M")
-        return float(spicenum[:-1])*\
+        try: fpart=float(spicenum[:-1])
+        except:
+            raise ValueError(f"{spicenum} doesn't make sense as a float + prefix")
+        return fpart*\
             {'f':1e-15,'p':1e-12,'n':1e-9,
              'u':1e-6,'m':1e-3,'k':1e3,'M':1e6}\
                     [spicenum[-1]]
@@ -64,7 +67,7 @@ class ParamSet():
         ###
         if isinstance(display_yaml,Path) or type(display_yaml)==str:
             with open(display_yaml,'r') as f:
-                self._disp_yaml=yaml.safe_load(f)
+                self._disp_yaml=yaml.safe_load(f) or {}
         else:
             self._disp_yaml=display_yaml or {}
 
@@ -410,6 +413,10 @@ class CMCParamSet(ParamSet):
                        macro,name,default,units,desc=[x.strip() for x in line]
                        paramset[name]=\
                            {'macro':macro,'default':default,'units':units,'desc':desc[:-1].strip()}
+                   case 6:
+                       macro,name,default,units,exc,desc=[x.strip() for x in line]
+                       paramset[name]= \
+                           {'macro':macro,'default':default,'units':units,'exc':exc,'desc':desc[:-1].strip()}
                    case 7:
                        macro,name,default,units,lower,upper,desc=\
                            [x.strip() for x in line]
@@ -417,12 +424,17 @@ class CMCParamSet(ParamSet):
                            {'macro':macro,'default':default,'units':units,
                             'desc':desc[:-1].strip(),'lower':lower,'upper':upper}
                    case _:
-                       raise Exception("Can't read line, best guess is "+",".join(l))
-
-
-
+                       #print("\n\n".join([",".join(l) for l in csv.reader(io.StringIO("\n".join(lines)))]))
+                       raise Exception("Can't read line, best guess is "+",".join(line))
+        self._preclean_pdict(paramset)
         super().__init__(model=model,terminals=terminals,pdict=paramset,
                          display_yaml=display_yaml,va_includes=[vaname])
+    @staticmethod
+    def _preclean_pdict(pdict):
+        for p in pdict:
+            if pdict[p]['default'] in pdict:
+                pdict[p]['default']=pdict[pdict[p]['default']]['default']
+
 
     def get_dtype(self,param) -> type:
         return {'R':float,'I':int}[self._pdict[param]['macro'][2]]
@@ -462,6 +474,9 @@ class CMCParamSet(ParamSet):
             case 'sw':
                 lower=0
                 upper=1
+            case 'nb':
+                lower=lower_null
+                upper=upper_null
             case _:
                 print(f"Not sure what to do for bounds with macro {deets['macro']} for param {param}")
                 #if 'lower' in deets and deets['lower'] is not None:
@@ -564,19 +579,19 @@ class SimplifierParamSet(ParamSet):
         if display_yaml is None:
             display_yaml=deepcopy(self.base._disp_yaml)
             for p in adds:
-                for c,v2i in display_yaml['irrelevancies'].items():
+                for c,v2i in display_yaml.get('irrelevancies',{}).items():
                     for v,ips in v2i.items():
                         if all(b in ips for b in used_from_this_pset[p]):
                             ips.append(p)
 
             for p in drops:
-                for cat, ps in display_yaml['categories'].items():
+                for cat, ps in display_yaml.get('categories',{}).items():
                     if p in ps: ps.remove(p)
-                if p in display_yaml['display_units']:
+                if p in display_yaml.get('display_units',{}):
                     del display_yaml['display_units'][p]
-                if p in display_yaml['unit_overrides']:
+                if p in display_yaml.get('unit_overrides',{}):
                     del display_yaml['unit_overrides'][p]
-                for c,v2i in display_yaml['irrelevancies'].items():
+                for c,v2i in display_yaml.get('irrelevancies',{}).items():
                     if p==c: raise NotImplementedError("Dropping a control variable")
                     for v,ips in v2i.items():
                         if p in ips: ips.remove(p)
@@ -650,7 +665,7 @@ class SimplifierParamSet(ParamSet):
         psSimple=cls(
             base_param_set=base,
             trans_code=yl['trans_code'],
-            overrides=yl['overrides'],
+            overrides=yl.get('overrides',{}),
             constants={'EPS_SIO2':3.9*epsilon_0, 'Q':q},
             additional_parameters=yl.get('additional_parameters',{}),
         )
@@ -685,4 +700,23 @@ class ASMHEMTParamSet(CMCParamSet):
     def get_total_device_width_for_patch(patch):
         return spicenum_to_float(patch['w'])*\
                 spicenum_to_float(patch['nf'])
+
+class BSIMSOIParamSet(CMCParamSet):
+
+    @staticmethod
+    def _preclean_pdict(pdict):
+        super(BSIMSOIParamSet,BSIMSOIParamSet)._preclean_pdict(pdict)
+        for p in pdict:
+            for x in ['LWN','LLN','WLN','WWN','NFACTORLEXP','NFACTORWEXP','NFACTORWLEXP','CDSCDLEXP','CDSCBLEXP','DESCBLEXP','VSATLEXP','VSATWEXP','VSATWLEXP','DELTALEXP','K2LEXP','K2WEXP','UALEXP','UAWEXP','UAWLEXP','EULEXP','EUWEXP','EUWLEXP','UDLEXP','UCLEXP','UCWEXP','UCWLEXP','PCLMLEXP','PRWBLEXP','RSWLEXP','RDWLEXP','RDSWLEXP','PSATLEXP','PTWGLEXP','K2WLEXP','U0LEXP','EU','WR','PDIBLCLEXP','FPROUTLEXP','ALPHA0LEXP','EF','LLODKU0','WLODKU0']:
+                pdict[p]['units']=pdict[p]['units'].replace(x,'1')
+            pdict[p]['units']=pdict[p]['units'].replace('Ohm','ohm')
+        pdict['TNOM']['units']=''
+
+    def __init__(self, vaname):
+        super().__init__(vaname=vaname)
+        assert self.terminals==['d','g','s','e','b','t']
+
+    @staticmethod
+    def get_total_device_width_for_patch(patch):
+        return spicenum_to_float(patch['W'])
 
