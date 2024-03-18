@@ -93,7 +93,7 @@ class ParamSet():
 
         # Categorization
         self._cat_to_params: dict[str,list[str]] = self._disp_yaml.get('categories',{})
-        categorized_params=[p for v in self._cat_to_params.values() for p in v if v!='Uncategorized']
+        categorized_params=[p for k,v in self._cat_to_params.items() for p in v if k!='Uncategorized']
         #assert 'Uncategorized' not in self._cat_to_params, "Category 'Uncategorized' will be created, do not supply"
         uncategorized=list(sorted([p for p in self._pdict if p not in categorized_params]))
         for p in list(uncategorized):
@@ -383,7 +383,7 @@ class CMCParamSet(ParamSet):
                     model=l.split()[1].split("(")[0]
                     terminals=[x.strip() for x in l.split('(')[1].split(')')[0].split(',')]
 
-                if l.startswith("`MP") or l.startswith("`IP"):
+                if l.startswith("`MP") or l.startswith("`IP") or l.startswith("`BP"):
                     assert l[-1]==')'
         
                     # Make the macro part another comma-separated part of the line
