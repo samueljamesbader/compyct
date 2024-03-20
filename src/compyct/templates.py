@@ -95,7 +95,7 @@ class MultiSweepSimTemplate(SimTemplate):
         self._sources={}
         self._fig_is_clear=True
 
-        fnpt=(inner_range[2]-inner_range[0])/inner_range[1]
+        #fnpt=(inner_range[2]-inner_range[0])/inner_range[1]
         #if self.__class__ is CVTemplate:
         #    import pdb; pdb.set_trace()
         #if np.abs(np.round(fnpt)-fnpt)<1e-3:

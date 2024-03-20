@@ -20,7 +20,7 @@ def simplifier_patch_to_scs(self, pdk_model_name):
     f=StringIO()
 
     assert self.param_set.terminals==['d','g','s','b','dt']
-    print(f"subckt {pdk_model_name} d g s b",file=f)
+    print(f"inline subckt {pdk_model_name} d g s b",file=f)
     pdk_params=ps.get_defaults_patch(only_keys=ps.pcell_params)
     print(f"\tparameters "+" ".join([f"{k}={v}" for k,v in pdk_params.items()]),file=f)
     def int_name(basename):
@@ -39,13 +39,13 @@ def simplifier_patch_to_scs(self, pdk_model_name):
                             ps.get_defaults_patch(only_keys=ps.minimal_completion_of_pcell()).to_base(affected_only=True)])
 
     assert self.param_set.terminals==['d','g','s','b','dt']
-    print(f"\tM0 d g s b dt {pdk_model_name}core {inst_passings}",file=f)
+    print(f"\t{pdk_model_name} d g s b dt {pdk_model_name}core {inst_passings}",file=f)
     print(f"ends {pdk_model_name}",file=f)
 
     assert len(self.param_set.va_includes)==1
     vafile=self.param_set.va_includes[0]
-    print(f"ahdl_include \"./{vafile}\"",file=f)
+    #print(f"ahdl_include \"./{vafile}\"",file=f)
     print(f"model {pdk_model_name}core {self.param_set.model} "+' '.join([f"{k}={v}" for k,v in self.filled().to_base().items()]),file=f)
 
     f.seek(0)
-    return f.read()
+    return f.read(), [f"ahdl_include \"./{vafile}\""]
