@@ -97,6 +97,15 @@ class SpectreNetlister(Netlister):
             narg = {'lin': points, 'dec': pts_per_dec}[sweep_option]
             return f"{name} sp ports=[PORT1 PORT2] start={n2scs(fstart)} stop={n2scs(fstop)} {sweep_option}={narg} annotate=status"
 
+    def astr_noise(self, netout, vsrc, fstart, fstop, pts_per_dec=None, points=None, sweep_option='dec', name=None):
+        if name is None:
+            name=f"sweepnoise{self._analysiscount}"
+            self._analysiscount+=1
+        if fstart==fstop:
+            return f"{name} {netout} 0 iprobe={vsrc} freq={n2scs(fstart)} annotate=status"
+        else:
+            narg = {'lin': points, 'dec': pts_per_dec}[sweep_option]
+            return f"{name} {netout} 0 iprobe={vsrc} start={n2scs(fstart)} stop={n2scs(fstop)} {sweep_option}={narg} annotate=status"
     # def nstr_alter(dev,param,value,name=None):
     #     if name is None:
     #         name=f"alter{self._altercount}"

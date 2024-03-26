@@ -50,7 +50,7 @@ class NgspiceNetlister(Netlister):
         #assert patch.terminals[:4]==['d','g','s','b']
         termpart=" ".join([netmap[t] for t in patch.terminals if netmap.get(t,None) is not None])
         inst_paramstr=' '.join(f'{k}={v}'\
-                for k,v in patch.filled().to_base().break_into_model_and_instance()[1].items())
+                for k,v in sorted(patch.filled().to_base().break_into_model_and_instance()[1].items()))
         intstr=f"\n.save all "+\
                 " ".join([f"@n{name.lower()}[{k}]" for k in internals_to_save])
         return f"N{name.lower()} {termpart} {self.modelcard_name} {inst_paramstr}"+ intstr
@@ -72,9 +72,9 @@ class NgspiceNetlister(Netlister):
         return f"V{name} {netp} {netm} dc {dc} ac {ac}"
 
     @staticmethod
-    def nstr_port(name,netp,netm,dc,portnum,z0=50):
+    def nstr_port(name,netp,netm,dc,portnum,z0=50,ac=0):
         #return f"V{name} {netp} {netm} dc {dc} portnum {portnum} z0 {z0}"
-        return f"V{name} port_{name}_ac {netm} portnum {portnum} z0 {z0} dc 0\n"\
+        return f"V{name} port_{name}_ac {netm} portnum {portnum} z0 {z0} dc 0 ac {ac}\n"\
                f"Cport{name} {netp} port_{name}_ac 1\n" \
                f"Lport{name} {netp} port_{name}_dc 1meg\n"\
                f"Vdc_{name} port_{name}_dc {netm} dc {dc}\n"
@@ -188,6 +188,29 @@ class NgspiceNetlister(Netlister):
             return name, df
         return spar
 
+    def astr_noise(self, netout, vsrc, fstart, fstop, pts_per_dec=None, points=None, sweep_option='dec', name=None):
+        def noise(ngss):
+            narg={'lin':points,'dec':pts_per_dec}[sweep_option]
+            assert narg is not None
+            import pdb; pdb.set_trace()
+            #ngss.exec_command(f"noise v({vout.lower()}) {vsrc.lower()} {sweep_option} {narg} {fstart} {fstop}")
+            #ngss.exec_command(f"noise v(port_{vout.lower()}_ac) {vsrc.lower()} {sweep_option} {narg} {fstart} {fstop}")
+            print(f"noise v({netout.lower()}) {vsrc.lower()} {sweep_option} {narg} {fstart} {fstop}")
+            print(ngss.exec_command(f"noise v({netout.lower()}) {vsrc.lower()} {sweep_option} {narg} {fstart} {fstop}"))
+            #### PySpice noise analysis class doesn't capture the spectra so we'll do this differently
+            #df=self.analysis_to_df(ngss.plot(None,ngss.last_plot).to_analysis())
+            plot=ngss.plot(None,ngss.plot_names[1]) # Second to last plot bc noise produces two
+            assert str(plot['inoise_spectrum']._type)=='voltage_density'
+            df=pd.DataFrame({
+                'freq': plot['frequency'].to_waveform(to_real=True),
+                'inoise [V/sqrt(Hz)]':  plot['inoise_spectrum'].to_waveform(),
+                'onoise [V/sqrt(Hz)]':  plot['onoise_spectrum'].to_waveform(),
+            })
+            ngss.destroy()
+            # If we want, there are also Y parameters, Z parameters here ripe for picking
+            return name, df
+        return noise
+
     def get_netlist(self):
         patch=self.simtemp._patch
         netlist=f".title {self.circuit_name}\n"
@@ -198,7 +221,7 @@ class NgspiceNetlister(Netlister):
             netlist+=".endc\n"
         if patch is not None:
             paramstr=" ".join([f"{k}={v}"
-                               for k,v in patch.filled().to_base().break_into_model_and_instance()[0].items()])
+                               for k,v in sorted(patch.filled().to_base().break_into_model_and_instance()[0].items())])
             netlist+=f".model {self.modelcard_name} {patch.model} {paramstr}\n"
 
         sl=self.simtemp.get_schematic_listing(self)
@@ -257,6 +280,8 @@ class NgspiceMultiSimSesh(MultiSimSesh):
             if any((f"{cm}.cm couldn't be loaded" in w) for cm in cms):
                 continue
             if "Unsupported Ngspice version 41" in w:
+                continue
+            if "Unsupported Ngspice version 42" in w:
                 continue
             raise Exception("New error while trying to load Ngspice... "+w)
 

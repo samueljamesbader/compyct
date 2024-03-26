@@ -511,6 +511,8 @@ class SimplifierParamSet(ParamSet):
         for l in trans_code.split("\n"):
             l=l.strip()
             if l=='' or l.startswith("#"): continue
+            dont_supply = ("-x>" in l)
+            if dont_supply: l=l.replace("-x>","->")
             for_this_pset,for_base_psets=[x.strip() for x in l.split("->")]
             for_base_psets=[x.strip() for x in for_base_psets.split(',') if len(x)]
             if len(for_base_psets)==0:
@@ -525,6 +527,7 @@ class SimplifierParamSet(ParamSet):
             if for_this_pset=="":
                 just_default=True
             else:
+                assert (not dont_supply), "Can't have simplifier parameters connected to -x>"
                 just_default=False
                 involved=[x.strip() for x in
                           for_this_pset.replace("("," ").replace(")"," ").replace("*"," ") \
@@ -563,7 +566,8 @@ class SimplifierParamSet(ParamSet):
                     del pdict[for_base_pset]
                     drops.append(for_base_pset)
                 if just_default:
-                    self._translations.append([self.base.get_default(for_base_pset),for_base_pset])
+                    if not dont_supply:
+                        self._translations.append([self.base.get_default(for_base_pset),for_base_pset])
                 else:
                     self._translations.append([for_this_pset,for_base_pset])
                 unconnected_base_params.remove(for_base_pset)

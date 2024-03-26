@@ -63,6 +63,9 @@ analog begin
     rsb = 1;
     V(s,b) <+ I(s,b)*rsb;
 
+    // Add some flicker noise
+    I(d,s) <+ flicker_noise(1.0,1.0,"flicker");
+
 end
 
 endmodule

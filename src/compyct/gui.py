@@ -18,7 +18,8 @@ def get_tools():
             'pan',
             LassoSelectTool(mode='append' if is_notebook() else 'replace'),
             'reset',
-            'hover']
+            #'hover' # handled already if TOOLTIPS is supplied
+            ]
 
 def make_widget(model_paramset, param_name, center):
     true_units=model_paramset.get_units(param_name)

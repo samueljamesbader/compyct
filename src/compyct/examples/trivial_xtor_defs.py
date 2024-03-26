@@ -112,7 +112,9 @@ class TrivialXtor():
         elif isinstance(simtemp,SParVFreqTemplate):
             results={}
 
-            freq=np.power(10,np.arange(np.log10(simtemp.fstart),np.log10(simtemp.fstop)+1e-6,1/simtemp.pts_per_dec))
+            fstart=spicenum_to_float(simtemp.fstart)
+            fstop=spicenum_to_float(simtemp.fstop)
+            freq=np.power(10,np.arange(np.log10(fstart),np.log10(fstop)+1e-6,1/simtemp.pts_per_dec))
             w=2*np.pi*freq
 
             vg,vd=simtemp.outer_values[0]
@@ -131,7 +133,7 @@ class TrivialXtor():
         elif isinstance(simtemp,SParVBiasTemplate):
             results={}
 
-            freq=np.array([simtemp.fstart])
+            freq=np.array([spicenum_to_float(simtemp.fstart)])
             w=2*np.pi*freq
 
             for vg,vd in simtemp.outer_values:

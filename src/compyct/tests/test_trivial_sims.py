@@ -3,7 +3,7 @@ from compyct.backends import ngspice_backend
 from compyct.backends.backend import MultiSimSesh
 from compyct.examples.trivial_xtor_defs import TrivialXtorParamSet, TrivialXtor
 from compyct.templates import TemplateGroup, DCIVTemplate, CVTemplate, IdealPulsedIdVdTemplate, SParTemplate, \
-    SParVFreqTemplate, SParVBiasTemplate
+    SParVFreqTemplate, SParVBiasTemplate, NoiseVBiasTemplate, NoiseVFreqTemplate
 
 from _pytest.python import Metafunc
 import os
@@ -140,6 +140,15 @@ def test_trivial_xtor_sparvbias(backend):
         #print(res['thespar'][0])
         # Actual comparison
 
+def test_trivial_xtor_noisevfreq(backend):
+    patch=TrivialXtorParamSet().mcp_(gtrap=0)
+    tg=TemplateGroup(thespar=NoiseVFreqTemplate(vg=.8,vd=1.8,fstart=1e3,fstop=1e7,pts_per_dec=3,patch=patch))
+    #meas_data={'thenoise':TrivialXtor(patch=patch).evaluate_template(tg['thenoise'])}
+    with MultiSimSesh.get_with_backend(tg,backend=backend) as sim:
+        sim.print_netlists()
+        res=sim.run_with_params()
+    print(res)
+
 if __name__=='__main__':
     #test_get_with_backend()
     #test_get_osdi_path()
@@ -148,7 +157,8 @@ if __name__=='__main__':
     #test_trivial_xtor_psiv(backend='spectre')
     #test_trivial_xtor_sparvfreq(backend='ngspice')
     #test_trivial_xtor_sparvbias(backend='ngspice')
+    test_trivial_xtor_noisevfreq(backend='ngspice')
     #print("passed ngspice")
     #test_trivial_xtor_sparvfreq(backend='spectre')
-    test_trivial_xtor_sparvbias(backend='spectre')
-    print("passed spectre")
+    #test_trivial_xtor_sparvbias(backend='spectre')
+    #print("passed spectre")

@@ -8,7 +8,9 @@ import bokeh.plotting
 import pandas as pd
 import bokeh.layouts
 import panel as pn
+from bokeh.models import HoverTool, CustomJSHover
 from bokeh.palettes import TolRainbow
+from bokeh_transform_utils.transforms import MultiAbsTransform, multi_abs_transform, abs_transform
 
 from bokeh_smith import smith_chart
 from compyct import logger
@@ -42,11 +44,11 @@ class SimTemplate():
         data=self._parsed_result_to_cds_data(parsed_result)
         if flattened and len(list(data.values())[0]):
             flattened_data={k:np.concatenate(v) for k,v in data.items()
-                                 if k not in ['legend','color'] and hasattr(v[0],'__len__')}
+                                 if k not in ['legend','color','outervariable','additionalinfo'] and hasattr(v[0],'__len__')}
             swpkey=list(flattened_data.keys())[0]
             flattened_data.update({k:[v[i] for i in range(len(data[swpkey])) for _ in data[swpkey][i]]
                                    for k,v in data.items()
-                                       if k in ['legend','color'] or (not hasattr(v[0],'__len__'))})
+                                       if k in ['legend','color','outervariable','additionalinfo'] or (not hasattr(v[0],'__len__'))})
             # Only works for rectangular arrays
             #npts=len(data[list(flattened_data.keys())[0]][0])
             #flattened_data.update({k:np.repeat(v,npts) for k,v in data.items()
@@ -110,7 +112,7 @@ class MultiSweepSimTemplate(SimTemplate):
         #assert len(self.ynames)==1
         #yname=self.ynames[0]
         
-        data=dict(x=[],legend=[],color=[],**{yname:[] for yname in self.ynames})
+        data=dict(x=[],legend=[],color=[],additionalinfo=[],outervariable=[],**{yname:[] for yname in self.ynames})
         if parsed_result is None: parsed_result={}
         #for key, df in parsed_result.items():
         k0s=list(sorted(set([k[0] for k in self._required_keys()])))
@@ -126,6 +128,8 @@ class MultiSweepSimTemplate(SimTemplate):
                 for yname in set(self.ynames):
                     data[yname].append(df[yname].to_numpy())
                 data['legend'].append(' '.join(str(ki) for ki in key))
+                data['outervariable'].append(key[0])
+                data['additionalinfo'].append(','.join(str(ki) for ki in key[1:]))
                 data['color'].append(colors[key[0]])
         return data
         
@@ -156,15 +160,43 @@ class MultiSweepSimTemplate(SimTemplate):
         if type(x_axis_type) is str: x_axis_type=[x_axis_type]*num_ys
         figs=[]
         for i in range(num_ys):
+            TOOLTIPS=[
+                (f"{self.inner_variable}",f"@x"),
+                #(f"{self.outer_variable}",f"@{self.outer_variable}"),
+                (f"{self.ynames[i]}",f"@{{{self.ynames[i]}}}"),
+            ]
             fig=bokeh.plotting.figure(tools=get_tools(),#x_range=self.vg_range,y_range=(1e-8,1),
+                                      #tooltips=TOOLTIPS,
                                       y_axis_type=y_axis_type[i],x_axis_type=x_axis_type[i],**layout_params)
+            mtrans=multi_abs_transform if y_axis_type[i]=='log' else (lambda x: x)
+            strans=abs_transform if y_axis_type[i]=='log' else (lambda x: x)
+
             # blue-red scheme
             #fig.circle(x='x',y=self.ynames[i],source=meas_cds_c,legend_field='legend')
             #fig.multi_line(xs='x',ys=self.ynames[i],source=meas_cds_l)
             #fig.multi_line(xs='x',ys=self.ynames[i],source=sim_cds,color='red')
             # technicolor
-            fig.circle(x='x',y=self.ynames[i],source=meas_cds_c,legend_field='legend',color='color')
-            fig.multi_line(xs='x',ys=self.ynames[i],source=sim_cds,color='color')
+            circ_rend=fig.circle(x='x',y=strans(self.ynames[i]),source=meas_cds_c,legend_field='legend',color='color',name='circle')
+            mult_rend=fig.multi_line(xs='x',ys=mtrans(self.ynames[i]),source=sim_cds,color='color')
+            # https://stackoverflow.com/a/68536069
+            num=1
+            t = f"""
+                <div @x{{custom}}>
+                    <b>{self.inner_variable}: </b> @x <br/>
+                    <b>{self.outer_variable}: </b> @outervariable <br/>
+                    <b>{self.ynames[i]}: </b> @{{{self.ynames[i]}}} <br/>
+                    <b>Details: </b> @additionalinfo
+                </div>
+                """
+            f = CustomJSHover(code=f"""
+                special_vars.indices = special_vars.indices.slice(0,{num})
+                return special_vars.indices.includes(special_vars.index) ? " " : " hidden "
+                """)
+            #fig.select(type=HoverTool).renderers=[circ_rend]
+            #fig.select(type=HoverTool).formatters={'@x': f}
+            # Should be able to include visible=False when I upgrade to bokeh=3.4.0
+            fig.add_tools(HoverTool(tooltips=t,renderers=[circ_rend],formatters={'@x':f}))#,visible=False))
+
 
             fig.yaxis.axis_label=self.ynames[i]#",".join(self.ynames)
             fig.xaxis.axis_label=self.inner_variable
@@ -233,42 +265,38 @@ class MultiSweepSimTemplate(SimTemplate):
 
 class DCIdVdTemplate(MultiSweepSimTemplate):
 
-    def __init__(self, *args, pol='n', temp=27, yscale='linear',
+    def __init__(self, *args, pol='n', temp=27,
                  vg_values=[0,.6,1.2,1.8], vd_range=(0,.1,1.8), **kwargs):
-        self.yscale=yscale
         super().__init__(outer_variable='VG', inner_variable='VD',
-                         outer_values=vg_values, inner_range=vd_range,
-                         ynames=['ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]'],
+                         outer_values=vg_values, inner_range=(vd_range if type(vd_range) is not dict else None),
+                         ynames=[('ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]'),
+                                 ('ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]'),
+                                 ('IG/W [uA/um]' if pol=='n' else '-IG/W [uA/um]')],
                          *args, **kwargs)
         self.temp=temp
-        
-        num_vd=(vd_range[2]-vd_range[0])/vd_range[1]
-        assert abs(num_vd-round(num_vd))<1e-3, f"Make sure the IdVd range gives even steps {str(vd_range)}"
+
+        if type(vd_range) is not dict:
+            vd_range={(vg,d):vd_range for vg in vg_values for d in self.directions}
+        for vg,vdr in vd_range.items():
+            num_vd=(vdr[2]-vdr[0])/vdr[1]
+            assert abs(num_vd-round(num_vd))<1e-3, f"Make sure the IdVd range gives even steps {str(vdr)} @ VG={vg}"
+        self.vd_range=vd_range
 
         self.pol=pol
 
     @property
     def vg_values(self): return self.outer_values
-    @property
-    def vd_range(self): return self.inner_range
 
     def get_schematic_listing(self,netlister:Netlister):
-            #netlister.nstr_param(params={'vg':0,'vd':0})+\
-        gnded=[t for t in self._patch.terminals if t not in ['d','g','t','dt']]
-        netmap=dict(**{'d':'netd','g':'netg'},**{k:netlister.GND for k in gnded})
-        return [
-            netlister.nstr_iabstol('1e-15'),
-            netlister.nstr_temp(temp=self.temp),
-            netlister.nstr_modeled_xtor("inst",netmap=netmap),
-            netlister.nstr_VDC("D",netp='netd',netm=netlister.GND,dc=0),
-            netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=0)]
+        return DCIdVgTemplate.get_schematic_listing(self,netlister=netlister)
 
     def get_analysis_listing(self,netlister:Netlister):
         analysis_listing=[]
+        d=self.directions[0]
         for i_vg,vg in enumerate(self.vg_values,start=1):
             analysis_listing.append(netlister.astr_altervdc('G',vg))
             analysis_listing.append(netlister.astr_sweepvdc('D',name=f'idvd_vgnum{i_vg}',
-                start=self.vd_range[0],step=self.vd_range[1],stop=self.vd_range[2]))
+                start=self.vd_range[(vg,d)][0],step=self.vd_range[(vg,d)][1],stop=self.vd_range[(vg,d)][2]))
         return analysis_listing
 
     def parse_return(self,result):
@@ -291,7 +319,7 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
         return parsed_result
         
     def generate_figures(self,*args,**kwargs):
-        kwargs['y_axis_type']=kwargs.get('y_axis_type',self.yscale)
+        kwargs['y_axis_type']=kwargs.get('y_axis_type',['linear','log','log'])
         return super().generate_figures(*args,**kwargs)
 
     def _rescale_vector(self, arr, col, meas_arr):
@@ -321,7 +349,7 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
     def vg_range(self): return self.inner_range
 
 
-    def get_schematic_listing(self,netlister:Netlister):
+    def get_schematic_listing(self,netlister:Netlister, dcvg=0, dcvd=0):
             #netlister.nstr_param(params={'vg':0,'vd':0})+\
         gnded=[t for t in self._patch.terminals if t not in ['d','g','t','dt']]
         netmap=dict(**{'d':'netd','g':'netg'},**{k:netlister.GND for k in gnded})
@@ -330,8 +358,8 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
             netlister.nstr_temp(temp=self.temp),
             netlister.nstr_modeled_xtor("inst",netmap=netmap,
                                         internals_to_save=self.internals_to_save),
-            netlister.nstr_VDC("D",netp='netd',netm=netlister.GND,dc=0),
-            netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=0)]
+            netlister.nstr_VDC("D",netp='netd',netm=netlister.GND,dc=dcvd),
+            netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=dcvg)]
 
     def get_analysis_listing(self,netlister:Netlister):
         analysis_listing=[]
@@ -650,33 +678,25 @@ class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
         #assert parsed_result.keys()==set([0])
         # TODO: check EVERYTHING
 
-class SParTemplate(MultiSweepSimTemplate):
-
-    def __init__(self, *args,
-                 vgvds, fstart, fstop, temp=27, pts_per_dec=None, fstep=None, **kwargs):
+class VsFreqAtIrregularBias():
+    def init_helper(self, fstart, fstop, pts_per_dec=None, fstep=None):
         try:
             fstart=spicenum_to_float(fstart)
             fstop=spicenum_to_float(fstop)
         except:
             raise Exception(f"Invalid frequency range: {fstart} - {fstop}")
 
-        super().__init__(outer_variable=None, outer_values=vgvds, inner_variable='freq',
-                         inner_range=(fstart,pts_per_dec,fstop),
-                         ynames=['|h21| [dB]','U [dB]','MAG-MSG [dB]','ReS11','ImS11','ReS22','ImS22','ReS12','ImS12'],
-                         *args, **kwargs)
-        self.temp=temp
-
         assert ((pts_per_dec is not None) != (fstep is not None)), \
             "Supply EITHER pts_per_dec for a log sweep, OR fstep for a linear sweep"
 
         if pts_per_dec is not None:
             num_f=(np.log10(fstop)-np.log10(fstart))*pts_per_dec+1
-            assert abs(num_f-round(num_f))<1e-3,\
+            assert abs(num_f-round(num_f))<1e-3, \
                 f"Make sure the SPar range gives log-even steps {pts_per_dec,str(fstart),str(fstop)}"
             self.frequency_sweep_option='log'
         if fstep is not None:
             num_f=(fstop-fstart)/fstep+1
-            assert abs(num_f-round(num_f))<1e-3, f"Make sure the frequency range gives even steps {self.inner_range}"
+            assert abs(num_f-round(num_f))<1e-3, f"Make sure the frequency range gives even steps {(fstart,fstep,fstop)}"
             self.frequency_sweep_option='lin'
         self.num_f=int(round(num_f))
 
@@ -695,8 +715,87 @@ class SParTemplate(MultiSweepSimTemplate):
         assert self.frequency_sweep_option=='lin', "Can't give fstep if it's not a linear-sweep"
         return self.inner_range[1]
 
-    def _required_keys(self):
-        return self.outer_values
+    def get_analysis_listing_helper(self, netlister_func, name):
+        assert len(self.outer_values)==1, "if more than one bias point, gotta alter DC values between sweeps"
+        match self.frequency_sweep_option:
+            case 'log':
+                return [netlister_func(pts_per_dec=self.pts_per_dec,sweep_option='dec',
+                                       fstart=self.fstart, fstop=self.fstop, name=name)]
+            case 'lin':
+                return [netlister_func(points=self.num_f,sweep_option='lin',
+                                       fstart=self.fstart, fstop=self.fstop, name=name)]
+            case _:
+                raise NotImplementedError(self.frequency_sweep_option)
+
+    def parse_return_helper(self,result,name):
+        assert len(self.outer_values)==1
+        vg,vd=self.outer_values[0]
+        parsed_result={(vg,vd): result[name]}
+        return parsed_result
+
+class VsIrregularBiasAtFreq():
+    def init_helper(self, vgvds, vs_vg, vs_vd, frequency):
+        VsFreqAtIrregularBias.init_helper(self,fstart=frequency,fstop=frequency,pts_per_dec=1)
+        vgs=list(sorted(set([k[0] for k in vgvds])))
+        vds=list(sorted(set([k[1] for k in vgvds])))
+        self._vsvg=MultiSweepSimTemplate(outer_variable='VD',inner_variable='VG',
+                                         ynames=vs_vg,outer_values=vds,directions=['f'])
+        self._vsvd=MultiSweepSimTemplate(outer_variable='VG',inner_variable='VD',
+                                         ynames=vs_vd,outer_values=vgs,directions=['f'])
+    def get_analysis_listing_helper(self, netlister_alter, netlister_func, namepre):
+        assert self.frequency_sweep_option=='log'
+        lst=[]
+        for i,(vg,vd) in enumerate(self.outer_values):
+            lst.append(netlister_alter('G',vg,portnum=1))
+            lst.append(netlister_alter('D',vd,portnum=2))
+            lst.append(netlister_func(pts_per_dec=self.pts_per_dec,sweep_option='dec',
+                                           fstart=self.fstart, fstop=self.fstop, name=f'{namepre}{i}'))
+        return lst
+
+    def parse_return_helper(self, result, namepre):
+        result={k:v for k,v in result.items() if k.startswith(namepre)}
+        assert len(result)==len(self.outer_values)
+        parsed_result={}
+        for i,(vg,vd) in enumerate(self.outer_values):
+            parsed_result[(vg,vd)]=result[f'{namepre}{i}']
+        return parsed_result
+
+    def generate_figures_helper(self, meas_data=None,
+                         layout_params={}, y_axis_type=None, x_axis_type=None,
+                         vizid=None):
+        assert (y_axis_type is None) and (x_axis_type is None)
+        vg_sweeps=form_multisweep(meas_data,1,0,'VG',query=f'freq == {self.fstart}')
+        vd_sweeps=form_multisweep(meas_data,0,1,'VD',query=f'freq == {self.fstart}')
+        return [
+            *self._vsvg.generate_figures(meas_data=vg_sweeps,layout_params=layout_params,vizid=vizid),
+            *self._vsvd.generate_figures(meas_data=vd_sweeps,layout_params=layout_params,vizid=vizid)]
+
+    def update_figures_helper(self, parsed_result, vizid=None):
+        vg_sweeps=form_multisweep(parsed_result,1,0,'VG',query=f'freq == {self.fstart}')
+        vd_sweeps=form_multisweep(parsed_result,0,1,'VD',query=f'freq == {self.fstart}')
+        self._vsvg.update_figures(vg_sweeps, vizid=vizid)
+        self._vsvd.update_figures(vd_sweeps, vizid=vizid)
+
+    @property
+    def fstart(self):
+        return self.inner_range[0]
+    @property
+    def fstop(self):
+        return self.inner_range[2]
+    @property
+    def pts_per_dec(self):
+        assert self.frequency_sweep_option=='log', "Can't give pts_per_dec if it's not a log-sweep"
+        return self.inner_range[1]
+    @property
+    def fstep(self):
+        assert self.frequency_sweep_option=='lin', "Can't give fstep if it's not a linear-sweep"
+        return self.inner_range[1]
+
+class SParTemplate(MultiSweepSimTemplate):
+
+    def __init__(self, temp=27, *args, **kwargs):
+        super().__init__(*args,**kwargs)
+        self.temp=temp
 
     def get_schematic_listing(self,netlister:Netlister):
         #netlister.nstr_param(params={'vg':0,'vd':0})+\
@@ -707,10 +806,8 @@ class SParTemplate(MultiSweepSimTemplate):
             netlister.nstr_iabstol('1e-15'),
             netlister.nstr_temp(temp=self.temp),
             netlister.nstr_modeled_xtor("inst",netmap=netmap),
-            netlister.nstr_port("D",netp='netd',netm=netlister.GND,dc=vd,portnum=2),
-            netlister.nstr_port("G",netp='netg',netm=netlister.GND,dc=vg,portnum=1)]
-
-
+            netlister.nstr_port("D",netp='netd',netm=netlister.GND,dc=vd,portnum=2,ac=0),
+            netlister.nstr_port("G",netp='netg',netm=netlister.GND,dc=vg,portnum=1,ac=1)]
 
     def postparse_return(self,parsed_result):
         for df in parsed_result.values():
@@ -757,7 +854,7 @@ class SParTemplate(MultiSweepSimTemplate):
             Rs=df['Rs [Ohm.um]']=re(df.Z12) * Wum
             df['Rd*W [Ohm.um]']=(re(df.Z22)-Rs) * Wum
             df['Rg*W [Ohm.um]']=(re(df.Z11)-Rs) * Wum
-            df['ft_calc [GHz]']=df['GM/W [uS/um]']/df['Cgs/W [fF/um]'] #uS/fF=GHz
+            df['GM/Cgs [GHz]']=df['GM/W [uS/um]']/df['Cgs/W [fF/um]'] #uS/fF=GHz
 
             # S-parameters
             for ii in ['11','12','21','22']:
@@ -767,43 +864,29 @@ class SParTemplate(MultiSweepSimTemplate):
 
     def _rescale_vector(self,arr,col, meas_arr):
         return arr
+    def _required_keys(self):
+        return self.outer_values
+
 
     def _validated(self, parsed_result):
         # Overriding because this does freq num points instead of freq delta
         # TODO: implement this
         return parsed_result
 
-class SParVFreqTemplate(SParTemplate):
+class SParVFreqTemplate(SParTemplate,VsFreqAtIrregularBias):
     def __init__(self, *args,
                  vg, vd, fstart, fstop, temp=27, pts_per_dec=None, fstep=None, **kwargs):
-        super().__init__(*args,vgvds=[(vg,vd)],fstart=fstart,fstop=fstop,temp=temp,
-                         pts_per_dec=pts_per_dec,fstep=fstep,**kwargs)
+        VsFreqAtIrregularBias.init_helper(self,fstart=fstart,fstop=fstop,pts_per_dec=pts_per_dec,fstep=fstep)
+        SParTemplate.__init__(self,outer_variable=None, outer_values=[(vg,vd)], inner_variable='freq',
+                         inner_range=(fstart,pts_per_dec,fstop), temp=temp,
+                         ynames=['|h21| [dB]','U [dB]','MAG-MSG [dB]','ReS11','ImS11','ReS22','ImS22','ReS12','ImS12'],
+                         *args, **kwargs)
 
     def get_analysis_listing(self,netlister:Netlister):
-        assert len(self.outer_values)==1, "if more than one bias point, gotta alter DC values between sweeps"
-        match self.frequency_sweep_option:
-            case 'log':
-                return [netlister.astr_spar(pts_per_dec=self.pts_per_dec,sweep_option='dec',
-                                            fstart=self.fstart, fstop=self.fstop, name='spar')]
-            case 'lin':
-                return [netlister.astr_spar(points=self.num_f,sweep_option='lin',
-                                            fstart=self.fstart, fstop=self.fstop, name='spar')]
-            case _:
-                raise NotImplementedError(self.frequency_sweep_option)
+        return VsFreqAtIrregularBias.get_analysis_listing_helper(self,netlister_func=netlister.astr_spar,name='spar')
 
     def parse_return(self,result):
-        assert len(self.outer_values)==1
-        vg,vd=self.outer_values[0]
-        parsed_result={(vg,vd): result['spar']}
-        #assert len(result)==1
-        #freq=spicenum_to_float(self.freq)
-        #df=list(result.values())[0]
-        #I=-df['vg#p']
-        #df['Cgg [fF/um]']=np.imag(I)/(2*np.pi*freq) /1e-15 / \
-        #                  (self._patch.get_total_device_width()/1e-6)
-        #df['VG']=np.real(df['v-sweep'])
-        #parsed_result={0:df[['VG','Cgg [fF/um]']]}
-        return parsed_result
+        return VsFreqAtIrregularBias.parse_return_helper(self,result,name='spar')
 
     def generate_figures(self,*args,**kwargs):
         kwargs['y_axis_type']=kwargs.get('y_axis_type','log')
@@ -844,52 +927,88 @@ class SParVFreqTemplate(SParTemplate):
 
         return [figpow,figsmi]
 
-class SParVBiasTemplate(SParTemplate):
-    def __init__(self, *args,
-                 vgvds, frequency, temp=27, **kwargs):
-        super().__init__(*args,vgvds=vgvds,fstart=frequency,fstop=frequency,pts_per_dec=1,temp=temp,**kwargs)
-        ssps_vs_vg=['GM/W [uS/um]','Cgs/W [fF/um]','Cgd/W [fF/um]','ft_calc [GHz]']
-        ssps_vs_vd=['Rds*W [Ohm.um]','Cds/W [fF/um]']
-        vgs=list(sorted(set([k[0] for k in vgvds])))
-        vds=list(sorted(set([k[1] for k in vgvds])))
-        self._vsvg=MultiSweepSimTemplate(outer_variable='VD',inner_variable='VG',ynames=ssps_vs_vg,outer_values=vds,directions=['f'])
-        self._vsvd=MultiSweepSimTemplate(outer_variable='VG',inner_variable='VD',ynames=ssps_vs_vd,outer_values=vgs,directions=['f'])
+class SParVBiasTemplate(SParTemplate,VsIrregularBiasAtFreq):
+    def __init__(self, *args, vgvds, frequency, temp=27, **kwargs):
+        SParTemplate.__init__(self,*args, outer_variable=None, outer_values=vgvds, inner_variable='freq',
+                              inner_range=(frequency,1,frequency), temp=temp, **kwargs)
+        VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
+              vs_vg=['GM/W [uS/um]','Cgs/W [fF/um]','Cgd/W [fF/um]','GM/Cgs [GHz]'],
+              vs_vd=['Rds*W [Ohm.um]','Cds/W [fF/um]'])
 
     def get_analysis_listing(self,netlister:Netlister):
-        assert self.frequency_sweep_option=='log'
-        lst=[]
-        for i,(vg,vd) in enumerate(self.outer_values):
-            lst.append(netlister.astr_altervportdc('G',vg,portnum=1))
-            lst.append(netlister.astr_altervportdc('D',vd,portnum=2))
-            lst.append(netlister.astr_spar(pts_per_dec=self.pts_per_dec,sweep_option='dec',
-                                        fstart=self.fstart, fstop=self.fstop, name=f'spar{i}'))
-        return lst
+        return VsIrregularBiasAtFreq.get_analysis_listing_helper(self,
+            netlister_alter=netlister.astr_altervportdc,netlister_func=netlister.astr_spar,namepre='spar')
 
     def parse_return(self,result):
-        result={k:v for k,v in result.items() if k.startswith('spar')}
-        assert len(result)==len(self.outer_values)
-        parsed_result={}
-        for i,(vg,vd) in enumerate(self.outer_values):
-            parsed_result[(vg,vd)]=result[f'spar{i}']
+        return VsIrregularBiasAtFreq.parse_return_helper(self,result,namepre='spar')
+
+    def generate_figures(self, *args, **kwargs):
+        return VsIrregularBiasAtFreq.generate_figures_helper(self,*args,**kwargs)
+
+    def update_figures(self, *args, **kwargs):
+        return VsIrregularBiasAtFreq.update_figures_helper(self,*args, **kwargs)
+
+class NoiseTemplate(MultiSweepSimTemplate):
+
+    def __init__(self, temp=27, *args, **kwargs):
+        super().__init__(*args,**kwargs)
+        self.temp=temp
+
+    def get_schematic_listing(self,netlister:Netlister):
+        return SParTemplate.get_schematic_listing(self,netlister)
+
+    def _rescale_vector(self,arr,col, meas_arr):
+        return arr
+    def _required_keys(self):
+        return self.outer_values
+
+    def _validated(self, parsed_result):
+        # Overriding because this does freq num points instead of freq delta
+        # TODO: implement this
         return parsed_result
 
+class NoiseVFreqTemplate(NoiseTemplate,VsFreqAtIrregularBias):
+    def __init__(self,
+                 vg, vd, fstart, fstop, temp=27, pts_per_dec=None, fstep=None, *args, **kwargs):
+        VsFreqAtIrregularBias.init_helper(self,fstart=fstart,fstop=fstop,pts_per_dec=pts_per_dec,fstep=fstep)
+        NoiseTemplate.__init__(self,outer_variable=None, outer_values=[(vg,vd)], inner_variable='freq',
+                         inner_range=(fstart,pts_per_dec,fstop), temp=temp,
+                         ynames=['idontknowyet'],
+                         *args, **kwargs)
+    def get_analysis_listing(self,netlister:Netlister):
+        netlister_func=lambda *args,**kwargs: netlister.astr_noise('netd','VG',*args,**kwargs)
+        return VsFreqAtIrregularBias.get_analysis_listing_helper(self,netlister_func=netlister_func,name='noise')
 
-    def generate_figures(self, meas_data=None,
-                         layout_params={}, y_axis_type=None, x_axis_type=None,
-                         vizid=None):
-        assert (y_axis_type is None) and (x_axis_type is None)
-        vg_sweeps=form_multisweep(meas_data,1,0,'VG',query=f'freq == {self.fstart}')
-        vd_sweeps=form_multisweep(meas_data,0,1,'VD',query=f'freq == {self.fstart}')
-        return [
-            *self._vsvg.generate_figures(meas_data=vg_sweeps,layout_params=layout_params,vizid=vizid),
-            *self._vsvd.generate_figures(meas_data=vd_sweeps,layout_params=layout_params,vizid=vizid)]
+    def parse_return(self,result):
+        return VsFreqAtIrregularBias.parse_return_helper(self,result,name='noise')
 
-    def update_figures(self, parsed_result, vizid=None):
-        vg_sweeps=form_multisweep(parsed_result,1,0,'VG',query=f'freq == {self.fstart}')
-        vd_sweeps=form_multisweep(parsed_result,0,1,'VD',query=f'freq == {self.fstart}')
-        self._vsvg.update_figures(vg_sweeps, vizid=vizid)
-        self._vsvd.update_figures(vd_sweeps, vizid=vizid)
+    def generate_figures(self,*args,**kwargs):
+        kwargs['y_axis_type']=kwargs.get('y_axis_type','log')
+        kwargs['x_axis_type']=kwargs.get('x_axis_type','log')
+        return super().generate_figures(*args,**kwargs)
 
+class NoiseVBiasTemplate(NoiseTemplate,VsIrregularBiasAtFreq):
+    def __init__(self, *args,
+                 vgvds, frequency, temp=27, **kwargs):
+        NoiseTemplate.__init__(self,*args, outer_variable=None, outer_values=vgvds, inner_variable='freq',
+                         inner_range=(frequency,1,frequency), temp=temp, **kwargs)
+        VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
+                                          vs_vg=['idontknow'],
+                                          vs_vd=['idontknow'])
+
+    def get_analysis_listing(self,netlister:Netlister):
+        netlister_func=lambda *args,**kwargs: netlister.astr_noise('netd','VG',*args,**kwargs)
+        return VsIrregularBiasAtFreq.get_analysis_listing_helper(
+            netlister_alter=netlister.astr_altervdc,netlister_func=netlister_func,namepre='noise')
+
+    def parse_return(self,result):
+        return VsIrregularBiasAtFreq.parse_return_helper(self,result,namepre='noise')
+
+    def generate_figures(self, *args, **kwargs):
+        return VsIrregularBiasAtFreq.generate_figures_helper(self,*args,**kwargs)
+
+    def update_figures(self, *args, **kwargs):
+        return VsIrregularBiasAtFreq.update_figures_helper(self,*args, **kwargs)
 
 class TemplateGroup(UserDict[str,SimTemplate]):
     def __init__(self,**templates):
