@@ -8,6 +8,7 @@ import re
 import logging
 from copy import copy
 import pandas as pd
+import numpy as np
 
 
 # Copied from https://stackoverflow.com/a/22424821
@@ -150,7 +151,7 @@ def only(lst):
     assert len(lst)==1
     return lst[0]
 
-def form_multisweep(point_results,outeri,inneri,inner_name,query):
+def form_multisweep(point_results,outeri,inneri,inner_name,queryvar,querytarget):
     if point_results is None: return point_results
     outers=list(sorted(set([k[outeri] for k in point_results])))
     inners=list(sorted(set([k[inneri] for k in point_results])))
@@ -162,7 +163,8 @@ def form_multisweep(point_results,outeri,inneri,inner_name,query):
             key=(outer,inner) if outeri<inneri else (inner,outer)
             if key in point_results: rel_inners.append(inner)
             else: continue
-            pt_df=point_results[key].query(query)
+            pt_df=point_results[key]
+            pt_df=pt_df[np.isclose(pt_df[queryvar],querytarget)].copy()
             assert len(pt_df)==1
             rows.append(pt_df)
         sweep_results[(outer,'f')]=pd.concat(rows).assign(**{inner_name:rel_inners})

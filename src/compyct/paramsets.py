@@ -55,6 +55,7 @@ class ParamSet():
 
         # direct features from model code
         self._pdict: dict[str,dict[str,Any]] = pdict
+        assert 'm' not in self._pdict, "'m' is reserved for multiplicity factor."
 
         # content to reference in netlist
         self.model:str = model
@@ -135,6 +136,7 @@ class ParamSet():
         return self._pdict[param].get('display_scale',1)
 
     def get_default(self,param):
+        if param=='m': return 1
         return self._pdict[param]['default']
 
     def get_scale(self,param):
@@ -158,8 +160,11 @@ class ParamSet():
             return ParamPatch(self,{k:v['default'] for k,v in self._pdict.items() if k not in (ignore_keys or [])})
 
     def make_complete_patch(self, **kwargs):
-        for k in kwargs: assert k in self._pdict, f"Unknown parameter {k}"
-        return ParamPatch(self,{k:(kwargs[k] if k in kwargs else self.get_default(k)) for k in self._pdict})
+        for k in kwargs:
+            if k!='m': assert k in self._pdict, f"Unknown parameter {k}"
+        pat=ParamPatch(self,{k:(kwargs[k] if k in kwargs else self.get_default(k)) for k in self._pdict})
+        pat['m']=kwargs.get('m',1)
+        return pat
 
     def mcp_(self, **kwargs): return self.make_complete_patch(**kwargs)
 
@@ -189,6 +194,7 @@ class ParamSet():
             if isinstance(ret,ParamPatch):
                 assert ret.param_set is other_param_set, "_sub_translate_patch returned a patch of the wrong ParamSet"
             elif type(ret) is dict:
+                if 'm' in patch: assert 'm' in ret, "Translation seems to have missed 'm'."
                 return ParamPatch(other_param_set,**ret)
             else:
                 raise Exception(f"_sub_translate_patch returned something ({type(ret)} that's not a ParamPatch or dict"\
@@ -215,7 +221,9 @@ class ParamPatch(UserDict):
     def __init__(self, param_set:ParamSet, *args, **kwargs):
         self.param_set: ParamSet=param_set
         super().__init__(*args,**kwargs)
+        #if 'm' not in kwargs: self['m']=1
         for k in self:
+            if k=='m': continue
             try:
                 assert k in param_set._pdict, f"Unknown parameter {k}"
             except:
@@ -253,7 +261,7 @@ class ParamPatch(UserDict):
         base_2=self.translated_to(self.param_set.base)
         return base_1.update_inplace_and_return_changes(base_2)
 
-    def to_base(self, affected_only: bool = False):
+    def to_base(self, affected_only: bool = False) -> 'ParamPatch':
         if hasattr(self.param_set,'base'):
             return self.translated_to(self.param_set.base, affected_only=affected_only)
         else:
@@ -313,8 +321,9 @@ class GuessedSubcktParamSet(ParamSet):
                         assert l.startswith("parameters ")
                         assert defaults is None
                         defaults=dict([eq.split("=") for eq in l.split()[1:]])
-        defaults['m']=1
+        #defaults['m']=1
         pdict= {k:{'default':v,'units':'A.U.'} for k,v in defaults.items()}
+        if 'm' in pdict: del pdict['m']
         super().__init__(model=model, terminals=terminals, pdict=pdict,
                          display_yaml=display_yaml, scs_includes=scs_includes)
 
@@ -439,6 +448,7 @@ class CMCParamSet(ParamSet):
     def get_dtype(self,param) -> type:
         return {'R':float,'I':int}[self._pdict[param]['macro'][2]]
     def get_place(self,param) -> ParamPlace:
+        if param=='m': return ParamPlace.INSTANCE
         return [ParamPlace.INSTANCE,ParamPlace.MODEL]\
                     [self._pdict[param]['macro'].startswith('M')]
     
@@ -498,16 +508,19 @@ class SimplifierParamSet(ParamSet):
                  additional_parameters={},
                  overrides={},
                  constants={},
-                 display_yaml=None):
+                 display_yaml=None,
+                 extra_subckt_text=None,
+                 ):
         self._constants=constants
         self.base=base_param_set
+        self.extra_subckt_text=extra_subckt_text
         pdict=deepcopy(self.base._pdict)
         self._translations=[]
         unconnected_base_params=set(self.base._pdict)
         used_from_this_pset={}
         adds=[]
         drops=[]
-        self._homonyms=[]
+        self._lowercase_homonyms=[]
         for l in trans_code.split("\n"):
             l=l.strip()
             if l=='' or l.startswith("#"): continue
@@ -560,8 +573,8 @@ class SimplifierParamSet(ParamSet):
                         used_from_this_pset[i]=used_from_this_pset.get(i,[])+for_base_psets
 
             for for_base_pset in for_base_psets:
-                if for_base_pset in used_from_this_pset:
-                    self._homonyms.append(for_base_pset)
+                if for_base_pset.lower() in [x.lower() for x in used_from_this_pset]:
+                    self._lowercase_homonyms.append(for_base_pset.lower())
                 else:
                     del pdict[for_base_pset]
                     drops.append(for_base_pset)
@@ -632,6 +645,7 @@ class SimplifierParamSet(ParamSet):
                     d[for_base_pset]=for_this_pset[1](**{k:spicenum_to_float(patch[k]) for k in for_this_pset[0]})
             else:
                 raise Exception(f"What is {for_this_pset}")
+        if 'm' in patch and 'm' not in d: d['m']=patch['m']
         return ParamPatch(other_param_set,**d)
 
     def minimal_completion_of_pcell(self):
@@ -652,7 +666,7 @@ class SimplifierParamSet(ParamSet):
     def check_param_placements(self):
         simple_inst_reqs=self.minimal_completion_of_pcell()
         base_must_be_inst=list(self.get_defaults_patch(only_keys=simple_inst_reqs).to_base(affected_only=True))
-        trouble=[p for p in base_must_be_inst if self.base.get_place(p)!=ParamPlace.INSTANCE]
+        trouble=[p for p in base_must_be_inst if p!='m' and self.base.get_place(p)!=ParamPlace.INSTANCE]
         assert not len(trouble), f"In order to have a subcircuit control this model, {trouble} should be made instance parameters!"
 
     # TODO: regularize pdict to move more of this into ParamSet superclass and not use this hack
@@ -672,6 +686,7 @@ class SimplifierParamSet(ParamSet):
             overrides=yl.get('overrides',{}),
             constants={'EPS_SIO2':3.9*epsilon_0, 'Q':q},
             additional_parameters=yl.get('additional_parameters',{}),
+            extra_subckt_text=yl.get('extra_subckt_text',None)
         )
         for attr,val in yl.get('attributes',{}).items():
             print(f"Setting Attribute {attr}={val}")
@@ -691,7 +706,8 @@ class MVSGParamSet(CMCParamSet):
     @staticmethod
     def get_total_device_width_for_patch(patch):
         return spicenum_to_float(patch['w'])*\
-                spicenum_to_float(patch['ngf'])
+                spicenum_to_float(patch['ngf'])*\
+                spicenum_to_float(patch['m'])
 
 
 class ASMHEMTParamSet(CMCParamSet):
@@ -703,7 +719,8 @@ class ASMHEMTParamSet(CMCParamSet):
     @staticmethod
     def get_total_device_width_for_patch(patch):
         return spicenum_to_float(patch['w'])*\
-                spicenum_to_float(patch['nf'])
+                spicenum_to_float(patch['nf'])*\
+                spicenum_to_float(patch['m'])
 
 class BSIMSOIParamSet(CMCParamSet):
 
@@ -722,5 +739,6 @@ class BSIMSOIParamSet(CMCParamSet):
 
     @staticmethod
     def get_total_device_width_for_patch(patch):
-        return spicenum_to_float(patch['W'])
+        return spicenum_to_float(patch['W'])*\
+                spicenum_to_float(patch['m'])
 

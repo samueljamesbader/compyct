@@ -742,12 +742,12 @@ class VsIrregularBiasAtFreq():
                                          ynames=vs_vg,outer_values=vds,directions=['f'])
         self._vsvd=MultiSweepSimTemplate(outer_variable='VG',inner_variable='VD',
                                          ynames=vs_vd,outer_values=vgs,directions=['f'])
-    def get_analysis_listing_helper(self, netlister_alter, netlister_func, namepre):
+    def get_analysis_listing_helper(self, netlister_alter, netlister_func, namepre, inc_portnum=True):
         assert self.frequency_sweep_option=='log'
         lst=[]
         for i,(vg,vd) in enumerate(self.outer_values):
-            lst.append(netlister_alter('G',vg,portnum=1))
-            lst.append(netlister_alter('D',vd,portnum=2))
+            lst.append(netlister_alter('G',vg,**(dict(portnum=1) if inc_portnum else {})))
+            lst.append(netlister_alter('D',vd,**(dict(portnum=2) if inc_portnum else {})))
             lst.append(netlister_func(pts_per_dec=self.pts_per_dec,sweep_option='dec',
                                            fstart=self.fstart, fstop=self.fstop, name=f'{namepre}{i}'))
         return lst
@@ -761,18 +761,18 @@ class VsIrregularBiasAtFreq():
         return parsed_result
 
     def generate_figures_helper(self, meas_data=None,
-                         layout_params={}, y_axis_type=None, x_axis_type=None,
+                         layout_params={}, y_axis_type='linear', x_axis_type=None,
                          vizid=None):
-        assert (y_axis_type is None) and (x_axis_type is None)
-        vg_sweeps=form_multisweep(meas_data,1,0,'VG',query=f'freq == {self.fstart}')
-        vd_sweeps=form_multisweep(meas_data,0,1,'VD',query=f'freq == {self.fstart}')
+        assert (x_axis_type is None)
+        vg_sweeps=form_multisweep(meas_data,1,0,'VG',queryvar='freq', querytarget=self.fstart)
+        vd_sweeps=form_multisweep(meas_data,0,1,'VD',queryvar='freq', querytarget=self.fstart)
         return [
-            *self._vsvg.generate_figures(meas_data=vg_sweeps,layout_params=layout_params,vizid=vizid),
-            *self._vsvd.generate_figures(meas_data=vd_sweeps,layout_params=layout_params,vizid=vizid)]
+            *self._vsvg.generate_figures(meas_data=vg_sweeps,layout_params=layout_params,vizid=vizid, y_axis_type=y_axis_type),
+            *self._vsvd.generate_figures(meas_data=vd_sweeps,layout_params=layout_params,vizid=vizid, y_axis_type=y_axis_type)]
 
     def update_figures_helper(self, parsed_result, vizid=None):
-        vg_sweeps=form_multisweep(parsed_result,1,0,'VG',query=f'freq == {self.fstart}')
-        vd_sweeps=form_multisweep(parsed_result,0,1,'VD',query=f'freq == {self.fstart}')
+        vg_sweeps=form_multisweep(parsed_result,1,0,'VG',queryvar='freq', querytarget=self.fstart)
+        vd_sweeps=form_multisweep(parsed_result,0,1,'VD',queryvar='freq', querytarget=self.fstart)
         self._vsvg.update_figures(vg_sweeps, vizid=vizid)
         self._vsvd.update_figures(vd_sweeps, vizid=vizid)
 
@@ -955,12 +955,30 @@ class NoiseTemplate(MultiSweepSimTemplate):
         self.temp=temp
 
     def get_schematic_listing(self,netlister:Netlister):
-        return SParTemplate.get_schematic_listing(self,netlister)
+        vg,vd=self.outer_values[0]
+        gnded=[t for t in self._patch.terminals if t not in ['d','g','t','dt']]
+        netmap=dict(**{'d':'netd','g':'netg'},**{k:netlister.GND for k in gnded})
+        return [
+            netlister.nstr_iabstol('1e-15'),
+            netlister.nstr_temp(temp=self.temp),
+            netlister.nstr_modeled_xtor("inst",netmap=netmap,
+                                        internals_to_save=self.internals_to_save),
+            netlister.nstr_iprobe("IPRB",netp='netdap',netm='netd'),
+            netlister.nstr_VDC("D",netp='netdap',netm=netlister.GND,dc=vd),
+            netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=vg)]
 
     def _rescale_vector(self,arr,col, meas_arr):
         return arr
     def _required_keys(self):
         return self.outer_values
+
+    def postparse_return(self,parsed_result):
+        for k,v in parsed_result.items():
+            v['sid [A^2/Hz]']=v['onoise [A/sqrt(Hz)]']**2
+            v['sid/W^2 [A^2/Hz/um^2]']=v['sid [A^2/Hz]']/(self._patch.get_total_device_width()*1e6)**2
+            v['svg [V^2/Hz]']=v['inoise [V/sqrt(Hz)]']**2
+            v['Gm [uS/um]']=v['gain [A/V]']/self._patch.get_total_device_width()
+        return parsed_result
 
     def _validated(self, parsed_result):
         # Overriding because this does freq num points instead of freq delta
@@ -973,10 +991,10 @@ class NoiseVFreqTemplate(NoiseTemplate,VsFreqAtIrregularBias):
         VsFreqAtIrregularBias.init_helper(self,fstart=fstart,fstop=fstop,pts_per_dec=pts_per_dec,fstep=fstep)
         NoiseTemplate.__init__(self,outer_variable=None, outer_values=[(vg,vd)], inner_variable='freq',
                          inner_range=(fstart,pts_per_dec,fstop), temp=temp,
-                         ynames=['idontknowyet'],
+                         ynames=['sid/W^2 [A^2/Hz/um^2]','svg [V^2/Hz]'],
                          *args, **kwargs)
     def get_analysis_listing(self,netlister:Netlister):
-        netlister_func=lambda *args,**kwargs: netlister.astr_noise('netd','VG',*args,**kwargs)
+        netlister_func=lambda *args,**kwargs: netlister.astr_noise(outprobe='IPRB',vsrc='VG',*args,**kwargs)
         return VsFreqAtIrregularBias.get_analysis_listing_helper(self,netlister_func=netlister_func,name='noise')
 
     def parse_return(self,result):
@@ -993,19 +1011,19 @@ class NoiseVBiasTemplate(NoiseTemplate,VsIrregularBiasAtFreq):
         NoiseTemplate.__init__(self,*args, outer_variable=None, outer_values=vgvds, inner_variable='freq',
                          inner_range=(frequency,1,frequency), temp=temp, **kwargs)
         VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
-                                          vs_vg=['idontknow'],
-                                          vs_vd=['idontknow'])
+                                          vs_vg=['sid/W^2 [A^2/Hz/um^2]','svg [V^2/Hz]','Gm [uS/um]'],
+                                          vs_vd=['sid/W^2 [A^2/Hz/um^2]','svg [V^2/Hz]','Gm [uS/um]'])
 
     def get_analysis_listing(self,netlister:Netlister):
-        netlister_func=lambda *args,**kwargs: netlister.astr_noise('netd','VG',*args,**kwargs)
-        return VsIrregularBiasAtFreq.get_analysis_listing_helper(
-            netlister_alter=netlister.astr_altervdc,netlister_func=netlister_func,namepre='noise')
+        netlister_func=lambda *args,**kwargs: netlister.astr_noise(outprobe='IPRB',vsrc='VG',*args,**kwargs)
+        return VsIrregularBiasAtFreq.get_analysis_listing_helper(self,
+            netlister_alter=netlister.astr_altervdc,netlister_func=netlister_func,namepre='noise',inc_portnum=False)
 
     def parse_return(self,result):
         return VsIrregularBiasAtFreq.parse_return_helper(self,result,namepre='noise')
 
     def generate_figures(self, *args, **kwargs):
-        return VsIrregularBiasAtFreq.generate_figures_helper(self,*args,**kwargs)
+        return VsIrregularBiasAtFreq.generate_figures_helper(self,*args,**kwargs,y_axis_type='log')
 
     def update_figures(self, *args, **kwargs):
         return VsIrregularBiasAtFreq.update_figures_helper(self,*args, **kwargs)

@@ -1,3 +1,5 @@
+from functools import partial
+
 import pyspectre as psp
 from tempfile import NamedTemporaryFile
 from compyct.templates import SimTemplate
@@ -23,15 +25,17 @@ class SpectreNetlister(Netlister):
     #    return f"parameters "+\
     #        " ".join([f"{k}={v}" for k,v in params.items()])
         
-    def nstr_modeled_xtor(self,name,netd,netg,nets,netb,dt,inst_param_ovrd={},internals_to_save=[]):
+    def nstr_modeled_xtor(self,name,netmap,inst_param_ovrd={},internals_to_save=[]):
         assert len(inst_param_ovrd)==0
         #assert len(internals_to_save)==0, "Haven't implemented internal saving for spectre backend"
-        assert dt is None
         patch=self.simtemp._patch
-        terms=[t for t in patch.param_set.terminals if t!='dt']
+        for tterm in ['t','dt']:
+            if tterm in patch.terminals: assert netmap.get(tterm,None) is None
+        #terms=[t for t in patch.param_set.terminals if t!='dt']
+        terms = " ".join([netmap[t] for t in patch.terminals if netmap.get(t, None) is not None])
         if True:
         #    assert ps.terminals==['d','g','s','b']
-            terms=" ".join([{'d':netd,'g':netg,'s':nets,'b':netb}[k] for k in terms])
+            #terms=" ".join([{'d':netd,'g':netg,'s':nets,'b':netb}[k] for k in terms])
         #if self.override_model_subckt is None:
             inst_paramstr=' '.join(f'{k}=instparam_{k}'\
                     for k in patch.filled().to_base().break_into_model_and_instance()[1])
@@ -50,9 +54,10 @@ class SpectreNetlister(Netlister):
         return f"V{name} ({netp} {netm}) vsource dc={n2scs(dc)} mag={n2scs(ac)} type=dc"
 
     @staticmethod
-    def nstr_port(name,netp,netm,dc,portnum,z0=50):
+    def nstr_port(name,netp,netm,dc,portnum,z0=50,ac=0):
+        if ac!=0: print(f"Setting useless AC on port {portnum}")
         return f"PORT{portnum} ({netp} {netm} portdc{portnum}) port r={n2scs(z0)}\n"\
-               f"VPort{portnum} (portdc{portnum} {netm}) vsource dc={n2scs(dc)}"
+               f"VPort{portnum} (portdc{portnum} {netm}) vsource dc={n2scs(dc)} mag={n2scs(ac)}"
 
     def astr_altervportdc(self, whichv, tovalue, portnum, name=None):
         if name is None:
@@ -65,6 +70,9 @@ class SpectreNetlister(Netlister):
 
     def nstr_temp(self, temp=27, tnom=27):
         return f"simulatorOptions options temp={n2scs(temp)} tnom={n2scs(tnom)}"
+
+    def nstr_iprobe(self,name,netp,netm):
+        return f"{name} ({netp} {netm}) iprobe"
 
     def astr_altervdc(self,whichv, tovalue, name=None):
         if name is None:
@@ -97,15 +105,15 @@ class SpectreNetlister(Netlister):
             narg = {'lin': points, 'dec': pts_per_dec}[sweep_option]
             return f"{name} sp ports=[PORT1 PORT2] start={n2scs(fstart)} stop={n2scs(fstop)} {sweep_option}={narg} annotate=status"
 
-    def astr_noise(self, netout, vsrc, fstart, fstop, pts_per_dec=None, points=None, sweep_option='dec', name=None):
+    def astr_noise(self, outprobe, vsrc, fstart, fstop, pts_per_dec=None, points=None, sweep_option='dec', name=None):
         if name is None:
             name=f"sweepnoise{self._analysiscount}"
             self._analysiscount+=1
         if fstart==fstop:
-            return f"{name} {netout} 0 iprobe={vsrc} freq={n2scs(fstart)} annotate=status"
+            return f"{name} noise iprobe={vsrc} oprobe={outprobe} freq={n2scs(fstart)} annotate=status"
         else:
             narg = {'lin': points, 'dec': pts_per_dec}[sweep_option]
-            return f"{name} {netout} 0 iprobe={vsrc} start={n2scs(fstart)} stop={n2scs(fstop)} {sweep_option}={narg} annotate=status"
+            return f"{name} noise iprobe={vsrc} oprobe={outprobe} start={n2scs(fstart)} stop={n2scs(fstop)} {sweep_option}={narg} annotate=status"
     # def nstr_alter(dev,param,value,name=None):
     #     if name is None:
     #         name=f"alter{self._altercount}"
@@ -169,17 +177,20 @@ class SpectreNetlister(Netlister):
         return prefix+param
         
     def preparse_return(self,result):
-        def standardize_col(k):
-            if k=='dc':
-                return 'v-sweep'
-            elif k in ['s11','s12','s21','s22']:
-                return k.upper()
+        def standardize_col(k,sweepname=None):
+            if 'noise' in sweepname:
+                return {'out':'onoise [A/sqrt(Hz)]','in':'inoise [V/sqrt(Hz)]','gain':'gain [A/V]'}.get(k,k)
             else:
-                return (k.lower().replace(":","#"))
+                if k=='dc':
+                    return 'v-sweep'
+                elif k in ['s11','s12','s21','s22']:
+                    return k.upper()
+                else:
+                    return (k.lower().replace(":","#"))
         def standardize_swname(k):
             #print("SWEEP NAME: ",k)
             return k.split("`")[1].split("'")[0]
-        return {standardize_swname(sweepname):sweepdata.rename(columns=standardize_col)
+        return {standardize_swname(sweepname):sweepdata.rename(columns=partial(standardize_col,sweepname=sweepname))
                     for sweepname,sweepdata in result.items()} 
     
 
