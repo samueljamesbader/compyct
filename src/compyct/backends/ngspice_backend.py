@@ -24,6 +24,7 @@ PseudoAnalysis=namedtuple("PseudoAnalysis",["branches","nodes"])
 class NgspiceNetlister(Netlister):
     GND='0'
     _netlist_num=0
+    _r_iprobe=1e-6
     
     def __init__(self,template: SimTemplate):
         self.simtemp: SimTemplate=template
@@ -41,6 +42,9 @@ class NgspiceNetlister(Netlister):
 
     def nstr_temp(self, temp=27, tnom=27):
         return f".option temp={float_to_spicenum(temp)} tnom={float_to_spicenum(tnom)}"
+
+    def nstr_iprobe(self,name,netp,netm):
+        return f"R{name} {netp} {netm} {self._r_iprobe} noisy=0"
 
     def nstr_modeled_xtor(self,name,netmap,inst_param_ovrd={},internals_to_save=[]):
         assert len(inst_param_ovrd)==0
@@ -188,24 +192,25 @@ class NgspiceNetlister(Netlister):
             return name, df
         return spar
 
-    def astr_noise(self, netout, vsrc, fstart, fstop, pts_per_dec=None, points=None, sweep_option='dec', name=None):
+    def astr_noise(self, outprobe, vsrc, fstart, fstop, pts_per_dec=None, points=None, sweep_option='dec', name=None):
         def noise(ngss):
             narg={'lin':points,'dec':pts_per_dec}[sweep_option]
             assert narg is not None
-            import pdb; pdb.set_trace()
             #ngss.exec_command(f"noise v({vout.lower()}) {vsrc.lower()} {sweep_option} {narg} {fstart} {fstop}")
             #ngss.exec_command(f"noise v(port_{vout.lower()}_ac) {vsrc.lower()} {sweep_option} {narg} {fstart} {fstop}")
-            print(f"noise v({netout.lower()}) {vsrc.lower()} {sweep_option} {narg} {fstart} {fstop}")
-            print(ngss.exec_command(f"noise v({netout.lower()}) {vsrc.lower()} {sweep_option} {narg} {fstart} {fstop}"))
+            assert "___" in outprobe, "outprobe should be named [NET]___[NET] because ngspice doesn't actually support iprobe so I need to hack it"
+            ngss.exec_command(f"noise v({outprobe.lower().replace('___',',')}) {vsrc.lower()} {sweep_option} {narg} {fstart} {fstop}")
             #### PySpice noise analysis class doesn't capture the spectra so we'll do this differently
             #df=self.analysis_to_df(ngss.plot(None,ngss.last_plot).to_analysis())
-            plot=ngss.plot(None,ngss.plot_names[1]) # Second to last plot bc noise produces two
+            with catch_stderr(["Unit is None"]):
+                plot=ngss.plot(None,ngss.plot_names[1]) # Second to last plot bc noise produces two
             assert str(plot['inoise_spectrum']._type)=='voltage_density'
             df=pd.DataFrame({
-                'freq': plot['frequency'].to_waveform(to_real=True),
-                'inoise [V/sqrt(Hz)]':  plot['inoise_spectrum'].to_waveform(),
-                'onoise [V/sqrt(Hz)]':  plot['onoise_spectrum'].to_waveform(),
+                'freq': np.array(plot['frequency'].to_waveform(to_real=True)),
+                'inoise [V/sqrt(Hz)]':  np.array(plot['inoise_spectrum'].to_waveform()),
+                'onoise [A/sqrt(Hz)]':  np.array(plot['onoise_spectrum'].to_waveform())/self._r_iprobe,
             })
+            df['gain [A/V]']=df['onoise [A/sqrt(Hz)]']/df['inoise [V/sqrt(Hz)]']
             ngss.destroy()
             # If we want, there are also Y parameters, Z parameters here ripe for picking
             return name, df

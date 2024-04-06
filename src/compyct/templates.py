@@ -963,9 +963,9 @@ class NoiseTemplate(MultiSweepSimTemplate):
             netlister.nstr_temp(temp=self.temp),
             netlister.nstr_modeled_xtor("inst",netmap=netmap,
                                         internals_to_save=self.internals_to_save),
-            netlister.nstr_iprobe("IPRB",netp='netdap',netm='netd'),
+            netlister.nstr_iprobe("netdap___netd",netp='netdap',netm='netd'),
             netlister.nstr_VDC("D",netp='netdap',netm=netlister.GND,dc=vd),
-            netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=vg)]
+            netlister.nstr_VAC("G",netp='netg',netm=netlister.GND,dc=vg,ac=1)]
 
     def _rescale_vector(self,arr,col, meas_arr):
         return arr
@@ -994,7 +994,7 @@ class NoiseVFreqTemplate(NoiseTemplate,VsFreqAtIrregularBias):
                          ynames=['sid/W^2 [A^2/Hz/um^2]','svg [V^2/Hz]'],
                          *args, **kwargs)
     def get_analysis_listing(self,netlister:Netlister):
-        netlister_func=lambda *args,**kwargs: netlister.astr_noise(outprobe='IPRB',vsrc='VG',*args,**kwargs)
+        netlister_func=lambda *args,**kwargs: netlister.astr_noise(outprobe='netdap___netd',vsrc='VG',*args,**kwargs)
         return VsFreqAtIrregularBias.get_analysis_listing_helper(self,netlister_func=netlister_func,name='noise')
 
     def parse_return(self,result):
@@ -1015,7 +1015,7 @@ class NoiseVBiasTemplate(NoiseTemplate,VsIrregularBiasAtFreq):
                                           vs_vd=['sid/W^2 [A^2/Hz/um^2]','svg [V^2/Hz]','Gm [uS/um]'])
 
     def get_analysis_listing(self,netlister:Netlister):
-        netlister_func=lambda *args,**kwargs: netlister.astr_noise(outprobe='IPRB',vsrc='VG',*args,**kwargs)
+        netlister_func=lambda *args,**kwargs: netlister.astr_noise(outprobe='netdap___netd',vsrc='VG',*args,**kwargs)
         return VsIrregularBiasAtFreq.get_analysis_listing_helper(self,
             netlister_alter=netlister.astr_altervdc,netlister_func=netlister_func,namepre='noise',inc_portnum=False)
 

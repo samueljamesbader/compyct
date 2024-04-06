@@ -142,12 +142,18 @@ def test_trivial_xtor_sparvbias(backend):
 
 def test_trivial_xtor_noisevfreq(backend):
     patch=TrivialXtorParamSet().mcp_(gtrap=0)
-    tg=TemplateGroup(thespar=NoiseVFreqTemplate(vg=.8,vd=1.8,fstart=1e3,fstop=1e7,pts_per_dec=3,patch=patch))
+    tg=TemplateGroup(theflick=NoiseVFreqTemplate(vg=.8,vd=1.8,fstart=1e0,fstop=1e4,pts_per_dec=1,patch=patch))
     #meas_data={'thenoise':TrivialXtor(patch=patch).evaluate_template(tg['thenoise'])}
     with MultiSimSesh.get_with_backend(tg,backend=backend) as sim:
         sim.print_netlists()
         res=sim.run_with_params()
-    print(res)
+    print(res['theflick'][(.8,1.8)]['sid [A^2/Hz]'])
+    print(res['theflick'][(.8,1.8)]['svg [V^2/Hz]'])
+    print(res['theflick'][(.8,1.8)]['gain [A/V]'])
+    print(res['theflick'][(.8,1.8)]['gain [A/V]'].iloc[0])
+
+    #TrivialXtor(patch=patch).GM(self,VD,VG,VS,VB,T,trap_state='DC',traps_move=True):
+    print(TrivialXtor(patch=patch).GM(1.8,.8,0,0,tg['theflick'].temp,trap_state='DC',traps_move=False))
 
 if __name__=='__main__':
     #test_get_with_backend()
