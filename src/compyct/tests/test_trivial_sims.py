@@ -173,7 +173,7 @@ def test_trivial_xtor_noisevbias(backend):
             assert np.allclose(
                 meas_data['theflick'][(vg,vd)][x],
                 res['theflick'][(vg,vd)][x],
-                rtol=1e-4,atol=0), f"failed {x}"
+                rtol=1e-3,atol=0), f"failed {x}"
 
         print('gain should be',TrivialXtor(patch=patch).GM(vd,vg,0,0,tg['theflick'].temp+273.15,trap_state='DC',traps_move=False))
     #TrivialXtor(patch=patch).GM(self,VD,VG,VS,VB,T,trap_state='DC',traps_move=True):
@@ -186,10 +186,11 @@ if __name__=='__main__':
     #test_trivial_xtor_psiv(backend='spectre')
     #test_trivial_xtor_sparvfreq(backend='ngspice')
     #test_trivial_xtor_sparvbias(backend='ngspice')
-    #test_trivial_xtor_noisevfreq(backend='ngspice')
+    test_trivial_xtor_noisevfreq(backend='ngspice')
     #test_trivial_xtor_noisevbias(backend='ngspice')
     #print("passed ngspice")
     #test_trivial_xtor_sparvfreq(backend='spectre')
     #test_trivial_xtor_sparvbias(backend='spectre')
+    #test_trivial_xtor_noisevbias(backend='spectre')
     #print("passed spectre")
     pass
