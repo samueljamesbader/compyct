@@ -142,18 +142,41 @@ def test_trivial_xtor_sparvbias(backend):
 
 def test_trivial_xtor_noisevfreq(backend):
     patch=TrivialXtorParamSet().mcp_(gtrap=0)
-    tg=TemplateGroup(theflick=NoiseVFreqTemplate(vg=.8,vd=1.8,fstart=1e0,fstop=1e4,pts_per_dec=1,patch=patch))
-    #meas_data={'thenoise':TrivialXtor(patch=patch).evaluate_template(tg['thenoise'])}
+    vg,vd=.8,1.8
+    tg=TemplateGroup(theflick=NoiseVFreqTemplate(vg=vg,vd=vd,fstart=1e0,fstop=1e4,pts_per_dec=1,patch=patch))
+    meas_data={'theflick':TrivialXtor(patch=patch).evaluate_template(tg['theflick'])}
     with MultiSimSesh.get_with_backend(tg,backend=backend) as sim:
         sim.print_netlists()
         res=sim.run_with_params()
-    print(res['theflick'][(.8,1.8)]['sid [A^2/Hz]'])
-    print(res['theflick'][(.8,1.8)]['svg [V^2/Hz]'])
-    print(res['theflick'][(.8,1.8)]['gain [A/V]'])
-    print(res['theflick'][(.8,1.8)]['gain [A/V]'].iloc[0])
+    for x in ['freq','sid [A^2/Hz]','svg [V^2/Hz]','gain [A/V]']:
+        print(x,res['theflick'][(vg,vd)][x].iloc[0])
+        assert np.allclose(
+            meas_data['theflick'][(vg,vd)][x],
+            res['theflick'][(vg,vd)][x],
+            rtol=1e-4,atol=0), f"failed {x}"
 
+    print('gain should be',TrivialXtor(patch=patch).GM(vd,vg,0,0,tg['theflick'].temp+273.15,trap_state='DC',traps_move=False))
     #TrivialXtor(patch=patch).GM(self,VD,VG,VS,VB,T,trap_state='DC',traps_move=True):
-    print(TrivialXtor(patch=patch).GM(1.8,.8,0,0,tg['theflick'].temp,trap_state='DC',traps_move=False))
+
+def test_trivial_xtor_noisevbias(backend):
+    patch=TrivialXtorParamSet().mcp_(gtrap=0)
+    vgvds=[(.1,1.8),(1.2,1.8)]
+    tg=TemplateGroup(theflick=NoiseVBiasTemplate(vgvds=vgvds,frequency=1e0,patch=patch))
+    meas_data={'theflick':TrivialXtor(patch=patch).evaluate_template(tg['theflick'])}
+    with MultiSimSesh.get_with_backend(tg,backend=backend) as sim:
+        sim.print_netlists()
+        res=sim.run_with_params()
+    for vg,vd in vgvds:
+        print(f"VG,VD={vg},{vd}")
+        for x in ['freq','sid [A^2/Hz]','svg [V^2/Hz]','gain [A/V]']:
+            print(x,res['theflick'][(vg,vd)][x].iloc[0])
+            assert np.allclose(
+                meas_data['theflick'][(vg,vd)][x],
+                res['theflick'][(vg,vd)][x],
+                rtol=1e-4,atol=0), f"failed {x}"
+
+        print('gain should be',TrivialXtor(patch=patch).GM(vd,vg,0,0,tg['theflick'].temp+273.15,trap_state='DC',traps_move=False))
+    #TrivialXtor(patch=patch).GM(self,VD,VG,VS,VB,T,trap_state='DC',traps_move=True):
 
 if __name__=='__main__':
     #test_get_with_backend()
@@ -163,8 +186,10 @@ if __name__=='__main__':
     #test_trivial_xtor_psiv(backend='spectre')
     #test_trivial_xtor_sparvfreq(backend='ngspice')
     #test_trivial_xtor_sparvbias(backend='ngspice')
-    test_trivial_xtor_noisevfreq(backend='ngspice')
+    #test_trivial_xtor_noisevfreq(backend='ngspice')
+    #test_trivial_xtor_noisevbias(backend='ngspice')
     #print("passed ngspice")
     #test_trivial_xtor_sparvfreq(backend='spectre')
     #test_trivial_xtor_sparvbias(backend='spectre')
     #print("passed spectre")
+    pass

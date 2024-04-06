@@ -17,15 +17,16 @@ module trivial_xtor(d,g,s,b);
     electrical d,g,s,b;
     electrical trap;
 
-    `IPRco(  l,    5e-6,         "m",    1e-6,    inf,    "Channel length" )
-    `IPRco(  w,    1e-6,         "m",    1e-6,    inf,    "Channel width" )
-    `MPRco(  n,     1.5,          "",       1,    inf,    "Subthreshold ideality factor" )
-    `MPRoz( cg,    1e-3,     "F/m^2",                     "Gate capacitance per area" )
-    `MPRoz( u0,       1, "m^2/(V.S)",                     "Low-field mobility" )
-    `MPRoz( vs,    1e+5,       "m/s",                     "Saturation velocity" )
-    `MPRoz( vt0,    0.4,         "V",                     "Threshold voltage" )
-    `MPRoz( ttrap, 1e-3,         "S",                     "Trap timescale" )
-    `MPRcz( gtrap,  0.1,          "",                     "Trap-induced VT shift factor" )
+    `IPRco(  l,     5e-6,         "m",    1e-6,    inf,    "Channel length" )
+    `IPRco(  w,     1e-6,         "m",    1e-6,    inf,    "Channel width" )
+    `MPRco(  n,      1.5,          "",       1,    inf,    "Subthreshold ideality factor" )
+    `MPRoz( cg,     1e-3,     "F/m^2",                     "Gate capacitance per area" )
+    `MPRoz( u0,        1, "m^2/(V.S)",                     "Low-field mobility" )
+    `MPRoz( vs,     1e+5,       "m/s",                     "Saturation velocity" )
+    `MPRoz( vt0,     0.4,         "V",                     "Threshold voltage" )
+    `MPRoz( ttrap,  1e-3,         "S",                     "Trap timescale" )
+    `MPRcz( gtrap,   0.1,          "",                     "Trap-induced VT shift factor" )
+    `MPRco( fnscale, 1.0,    "A^2/Hz",       0,    inf,    "Flicker noise PSD @ 1Hz" )
 
     real vth, qg_oA, qg, qd, qs, beta, vu, v, rsb, rtrap, ctrap, vtshift;
 analog begin
@@ -64,7 +65,7 @@ analog begin
     V(s,b) <+ I(s,b)*rsb;
 
     // Add some flicker noise
-    I(d,s) <+ flicker_noise(1.0,1.0,"flicker");
+    I(d,s) <+ flicker_noise(fnscale*V(g,s),1.0,"flicker");
 
 end
 

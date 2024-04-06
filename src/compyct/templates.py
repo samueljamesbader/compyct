@@ -439,12 +439,13 @@ class JointTemplate(SimTemplate):
     #TODO: Move more of the DCIVTemplate code into JointTemplate
 
 class DCIVTemplate(JointTemplate):
-    def __init__(self, *args,pol='n',
+    def __init__(self, *args,pol='n', temp=27,
                  idvd_vg_values=[0,.6,1.2,1.8], idvd_vd_range=(0,.1,1.8),
                  idvg_vd_values=[.05,1.8], idvg_vg_range=(0,.03,1.8), **kwargs):
-        self._dcidvg=DCIdVgTemplate(*args, **kwargs,pol=pol,
+        self.temp=temp
+        self._dcidvg=DCIdVgTemplate(*args, **kwargs,pol=pol,temp=temp,
                                     vd_values=idvg_vd_values, vg_range=idvg_vg_range)
-        self._dcidvd=DCIdVdTemplate(*args, **kwargs,pol=pol,
+        self._dcidvd=DCIdVdTemplate(*args, **kwargs,pol=pol,temp=temp,
                                     vg_values=idvd_vg_values, vd_range=idvd_vd_range)
         super().__init__(subtemplates={'IdVg':self._dcidvg,'IdVd':self._dcidvd}, *args, **kwargs)
 
@@ -607,7 +608,7 @@ class CVTemplate(MultiSweepSimTemplate):
 
 class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
 
-    def __init__(self, *args,
+    def __init__(self, *args,temp=27,
                  vg_values=[0,.6,1.2,1.8], vd_range=(0,.1,1.8),
                  pulse_width='1u',rise_time='100n',
                  vgq=0, vdq=0,
@@ -616,7 +617,7 @@ class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
                          outer_values=vg_values, inner_range=vd_range,
                          ynames=['ID/W [uA/um]'],
                          *args, **kwargs)
-        
+        self.temp=temp
         num_vd=(vd_range[2]-vd_range[0])/vd_range[1]
         assert abs(num_vd-round(num_vd))<1e-3,\
             f"Make sure the IdVd range gives even steps {str(vd_range)}"
@@ -636,6 +637,7 @@ class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
         netmap=dict(**{'d':'netd','g':'netg'},**{k:netlister.GND for k in gnded})
         return [
             netlister.nstr_modeled_xtor("inst",netmap=netmap),
+            netlister.nstr_temp(temp=self.temp),
             netlister.nstr_VStep("D",netp='netd',netm=netlister.GND,dc=self.vdq,rise_time=self.rise_time, final_v=0),
             netlister.nstr_VStep("G",netp='netg',netm=netlister.GND,dc=self.vgq,rise_time=self.rise_time,final_v=0)]
 
@@ -963,7 +965,7 @@ class NoiseTemplate(MultiSweepSimTemplate):
             netlister.nstr_temp(temp=self.temp),
             netlister.nstr_modeled_xtor("inst",netmap=netmap,
                                         internals_to_save=self.internals_to_save),
-            netlister.nstr_iprobe("netdap___netd",netp='netdap',netm='netd'),
+            netlister.nstr_iprobe("IPRB",netp='netdap',netm='netd'),
             netlister.nstr_VDC("D",netp='netdap',netm=netlister.GND,dc=vd),
             netlister.nstr_VAC("G",netp='netg',netm=netlister.GND,dc=vg,ac=1)]
 
@@ -994,7 +996,7 @@ class NoiseVFreqTemplate(NoiseTemplate,VsFreqAtIrregularBias):
                          ynames=['sid/W^2 [A^2/Hz/um^2]','svg [V^2/Hz]'],
                          *args, **kwargs)
     def get_analysis_listing(self,netlister:Netlister):
-        netlister_func=lambda *args,**kwargs: netlister.astr_noise(outprobe='netdap___netd',vsrc='VG',*args,**kwargs)
+        netlister_func=lambda *args,**kwargs: netlister.astr_noise(outprobe='IPRB',vsrc='VG',*args,**kwargs)
         return VsFreqAtIrregularBias.get_analysis_listing_helper(self,netlister_func=netlister_func,name='noise')
 
     def parse_return(self,result):
@@ -1015,7 +1017,7 @@ class NoiseVBiasTemplate(NoiseTemplate,VsIrregularBiasAtFreq):
                                           vs_vd=['sid/W^2 [A^2/Hz/um^2]','svg [V^2/Hz]','Gm [uS/um]'])
 
     def get_analysis_listing(self,netlister:Netlister):
-        netlister_func=lambda *args,**kwargs: netlister.astr_noise(outprobe='netdap___netd',vsrc='VG',*args,**kwargs)
+        netlister_func=lambda *args,**kwargs: netlister.astr_noise(outprobe='IPRB',vsrc='VG',*args,**kwargs)
         return VsIrregularBiasAtFreq.get_analysis_listing_helper(self,
             netlister_alter=netlister.astr_altervdc,netlister_func=netlister_func,namepre='noise',inc_portnum=False)
 

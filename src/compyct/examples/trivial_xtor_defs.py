@@ -1,5 +1,5 @@
 from compyct.templates import TemplateGroup, DCIVTemplate, DCIdVgTemplate, DCIdVdTemplate, JointTemplate, CVTemplate, \
-    IdealPulsedIdVdTemplate, SParTemplate, SParVFreqTemplate, SParVBiasTemplate
+    IdealPulsedIdVdTemplate, SParTemplate, SParVFreqTemplate, SParVBiasTemplate, NoiseVFreqTemplate, NoiseVBiasTemplate
 from compyct.paramsets import CMCParamSet, spicenum_to_float
 from scipy.constants import elementary_charge as q, Boltzmann as kb
 import pandas as pd
@@ -69,8 +69,9 @@ class TrivialXtor():
             vtshift=gtrap*(trap_state['VD']-trap_state['VG'])
         return w * l * cg / (1+np.exp((vt0+vtshift-VGS)/(n*vth)))
 
-    def evaluate_template(self,simtemp,T=273.15+27):
+    def evaluate_template(self,simtemp):
         w=spicenum_to_float(self.patch.get('w'))
+        T=simtemp.temp+273.15
         if isinstance(simtemp,DCIdVgTemplate):
             results={}
             start,step,stop=simtemp.vg_range
@@ -85,10 +86,10 @@ class TrivialXtor():
 
         elif isinstance(simtemp,DCIdVdTemplate):
             results={}
-            start,step,stop=simtemp.vd_range
-            VD=np.arange(start,stop+1e-6,step)
             for vg in simtemp.vg_values:
                 for sdir in ('f','r'):
+                    start,step,stop=simtemp.vd_range[(vg,sdir)]
+                    VD=np.arange(start,stop+1e-6,step)
                     results[(vg,sdir)]=pd.DataFrame({'VD':VD,'ID/W [uA/um]':self.ID(VD,vg,0,0,T,trap_state='DC')/w})
             return results
 
@@ -118,9 +119,9 @@ class TrivialXtor():
             w=2*np.pi*freq
 
             vg,vd=simtemp.outer_values[0]
-            Cgs=self.Cgg(VD=vd,VG=vg,VS=0,VB=0,T=simtemp.temp)
+            Cgs=self.Cgg(VD=vd,VG=vg,VS=0,VB=0,T=T)
             print(f"CGS: {Cgs}")
-            gm=self.GM(VD=vd,VG=vg,VS=0,VB=0,T=simtemp.temp,traps_move=False)
+            gm=self.GM(VD=vd,VG=vg,VS=0,VB=0,T=T,traps_move=False)
 
             results[(vg,vd)]=pd.DataFrame({
                 'freq':freq,
@@ -137,9 +138,9 @@ class TrivialXtor():
             w=2*np.pi*freq
 
             for vg,vd in simtemp.outer_values:
-                Cgs=self.Cgg(VD=vd,VG=vg,VS=0,VB=0,T=simtemp.temp)
+                Cgs=self.Cgg(VD=vd,VG=vg,VS=0,VB=0,T=T)
                 print(f"CGS: {Cgs}")
-                gm=self.GM(VD=vd,VG=vg,VS=0,VB=0,T=simtemp.temp,traps_move=False)
+                gm=self.GM(VD=vd,VG=vg,VS=0,VB=0,T=T,traps_move=False)
 
                 results[(vg,vd)]=pd.DataFrame({
                     'freq':freq,
@@ -149,6 +150,44 @@ class TrivialXtor():
                     'Y22': freq*np.NaN
                 })
             return results
+        elif isinstance(simtemp,NoiseVFreqTemplate):
+            results={}
+
+            fstart=spicenum_to_float(simtemp.fstart)
+            fstop=spicenum_to_float(simtemp.fstop)
+            freq=np.power(10,np.arange(np.log10(fstart),np.log10(fstop)+1e-6,1/simtemp.pts_per_dec))
+            w=2*np.pi*freq
+
+            vg,vd=simtemp.outer_values[0]
+            fnscale=float(self.patch['fnscale'])
+            gm=self.GM(VD=vd,VG=vg,VS=0,VB=0,T=T,traps_move=False)
+
+            results[(vg,vd)]=pd.DataFrame({
+                'freq':freq,
+                'sid [A^2/Hz]': fnscale*vg/freq,
+                'svg [V^2/Hz]': fnscale*vg/freq/gm**2,
+                'gain [A/V]': gm*(0*freq+1)
+            })
+            return results
+        elif isinstance(simtemp,NoiseVBiasTemplate):
+            results={}
+
+            freq=np.array([float(simtemp.fstart)])
+            w=2*np.pi*freq
+
+            fnscale=float(self.patch['fnscale'])
+            for vg,vd in simtemp.outer_values:
+                gm=self.GM(VD=vd,VG=vg,VS=0,VB=0,T=T,traps_move=False)
+
+                results[(vg,vd)]=pd.DataFrame({
+                    'freq':freq,
+                    'sid [A^2/Hz]': fnscale*vg/freq,
+                    'svg [V^2/Hz]': fnscale*vg/freq/gm**2,
+                    'gain [A/V]': gm*(0*freq+1)
+                })
+            return results
+
+
 
         elif isinstance(simtemp,JointTemplate):
             return {k:self.evaluate_template(subsimtemp) for k,subsimtemp in simtemp.subtemplates.items()}
