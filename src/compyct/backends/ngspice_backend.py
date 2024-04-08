@@ -42,6 +42,9 @@ class NgspiceNetlister(Netlister):
     def nstr_temp(self, temp=27, tnom=27):
         return f".option temp={float_to_spicenum(temp)} tnom={float_to_spicenum(tnom)}"
 
+    def nstr_res(self,name,netp,netm,r):
+        return f"R{name} {netp} {netm} {r} noisy=0"
+
     def nstr_iprobe(self,name,netp,netm):
         return f"Viprobein_{name} {netp} {netm} dc 0\n"\
                f"Hiprobeout_{name} netiprobeout_{name} 0 Viprobein_{name} 1"
@@ -198,6 +201,8 @@ class NgspiceNetlister(Netlister):
             assert narg is not None
             #ngss.exec_command(f"noise v({vout.lower()}) {vsrc.lower()} {sweep_option} {narg} {fstart} {fstop}")
             #ngss.exec_command(f"noise v(port_{vout.lower()}_ac) {vsrc.lower()} {sweep_option} {narg} {fstart} {fstop}")
+            # Should move this somewhere else because it's getting executed every loop which seems unnecesarry
+            ngss.exec_command("option keepopinfo")
             if (fstop==fstart):
                 ngss.exec_command(f"noise v(netiprobeout_{outprobe.lower()}) {vsrc.lower()} {sweep_option} {narg} {fstart} {fstop*1.0001}")
             else:
@@ -215,6 +220,8 @@ class NgspiceNetlister(Netlister):
             df['gain [A/V]']=df['onoise [A/sqrt(Hz)]']/df['inoise [V/sqrt(Hz)]']
             if fstart==fstop:
                 df=df.iloc[:1].copy()
+            plot=ngss.plot(None,ngss.plot_names[2]) # Third to last plot should have OP info bc noise produces two
+            df['I [A]']=list(np.array(plot[f'viprobein_{outprobe.lower()}#branch'].to_waveform()))[0]
             ngss.destroy()
             return name, df
         return noise
