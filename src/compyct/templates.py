@@ -857,7 +857,10 @@ class SParTemplate(MultiSweepSimTemplate):
             k2m1=np.clip(K**2-1,0,np.inf) # we only use the K>1 values of MAG anyway, so clip to avoid sqrt(-)
             MAG = (1/(K+np.sqrt(k2m1))) * np.abs(df.S21)/np.abs(df.S12)
             MSG = np.abs(df.S21)/np.abs(df.S12)
-            df['MAG-MSG [dB]']=20*np.log10(np.choose(K>=1,[MSG,MAG]))
+            df['K']=K
+            df['MAG [dB]']=10*np.log10(np.choose(MAG>0,[np.NaN,MAG]))
+            df['MSG [dB]']=10*np.log10(MSG)
+            df['MAG-MSG [dB]']=10*np.log10(np.choose(K>=1,[MSG,MAG]))
 
             # RF small-signal circuit parameters
             Wum=self._patch.get_total_device_width()/1e-6
