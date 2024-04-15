@@ -1017,7 +1017,13 @@ class NoiseVFreqTemplate(NoiseTemplate,VsFreqAtIrregularBias):
         return VsFreqAtIrregularBias.get_analysis_listing_helper(self,netlister_func=netlister_func,name='noise')
 
     def parse_return(self,result):
-        return VsFreqAtIrregularBias.parse_return_helper(self,result,name='noise')
+        result=VsFreqAtIrregularBias.parse_return_helper(self,result,name='noise')
+        # TODO: REMOVE
+        # Only necessary because don't support getting I in spectre yet
+        for k,sw in result.items():
+            if 'I [A]' not in sw:
+                sw['I [A]'] = sw['freq'] * np.NaN
+        return result
 
     def generate_figures(self,*args,**kwargs):
         kwargs['y_axis_type']=kwargs.get('y_axis_type','log')
@@ -1045,6 +1051,11 @@ class NoiseVBiasTemplate(NoiseTemplate,VsIrregularBiasAtFreq):
 
         vg_sweeps=form_multisweep(result,1,0,'VG',queryvar='freq', querytarget=self.fstart)
         for (vd,dir_),sw in vg_sweeps.items():
+            # TODO: REMOVE
+            # Only necessary because don't support getting I in spectre yet
+            if 'I [A]' not in sw:
+                sw['I [A]']=np.NaN
+
             sw['I/W [uA/um]']=sw['I [A]']/self._patch.get_total_device_width()
             from datavac.util.maths import VTCC
             try:
@@ -1054,6 +1065,10 @@ class NoiseVBiasTemplate(NoiseTemplate,VsIrregularBiasAtFreq):
             for (vg_,vd_),subresult in result.items():
                 if vd_==vd:
                     subresult['VoV']=vg_-vt
+                    # TODO: REMOVE
+                    # Only necessary because don't support getting I in spectre yet
+                    if 'I [A]' not in subresult:
+                        subresult['I [A]']=np.NaN
                     subresult['I/W [uA/um]']=subresult['I [A]']/self._patch.get_total_device_width()
         return result
 
