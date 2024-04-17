@@ -26,6 +26,9 @@ class Netlister():
     def nstr_VAC(name,netp,netm,dc,ac=1):
         raise NotImplementedError
 
+    def nstr_res(self,name,netp,netm,r):
+        raise NotImplementedError
+
     def astr_altervdc(self,whichv, tovalue, name=None):
         raise NotImplementedError
 

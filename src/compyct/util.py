@@ -170,3 +170,4 @@ def form_multisweep(point_results,outeri,inneri,inner_name,queryvar,querytarget)
         sweep_results[(outer,'f')]=pd.concat(rows).assign(**{inner_name:rel_inners})
     return sweep_results
 
+

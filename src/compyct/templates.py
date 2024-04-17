@@ -9,7 +9,7 @@ import pandas as pd
 import bokeh.layouts
 import panel as pn
 from bokeh.models import HoverTool, CustomJSHover
-from bokeh.palettes import TolRainbow
+from bokeh.palettes import TolRainbow, Category10_10
 from bokeh_transform_utils.transforms import MultiAbsTransform, multi_abs_transform, abs_transform
 
 from bokeh_smith import smith_chart
@@ -116,14 +116,14 @@ class MultiSweepSimTemplate(SimTemplate):
         if parsed_result is None: parsed_result={}
         #for key, df in parsed_result.items():
         k0s=list(sorted(set([k[0] for k in self._required_keys()])))
-        colors=dict(zip(k0s,TolRainbow[max(len(k0s),3)]))
+        colors=dict(zip(k0s,(TolRainbow[max(len(k0s),3)] if len(k0s)>3 else Category10_10)))
         if len(parsed_result):
             for key in self._required_keys():
                 try:
                     df=parsed_result[key]
-                except:
+                except KeyError as e:
                     import pdb; pdb.set_trace()
-                    raise
+                    raise e
                 data['x'].append(df[self.inner_variable].to_numpy())
                 for yname in set(self.ynames):
                     data[yname].append(df[yname].to_numpy())
@@ -741,6 +741,9 @@ class VsFreqAtIrregularBias():
     def parse_return_helper(self,result,name):
         assert len(self.outer_values)==1
         vg,vd=self.outer_values[0]
+        if f'dc_{name}' in result:
+            # TODO: 'VD:p' is a magic string
+            result[name]['I [A]']=-result[f'dc_{name}']['VD:p'].iloc[0]
         parsed_result={(vg,vd): result[name]}
         return parsed_result
 
@@ -768,10 +771,14 @@ class VsIrregularBiasAtFreq():
         return lst
 
     def parse_return_helper(self, result, namepre):
-        result={k:v for k,v in result.items() if k.startswith(namepre)}
-        assert len(result)==len(self.outer_values)
+        result={k:v for k,v in result.items() if k.startswith(namepre) or k.startswith(f'dc_{namepre}')}
+        assert len([k for k in result if k.startswith(namepre)])==len(self.outer_values)
         parsed_result={}
         for i,(vg,vd) in enumerate(self.outer_values):
+
+            if f'dc_{namepre}{i}' in result:
+                # TODO: 'VD:p' is a magic string
+                result[f'{namepre}{i}']['I [A]'] = -result[f'dc_{namepre}{i}']['VD:p'].iloc[0]
             parsed_result[(vg,vd)]=result[f'{namepre}{i}']
         return parsed_result
 
@@ -1039,7 +1046,7 @@ class NoiseVBiasTemplate(NoiseTemplate,VsIrregularBiasAtFreq):
         NoiseTemplate.__init__(self,*args, outer_variable=None, outer_values=vgvds, inner_variable='freq',
                          inner_range=(frequency,1,frequency), temp=temp, **kwargs)
         VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
-                                          vs_vg=['sid/W^2 [A^2/Hz/um^2]','sid/ID^2 [1/Hz]','svg [V^2/Hz]','Gm [uS/um]'],
+                                          vs_vg=[],#['sid/W^2 [A^2/Hz/um^2]','sid/ID^2 [1/Hz]','svg [V^2/Hz]','Gm [uS/um]'],
                                           vs_vo=['sid/W^2 [A^2/Hz/um^2]','sid/ID^2 [1/Hz]','svg [V^2/Hz]','Gm [uS/um]'],
                                           #vs_vd=['sid/W^2 [A^2/Hz/um^2]','svg [V^2/Hz]','Gm [uS/um]']
                                           vs_vd=[])
@@ -1062,7 +1069,15 @@ class NoiseVBiasTemplate(NoiseTemplate,VsIrregularBiasAtFreq):
             sw['I/W [uA/um]']=sw['I [A]']/self._patch.get_total_device_width()
             from datavac.util.maths import VTCC
             try:
-                vt=VTCC(np.array([sw['I/W [uA/um]']]),np.array([sw['VG']]),1)[0]
+                Iarr,VGarr=np.array([sw['I/W [uA/um]']]),np.array([sw['VG']])
+                icc=1
+                if Iarr[0][0]<icc:
+                    vt=VTCC(Iarr,VGarr,icc)[0]
+                else:
+                    #import pdb; pdb.set_trace()
+                    Iarr, VGarr = Iarr[0],VGarr[0]
+                    assert (Iarr[0]/icc)<1.3, "Not gonna extrapolate more than 30%"
+                    vt=VGarr[0]-((VGarr[1]-VGarr[0])/np.log(Iarr[1]/Iarr[0])*np.log(Iarr[0]/icc))
             except:
                 vt=np.NaN
             for (vg_,vd_),subresult in result.items():

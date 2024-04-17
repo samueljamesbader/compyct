@@ -71,6 +71,9 @@ class SpectreNetlister(Netlister):
     def nstr_temp(self, temp=27, tnom=27):
         return f"simulatorOptions options temp={n2scs(temp)} tnom={n2scs(tnom)}"
 
+    def nstr_res(self,name,netp,netm,r):
+        return f"R{name} ({netp} {netm}) resistor r={n2scs(r)}"
+
     def nstr_iprobe(self,name,netp,netm):
         return f"{name} ({netp} {netm}) iprobe"
 
@@ -110,10 +113,10 @@ class SpectreNetlister(Netlister):
             name=f"sweepnoise{self._analysiscount}"
             self._analysiscount+=1
         if fstart==fstop:
-            return f"{name} noise iprobe={vsrc} oprobe={outprobe} freq={n2scs(fstart)} annotate=status"
+            return f"dc_{name} dc\n{name} noise iprobe={vsrc} oprobe={outprobe} freq={n2scs(fstart)} annotate=status"
         else:
             narg = {'lin': points, 'dec': pts_per_dec}[sweep_option]
-            return f"{name} noise iprobe={vsrc} oprobe={outprobe} start={n2scs(fstart)} stop={n2scs(fstop)} {sweep_option}={narg} annotate=status"
+            return f"dc_{name} dc\n{name} noise iprobe={vsrc} oprobe={outprobe} start={n2scs(fstart)} stop={n2scs(fstop)} {sweep_option}={narg} annotate=status"
     # def nstr_alter(dev,param,value,name=None):
     #     if name is None:
     #         name=f"alter{self._altercount}"

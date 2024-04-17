@@ -311,10 +311,10 @@ class GuessedSubcktParamSet(ParamSet):
                 if l.startswith("section"):
                     in_section=l.strip().split(" ")[1]
 
-                if l.startswith(f"subckt {model}"):
-                    terminals=[x.strip() for x in l.strip().split()[2:]]
-                    # TODO: this check is temporary, remove it
-                    assert terminals==['d','g','s','b']
+                if l.startswith(f"subckt {model} ") or l.startswith(f"inline subckt {model} "):
+                    terminals=[x.strip() for x in l.strip().split(f'subckt {model}')[1].strip().split()]
+                    ## TODO: this check is temporary, remove it
+                    #assert terminals==['d','g','s','b']
 
                     if in_section==self.section:
                         l=next(f).strip()
