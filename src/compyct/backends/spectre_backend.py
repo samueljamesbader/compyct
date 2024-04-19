@@ -1,4 +1,5 @@
 from functools import partial
+from scipy.constants import k as kb
 
 import pyspectre as psp
 from tempfile import NamedTemporaryFile
@@ -100,13 +101,22 @@ class SpectreNetlister(Netlister):
     #def astr_spar(self, pts_per_dec, fstart, fstop, name=None):
     def astr_spar(self, fstart, fstop, pts_per_dec=None, points=None, sweep_option='dec', name=None):
         if name is None:
-            name=f"sweepspar{self._analysiscount}"
-            self._analysiscount+=1
-        if fstart==fstop:
+            name = f"sweepspar{self._analysiscount}"
+            self._analysiscount += 1
+        if fstart == fstop:
             return f"{name} sp ports=[PORT1 PORT2] freq={n2scs(fstart)} annotate=status"
         else:
             narg = {'lin': points, 'dec': pts_per_dec}[sweep_option]
             return f"{name} sp ports=[PORT1 PORT2] start={n2scs(fstart)} stop={n2scs(fstop)} {sweep_option}={narg} annotate=status"
+    def astr_sparnoise(self, fstart, fstop, pts_per_dec=None, points=None, sweep_option='dec', name=None):
+        if name is None:
+            name=f"sweepspar{self._analysiscount}"
+            self._analysiscount+=1
+        if fstart==fstop:
+            return f"{name} sp ports=[PORT1 PORT2] freq={n2scs(fstart)} annotate=status donoise=yes noisedata=cy iprobe=PORT1 oprobe=PORT2"
+        else:
+            narg = {'lin': points, 'dec': pts_per_dec}[sweep_option]
+            return f"{name} sp ports=[PORT1 PORT2] start={n2scs(fstart)} stop={n2scs(fstop)} {sweep_option}={narg} annotate=status donoise=yes noisedata=cy iprobe=PORT1 oprobe=PORT2"
 
     def astr_noise(self, outprobe, vsrc, fstart, fstop, pts_per_dec=None, points=None, sweep_option='dec', name=None):
         if name is None:
@@ -181,7 +191,7 @@ class SpectreNetlister(Netlister):
         
     def preparse_return(self,result):
         def standardize_col(k,sweepname=None):
-            if 'noise' in sweepname:
+            if '`noise' in sweepname:
                 return {'out':'onoise [A/sqrt(Hz)]','in':'inoise [V/sqrt(Hz)]','gain':'gain [A/V]'}.get(k,k)
             else:
                 if k=='dc':
@@ -193,7 +203,15 @@ class SpectreNetlister(Netlister):
         def standardize_swname(k):
             #print("SWEEP NAME: ",k)
             return k.split("`")[1].split("'")[0]
-        return {standardize_swname(sweepname):sweepdata.rename(columns=partial(standardize_col,sweepname=sweepname))
+        def standardize_norms(df):
+            # Spectre normalizes the noise correlation matrix by the available noise power of the source port: 4*kb*(290K)
+            # But I have not found this documented anywhere. So I'll unnormalize it here before template sees it
+            # For noise fig calculations, make sure source port noisetemp is set to 16.85C=290K! [default for spectre]
+            for c in ['cy11','cy12','cy21','cy22']:
+                if c in df.columns:
+                    df[c]=df[c]*(4*kb*290)
+            return df
+        return {standardize_swname(sweepname):standardize_norms(sweepdata.rename(columns=partial(standardize_col,sweepname=sweepname)))
                     for sweepname,sweepdata in result.items()} 
     
 

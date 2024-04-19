@@ -194,6 +194,37 @@ class NgspiceNetlister(Netlister):
             # If we want, there are also Y parameters, Z parameters here ripe for picking
             return name, df
         return spar
+    def astr_sparnoise(self, fstart, fstop, pts_per_dec=None, points=None, sweep_option='dec', name=None):
+        def spar(ngss):
+            narg={'lin':points,'dec':pts_per_dec}[sweep_option]
+            assert narg is not None
+            ngss.exec_command(f"sp {sweep_option} {narg} {fstart} {fstop} 1") # the 1 is donoise
+            # PySpice doesn't have an s-parameter analysis class yet so we'll extract it differently
+            #df=self.analysis_to_df(ngss.plot(None,ngss.last_plot).to_analysis())
+            plot=ngss.plot(None,ngss.last_plot)
+            #import pdb; pdb.set_trace()
+            df=pd.DataFrame({
+                'freq': plot['frequency'].to_waveform(to_real=True),
+                'S11':  plot['S_1_1'].to_waveform(),
+                'S12':  plot['S_1_2'].to_waveform(),
+                'S21':  plot['S_2_1'].to_waveform(),
+                'S22':  plot['S_2_2'].to_waveform(),
+                'Y11':  plot['Y_1_1'].to_waveform(),
+                'Y12':  plot['Y_1_2'].to_waveform(),
+                'Y21':  plot['Y_2_1'].to_waveform(),
+                'Y22':  plot['Y_2_2'].to_waveform(),
+
+                'cy11': plot['Cy_1_1'].to_waveform(),
+                'cy12': plot['Cy_1_2'].to_waveform(),
+                'cy21': plot['Cy_2_1'].to_waveform(),
+                'cy22': plot['Cy_2_2'].to_waveform(),
+                'ngspice_NFmin': plot['NFmin'].to_waveform(),
+
+            })
+            ngss.destroy()
+            # If we want, there are also Y parameters, Z parameters here ripe for picking
+            return name, df
+        return spar
 
     def astr_noise(self, outprobe, vsrc, fstart, fstop, pts_per_dec=None, points=None, sweep_option='dec', name=None):
         def noise(ngss):

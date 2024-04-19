@@ -3,7 +3,7 @@ from compyct.backends import ngspice_backend
 from compyct.backends.backend import MultiSimSesh
 from compyct.examples.trivial_xtor_defs import TrivialXtorParamSet, TrivialXtor
 from compyct.templates import TemplateGroup, DCIVTemplate, CVTemplate, IdealPulsedIdVdTemplate, SParTemplate, \
-    SParVFreqTemplate, SParVBiasTemplate, NoiseVBiasTemplate, NoiseVFreqTemplate
+    SParVFreqTemplate, SParVBiasTemplate, LFNoiseVBiasTemplate, LFNoiseVFreqTemplate
 
 from _pytest.python import Metafunc
 import os
@@ -143,7 +143,7 @@ def test_trivial_xtor_sparvbias(backend):
 def test_trivial_xtor_noisevfreq(backend):
     patch=TrivialXtorParamSet().mcp_(gtrap=0)
     vg,vd=.8,1.8
-    tg=TemplateGroup(theflick=NoiseVFreqTemplate(vg=vg,vd=vd,fstart=1e0,fstop=1e4,pts_per_dec=1,patch=patch))
+    tg=TemplateGroup(theflick=LFNoiseVFreqTemplate(vg=vg, vd=vd, fstart=1e0, fstop=1e4, pts_per_dec=1, patch=patch))
     meas_data={'theflick':TrivialXtor(patch=patch).evaluate_template(tg['theflick'])}
     with MultiSimSesh.get_with_backend(tg,backend=backend) as sim:
         sim.print_netlists()
@@ -161,7 +161,7 @@ def test_trivial_xtor_noisevfreq(backend):
 def test_trivial_xtor_noisevbias(backend):
     patch=TrivialXtorParamSet().mcp_(gtrap=0)
     vgvds=[(.1,1.8),(1.2,1.8)]
-    tg=TemplateGroup(theflick=NoiseVBiasTemplate(vgvds=vgvds,frequency=1e0,patch=patch))
+    tg=TemplateGroup(theflick=LFNoiseVBiasTemplate(vgvds=vgvds, frequency=1e0, patch=patch))
     meas_data={'theflick':TrivialXtor(patch=patch).evaluate_template(tg['theflick'])}
     with MultiSimSesh.get_with_backend(tg,backend=backend) as sim:
         sim.print_netlists()

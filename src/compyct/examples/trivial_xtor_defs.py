@@ -1,5 +1,5 @@
 from compyct.templates import TemplateGroup, DCIVTemplate, DCIdVgTemplate, DCIdVdTemplate, JointTemplate, CVTemplate, \
-    IdealPulsedIdVdTemplate, SParTemplate, SParVFreqTemplate, SParVBiasTemplate, NoiseVFreqTemplate, NoiseVBiasTemplate
+    IdealPulsedIdVdTemplate, SParTemplate, SParVFreqTemplate, SParVBiasTemplate, LFNoiseVFreqTemplate, LFNoiseVBiasTemplate
 from compyct.paramsets import CMCParamSet, spicenum_to_float
 from scipy.constants import elementary_charge as q, Boltzmann as kb
 import pandas as pd
@@ -150,7 +150,7 @@ class TrivialXtor():
                     'Y22': freq*np.NaN
                 })
             return results
-        elif isinstance(simtemp,NoiseVFreqTemplate):
+        elif isinstance(simtemp, LFNoiseVFreqTemplate):
             results={}
 
             fstart=spicenum_to_float(simtemp.fstart)
@@ -169,7 +169,7 @@ class TrivialXtor():
                 'gain [A/V]': gm*(0*freq+1)
             })
             return results
-        elif isinstance(simtemp,NoiseVBiasTemplate):
+        elif isinstance(simtemp, LFNoiseVBiasTemplate):
             results={}
 
             freq=np.array([float(simtemp.fstart)])

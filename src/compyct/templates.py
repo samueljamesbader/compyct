@@ -742,8 +742,8 @@ class VsFreqAtIrregularBias():
         assert len(self.outer_values)==1
         vg,vd=self.outer_values[0]
         if f'dc_{name}' in result:
-            # TODO: 'VD:p' is a magic string
-            result[name]['I [A]']=-result[f'dc_{name}']['VD:p'].iloc[0]
+            # TODO: 'VD#p' is a magic string
+            result[name]['I [A]']=-result[f'dc_{name}']['vd#p'].iloc[0]
         parsed_result={(vg,vd): result[name]}
         return parsed_result
 
@@ -777,8 +777,8 @@ class VsIrregularBiasAtFreq():
         for i,(vg,vd) in enumerate(self.outer_values):
 
             if f'dc_{namepre}{i}' in result:
-                # TODO: 'VD:p' is a magic string
-                result[f'{namepre}{i}']['I [A]'] = -result[f'dc_{namepre}{i}']['VD:p'].iloc[0]
+                # TODO: 'VD#p' is a magic string
+                result[f'{namepre}{i}']['I [A]'] = -result[f'dc_{namepre}{i}']['vd#p'].iloc[0]
             parsed_result[(vg,vd)]=result[f'{namepre}{i}']
         return parsed_result
 
@@ -833,16 +833,19 @@ class SParTemplate(MultiSweepSimTemplate):
             netlister.nstr_port("D",netp='netd',netm=netlister.GND,dc=vd,portnum=2,ac=0),
             netlister.nstr_port("G",netp='netg',netm=netlister.GND,dc=vg,portnum=1,ac=1)]
 
+    @staticmethod
+    def _sparam_dataframe_helper(df):
+        df['freq'] = np.real(df['freq'])
+
+        # print(df[['S11', 'S12', 'S21', 'S22']])
+        if 'Y11' not in df.columns:
+            df['Y11'], df['Y12'], df['Y21'], df['Y22'] = s2y(df['S11'], df['S12'], df['S21'], df['S22'])
+        if 'Z11' not in df.columns:
+            df['Z11'], df['Z12'], df['Z21'], df['Z22'] = s2z(df['S11'], df['S12'], df['S21'], df['S22'])
+
     def postparse_return(self,parsed_result):
         for df in parsed_result.values():
-
-            df['freq']=np.real(df['freq'])
-
-            #print(df[['S11', 'S12', 'S21', 'S22']])
-            if 'Y11' not in df.columns:
-                df['Y11'],df['Y12'],df['Y21'],df['Y22']=s2y(df['S11'],df['S12'],df['S21'],df['S22'])
-            if 'Z11' not in df.columns:
-                df['Z11'],df['Z12'],df['Z21'],df['Z22']=s2z(df['S11'],df['S12'],df['S21'],df['S22'])
+            self._sparam_dataframe_helper(df)
 
             # h21 is a current ratio, so 20x log
             df[f'|h21| [dB]']=20*np.log10(np.abs(df.Y21/df.Y11))
@@ -976,7 +979,78 @@ class SParVBiasTemplate(SParTemplate,VsIrregularBiasAtFreq):
     def update_figures(self, *args, **kwargs):
         return VsIrregularBiasAtFreq.update_figures_helper(self,*args, **kwargs)
 
-class NoiseTemplate(MultiSweepSimTemplate):
+class HFNoiseTemplate(SParTemplate):
+
+    def postparse_return(self,parsed_result):
+        from scipy.constants import k as kb
+        Ts=290 # to match IEEE definition, source temperature is 290K
+        for df in parsed_result.values():
+            self._sparam_dataframe_helper(df)
+            Rn=np.real(1/(4*kb*Ts)*df.cy22/np.abs(df.Y21)**2)
+
+            Yc=-df.Y21*df.cy12/df.cy22+df.Y11
+            Gc=np.real(Yc)
+            Bc=np.imag(Yc)
+
+            tmp=(Yc-df.Y11)/df.Y21
+            Gu=np.real(df.cy11-np.abs(df.cy12)**2/df.cy22)/(4*kb*Ts)
+
+            Gopt=np.sqrt(Gc**2+Gu/Rn)
+            Bopt=-Bc
+
+            Fmin=1+2*Rn*(Gopt+Gc)
+
+            df['Fmin']=Fmin
+            df['NFmin'] = 10*np.log10(Fmin)
+            df['Gopt']=Gopt
+            df['Bopt']=Bopt
+            df['Rn']=Rn
+        return parsed_result
+
+class HFNoiseVFreqTemplate(HFNoiseTemplate,VsFreqAtIrregularBias):
+    def __init__(self, *args,
+                 vg, vd, fstart, fstop, temp=27, pts_per_dec=None, fstep=None, **kwargs):
+        VsFreqAtIrregularBias.init_helper(self,fstart=fstart,fstop=fstop,pts_per_dec=pts_per_dec,fstep=fstep)
+        HFNoiseTemplate.__init__(self,outer_variable=None, outer_values=[(vg,vd)], inner_variable='freq',
+                         inner_range=(fstart,pts_per_dec,fstop), temp=temp,
+                         ynames=['NFmin','Rn'],
+                         *args, **kwargs)
+
+    def get_analysis_listing(self,netlister:Netlister):
+        return VsFreqAtIrregularBias.get_analysis_listing_helper(self,netlister_func=netlister.astr_sparnoise,name='sparnoise')
+
+    def parse_return(self,result):
+        return VsFreqAtIrregularBias.parse_return_helper(self,result,name='sparnoise')
+
+    def generate_figures(self,*args,**kwargs):
+        #kwargs['y_axis_type']=kwargs.get('y_axis_type','log')
+        kwargs['x_axis_type']=kwargs.get('x_axis_type','log')
+        return super().generate_figures(*args,**kwargs)
+
+class HFNoiseVBiasTemplate(HFNoiseTemplate,VsIrregularBiasAtFreq):
+    def __init__(self, *args, vgvds, frequency, temp=27, **kwargs):
+        SParTemplate.__init__(self,*args, outer_variable=None, outer_values=vgvds, inner_variable='freq',
+                              inner_range=(frequency,1,frequency), temp=temp, **kwargs)
+        VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
+              vs_vg=['NFmin','Rn'],
+              vs_vd=[],
+              vs_vo=[])
+
+    def get_analysis_listing(self,netlister:Netlister):
+        return VsIrregularBiasAtFreq.get_analysis_listing_helper(self,
+            netlister_alter=netlister.astr_altervportdc,netlister_func=netlister.astr_sparnoise,namepre='sparnoise')
+
+    def parse_return(self,result):
+        return VsIrregularBiasAtFreq.parse_return_helper(self,result,namepre='sparnoise')
+
+    def generate_figures(self, *args, **kwargs):
+        return VsIrregularBiasAtFreq.generate_figures_helper(self,*args,**kwargs)
+
+    def update_figures(self, *args, **kwargs):
+        return VsIrregularBiasAtFreq.update_figures_helper(self,*args, **kwargs)
+
+
+class LFNoiseTemplate(MultiSweepSimTemplate):
 
     def __init__(self, temp=27, *args, **kwargs):
         super().__init__(*args,**kwargs)
@@ -1014,14 +1088,14 @@ class NoiseTemplate(MultiSweepSimTemplate):
         # TODO: implement this
         return parsed_result
 
-class NoiseVFreqTemplate(NoiseTemplate,VsFreqAtIrregularBias):
+class LFNoiseVFreqTemplate(LFNoiseTemplate, VsFreqAtIrregularBias):
     def __init__(self,
                  vg, vd, fstart, fstop, temp=27, pts_per_dec=None, fstep=None, *args, **kwargs):
         VsFreqAtIrregularBias.init_helper(self,fstart=fstart,fstop=fstop,pts_per_dec=pts_per_dec,fstep=fstep)
-        NoiseTemplate.__init__(self,outer_variable=None, outer_values=[(vg,vd)], inner_variable='freq',
-                         inner_range=(fstart,pts_per_dec,fstop), temp=temp,
-                         ynames=['sid/W^2 [A^2/Hz/um^2]','svg [V^2/Hz]'],
-                         *args, **kwargs)
+        LFNoiseTemplate.__init__(self, outer_variable=None, outer_values=[(vg, vd)], inner_variable='freq',
+                                 inner_range=(fstart,pts_per_dec,fstop), temp=temp,
+                                 ynames=['sid/W^2 [A^2/Hz/um^2]','svg [V^2/Hz]'],
+                                 *args, **kwargs)
     def get_analysis_listing(self,netlister:Netlister):
         netlister_func=lambda *args,**kwargs: netlister.astr_noise(outprobe='IPRB',vsrc='VG',*args,**kwargs)
         return VsFreqAtIrregularBias.get_analysis_listing_helper(self,netlister_func=netlister_func,name='noise')
@@ -1040,11 +1114,11 @@ class NoiseVFreqTemplate(NoiseTemplate,VsFreqAtIrregularBias):
         kwargs['x_axis_type']=kwargs.get('x_axis_type','log')
         return super().generate_figures(*args,**kwargs)
 
-class NoiseVBiasTemplate(NoiseTemplate,VsIrregularBiasAtFreq):
+class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
     def __init__(self, *args,
                  vgvds, frequency, temp=27, **kwargs):
-        NoiseTemplate.__init__(self,*args, outer_variable=None, outer_values=vgvds, inner_variable='freq',
-                         inner_range=(frequency,1,frequency), temp=temp, **kwargs)
+        LFNoiseTemplate.__init__(self, *args, outer_variable=None, outer_values=vgvds, inner_variable='freq',
+                                 inner_range=(frequency,1,frequency), temp=temp, **kwargs)
         VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
                                           vs_vg=[],#['sid/W^2 [A^2/Hz/um^2]','sid/ID^2 [1/Hz]','svg [V^2/Hz]','Gm [uS/um]'],
                                           vs_vo=['sid/W^2 [A^2/Hz/um^2]','sid/ID^2 [1/Hz]','svg [V^2/Hz]','Gm [uS/um]'],
