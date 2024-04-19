@@ -198,6 +198,7 @@ class NgspiceNetlister(Netlister):
         def spar(ngss):
             narg={'lin':points,'dec':pts_per_dec}[sweep_option]
             assert narg is not None
+            ngss.exec_command("option keepopinfo")
             ngss.exec_command(f"sp {sweep_option} {narg} {fstart} {fstop} 1") # the 1 is donoise
             # PySpice doesn't have an s-parameter analysis class yet so we'll extract it differently
             #df=self.analysis_to_df(ngss.plot(None,ngss.last_plot).to_analysis())
@@ -221,6 +222,8 @@ class NgspiceNetlister(Netlister):
                 'ngspice_NFmin': plot['NFmin'].to_waveform(),
 
             })
+            plot = ngss.plot(None, ngss.plot_names[1])  # Second to last plot should have OP info
+            df['I [A]'] = list(-np.array(plot[f'vdc_d#branch'].to_waveform()))[0]
             ngss.destroy()
             # If we want, there are also Y parameters, Z parameters here ripe for picking
             return name, df

@@ -107,6 +107,13 @@ class MultiSweepSimTemplate(SimTemplate):
 
     #def __copy__(self):
     #    return copy(super()
+
+    @property
+    def xname(self):
+        if hasattr(self,'_xname'):
+            return self._xname
+        else:
+            return self.inner_variable
         
     def _parsed_result_to_cds_data(self,parsed_result):
         #assert len(self.ynames)==1
@@ -124,7 +131,7 @@ class MultiSweepSimTemplate(SimTemplate):
                 except KeyError as e:
                     import pdb; pdb.set_trace()
                     raise e
-                data['x'].append(df[self.inner_variable].to_numpy())
+                data['x'].append(df[self.xname].to_numpy())
                 for yname in set(self.ynames):
                     data[yname].append(df[yname].to_numpy())
                 data['legend'].append(' '.join(str(ki) for ki in key))
@@ -161,7 +168,7 @@ class MultiSweepSimTemplate(SimTemplate):
         figs=[]
         for i in range(num_ys):
             TOOLTIPS=[
-                (f"{self.inner_variable}",f"@x"),
+                (f"{self.xname}",f"@x"),
                 #(f"{self.outer_variable}",f"@{self.outer_variable}"),
                 (f"{self.ynames[i]}",f"@{{{self.ynames[i]}}}"),
             ]
@@ -182,7 +189,7 @@ class MultiSweepSimTemplate(SimTemplate):
             num=1
             t = f"""
                 <div @x{{custom}}>
-                    <b>{self.inner_variable}: </b> @x <br/>
+                    <b>{self.xname}: </b> @x <br/>
                     <b>{self.outer_variable}: </b> @outervariable <br/>
                     <b>{self.ynames[i]}: </b> @{{{self.ynames[i]}}} <br/>
                     <b>Details: </b> @additionalinfo
@@ -199,7 +206,7 @@ class MultiSweepSimTemplate(SimTemplate):
 
 
             fig.yaxis.axis_label=self.ynames[i]#",".join(self.ynames)
-            fig.xaxis.axis_label=self.inner_variable
+            fig.xaxis.axis_label=self.xname
             #fig_legend_config(fig)
             fig.legend.visible=False
             figs.append(fig)
@@ -743,12 +750,15 @@ class VsFreqAtIrregularBias():
         vg,vd=self.outer_values[0]
         if f'dc_{name}' in result:
             # TODO: 'VD#p' is a magic string
-            result[name]['I [A]']=-result[f'dc_{name}']['vd#p'].iloc[0]
+            #print("Options included:",result[f'dc_{name}'].keys())
+            for x in ['vd#p','vport2#p']:
+                if x in result[f'dc_{name}']:
+                    result[name]['I [A]']=-result[f'dc_{name}'][x].iloc[0]
         parsed_result={(vg,vd): result[name]}
         return parsed_result
 
 class VsIrregularBiasAtFreq():
-    def init_helper(self, vgvds, vs_vg, vs_vd, vs_vo, frequency):
+    def init_helper(self, vgvds, vs_vg, vs_vd, vs_vo, vs_id, frequency):
         VsFreqAtIrregularBias.init_helper(self,fstart=frequency,fstop=frequency,pts_per_dec=1)
         vgs=list(sorted(set([k[0] for k in vgvds])))
         vds=list(sorted(set([k[1] for k in vgvds])))
@@ -760,6 +770,10 @@ class VsIrregularBiasAtFreq():
         if len(vs_vo):
             self._vsvo=MultiSweepSimTemplate(outer_variable='VD',inner_variable='VoV',
                                              ynames=vs_vo,outer_values=vds,directions=['f'])
+        if len(vs_id):
+            self._vsid=MultiSweepSimTemplate(outer_variable='VD',inner_variable='VG',
+                                             ynames=vs_id,outer_values=vds,directions=['f'])
+            self._vsid._xname='I/W [uA/um]'
     def get_analysis_listing_helper(self, netlister_alter, netlister_func, namepre, inc_portnum=True):
         assert self.frequency_sweep_option=='log'
         lst=[]
@@ -778,7 +792,10 @@ class VsIrregularBiasAtFreq():
 
             if f'dc_{namepre}{i}' in result:
                 # TODO: 'VD#p' is a magic string
-                result[f'{namepre}{i}']['I [A]'] = -result[f'dc_{namepre}{i}']['vd#p'].iloc[0]
+                #print("Options included:", result[f'dc_{namepre}{i}'].keys())
+                for x in ['vd#p', 'vport2#p']:
+                    if x in result[f'dc_{namepre}{i}']:
+                        result[f'{namepre}{i}']['I [A]'] = -result[f'dc_{namepre}{i}'][x].iloc[0]
             parsed_result[(vg,vd)]=result[f'{namepre}{i}']
         return parsed_result
 
@@ -791,7 +808,8 @@ class VsIrregularBiasAtFreq():
         return [
             * self._vsvg.generate_figures(meas_data=vg_sweeps,layout_params=layout_params,vizid=vizid, y_axis_type=y_axis_type),
             *(self._vsvo.generate_figures(meas_data=vg_sweeps,layout_params=layout_params,vizid=vizid, y_axis_type=y_axis_type) if hasattr(self,'_vsvo') else []),
-            * self._vsvd.generate_figures(meas_data=vd_sweeps,layout_params=layout_params,vizid=vizid, y_axis_type=y_axis_type)]
+            * self._vsvd.generate_figures(meas_data=vd_sweeps,layout_params=layout_params,vizid=vizid, y_axis_type=y_axis_type),
+            *(self._vsid.generate_figures(meas_data=vg_sweeps,layout_params=layout_params,vizid=vizid, y_axis_type=y_axis_type) if hasattr(self,'_vsid') else []),]
 
     def update_figures_helper(self, parsed_result, vizid=None):
         vg_sweeps=form_multisweep(parsed_result,1,0,'VG',queryvar='freq', querytarget=self.fstart)
@@ -799,6 +817,7 @@ class VsIrregularBiasAtFreq():
         self._vsvg.update_figures(vg_sweeps, vizid=vizid)
         if hasattr(self,'_vsvo'): self._vsvo.update_figures(vg_sweeps, vizid=vizid)
         self._vsvd.update_figures(vd_sweeps, vizid=vizid)
+        if hasattr(self,'_vsid'): self._vsid.update_figures(vg_sweeps, vizid=vizid)
 
     @property
     def fstart(self):
@@ -964,7 +983,7 @@ class SParVBiasTemplate(SParTemplate,VsIrregularBiasAtFreq):
         VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
               vs_vg=['GM/W [uS/um]','Cgs/W [fF/um]','Cgd/W [fF/um]','GM/2πCgs [GHz]'],
               vs_vd=['Rds*W [Ohm.um]','Cds/W [fF/um]'],
-              vs_vo=[])
+              vs_vo=[], vs_id=[])
 
     def get_analysis_listing(self,netlister:Netlister):
         return VsIrregularBiasAtFreq.get_analysis_listing_helper(self,
@@ -1034,14 +1053,18 @@ class HFNoiseVBiasTemplate(HFNoiseTemplate,VsIrregularBiasAtFreq):
         VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
               vs_vg=['NFmin','Rn'],
               vs_vd=[],
-              vs_vo=[])
+              vs_vo=[],
+              vs_id=['NFmin','Rn'],)
 
     def get_analysis_listing(self,netlister:Netlister):
         return VsIrregularBiasAtFreq.get_analysis_listing_helper(self,
             netlister_alter=netlister.astr_altervportdc,netlister_func=netlister.astr_sparnoise,namepre='sparnoise')
 
     def parse_return(self,result):
-        return VsIrregularBiasAtFreq.parse_return_helper(self,result,namepre='sparnoise')
+        result=VsIrregularBiasAtFreq.parse_return_helper(self,result,namepre='sparnoise')
+        for subresult in result.values():
+            subresult['I/W [uA/um]'] = subresult['I [A]'] / self._patch.get_total_device_width()
+        return result
 
     def generate_figures(self, *args, **kwargs):
         return VsIrregularBiasAtFreq.generate_figures_helper(self,*args,**kwargs)
@@ -1094,7 +1117,7 @@ class LFNoiseVFreqTemplate(LFNoiseTemplate, VsFreqAtIrregularBias):
         VsFreqAtIrregularBias.init_helper(self,fstart=fstart,fstop=fstop,pts_per_dec=pts_per_dec,fstep=fstep)
         LFNoiseTemplate.__init__(self, outer_variable=None, outer_values=[(vg, vd)], inner_variable='freq',
                                  inner_range=(fstart,pts_per_dec,fstop), temp=temp,
-                                 ynames=['sid/W^2 [A^2/Hz/um^2]','svg [V^2/Hz]'],
+                                 ynames=['sid/ID^2 [1/Hz]','svg [V^2/Hz]'],
                                  *args, **kwargs)
     def get_analysis_listing(self,netlister:Netlister):
         netlister_func=lambda *args,**kwargs: netlister.astr_noise(outprobe='IPRB',vsrc='VG',*args,**kwargs)
@@ -1121,9 +1144,11 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
                                  inner_range=(frequency,1,frequency), temp=temp, **kwargs)
         VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
                                           vs_vg=[],#['sid/W^2 [A^2/Hz/um^2]','sid/ID^2 [1/Hz]','svg [V^2/Hz]','Gm [uS/um]'],
-                                          vs_vo=['sid/W^2 [A^2/Hz/um^2]','sid/ID^2 [1/Hz]','svg [V^2/Hz]','Gm [uS/um]'],
+                                          vs_vo=['sid/ID^2 [1/Hz]','svg [V^2/Hz]','Gm [uS/um]'],
                                           #vs_vd=['sid/W^2 [A^2/Hz/um^2]','svg [V^2/Hz]','Gm [uS/um]']
-                                          vs_vd=[])
+                                          vs_vd=[],
+                                          vs_id=['sid/ID^2 [1/Hz]','svg [V^2/Hz]','Gm [uS/um]'])
+
 
     def get_analysis_listing(self,netlister:Netlister):
         netlister_func=lambda *args,**kwargs: netlister.astr_noise(outprobe='IPRB',vsrc='VG',*args,**kwargs)
@@ -1135,11 +1160,6 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
 
         vg_sweeps=form_multisweep(result,1,0,'VG',queryvar='freq', querytarget=self.fstart)
         for (vd,dir_),sw in vg_sweeps.items():
-            # TODO: REMOVE
-            # Only necessary because don't support getting I in spectre yet
-            if 'I [A]' not in sw:
-                sw['I [A]']=np.NaN
-
             sw['I/W [uA/um]']=sw['I [A]']/self._patch.get_total_device_width()
             from datavac.util.maths import VTCC
             try:
@@ -1157,14 +1177,11 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
             for (vg_,vd_),subresult in result.items():
                 if vd_==vd:
                     subresult['VoV']=vg_-vt
-                    # TODO: REMOVE
-                    # Only necessary because don't support getting I in spectre yet
-                    if 'I [A]' not in subresult:
-                        subresult['I [A]']=np.NaN
                     subresult['I/W [uA/um]']=subresult['I [A]']/self._patch.get_total_device_width()
         return result
 
     def generate_figures(self, *args, **kwargs):
+        #import pdb; pdb.set_trace()
         return VsIrregularBiasAtFreq.generate_figures_helper(self,*args,**kwargs,y_axis_type='log')
 
     def update_figures(self, *args, **kwargs):

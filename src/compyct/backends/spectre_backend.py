@@ -113,10 +113,10 @@ class SpectreNetlister(Netlister):
             name=f"sweepspar{self._analysiscount}"
             self._analysiscount+=1
         if fstart==fstop:
-            return f"{name} sp ports=[PORT1 PORT2] freq={n2scs(fstart)} annotate=status donoise=yes noisedata=cy iprobe=PORT1 oprobe=PORT2"
+            return f"dc_{name} dc\n{name} sp ports=[PORT1 PORT2] freq={n2scs(fstart)} annotate=status donoise=yes noisedata=cy iprobe=PORT1 oprobe=PORT2"
         else:
             narg = {'lin': points, 'dec': pts_per_dec}[sweep_option]
-            return f"{name} sp ports=[PORT1 PORT2] start={n2scs(fstart)} stop={n2scs(fstop)} {sweep_option}={narg} annotate=status donoise=yes noisedata=cy iprobe=PORT1 oprobe=PORT2"
+            return f"dc_{name} dc\n{name} sp ports=[PORT1 PORT2] start={n2scs(fstart)} stop={n2scs(fstop)} {sweep_option}={narg} annotate=status donoise=yes noisedata=cy iprobe=PORT1 oprobe=PORT2"
 
     def astr_noise(self, outprobe, vsrc, fstart, fstop, pts_per_dec=None, points=None, sweep_option='dec', name=None):
         if name is None:
