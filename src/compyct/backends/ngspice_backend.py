@@ -237,6 +237,7 @@ class NgspiceNetlister(Netlister):
             #ngss.exec_command(f"noise v(port_{vout.lower()}_ac) {vsrc.lower()} {sweep_option} {narg} {fstart} {fstop}")
             # Should move this somewhere else because it's getting executed every loop which seems unnecesarry
             ngss.exec_command("option keepopinfo")
+            #import pdb; pdb.set_trace()
             if (fstop==fstart):
                 ngss.exec_command(f"noise v(netiprobeout_{outprobe.lower()}) {vsrc.lower()} {sweep_option} {narg} {fstart} {fstop*1.0001}")
             else:
