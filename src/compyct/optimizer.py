@@ -142,7 +142,7 @@ from compyct.gui import make_widget
 
 class SemiAutoOptimizerGui(CompositeWidget):
 
-    def __init__(self, sao: SemiAutoOptimizer, save_name: str = 'sim_save', fig_layout_params={},**kwargs):
+    def __init__(self, sao: SemiAutoOptimizer, save_name: str = 'sim_save', fig_layout_params={},load_before_run=False,**kwargs):
         super().__init__(height=600,sizing_mode='stretch_width',**kwargs)
         self._sao=sao
         self._default_save_name=save_name
@@ -153,6 +153,8 @@ class SemiAutoOptimizerGui(CompositeWidget):
         self.start_sesh()
         #self._load()
         self._needs_rerun={tn:True for tn in self._tabbed_template_groups}
+        if load_before_run:
+            self._load_button_pressed(None)
         self.rerun_and_update(self._active_tab)
 
 

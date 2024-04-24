@@ -1175,7 +1175,7 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
         upper=1e6
 
         row={}
-        y_int_list=[('sid/ID^2 [1/Hz]','int. sid/ID^2'),('svg [V^2/Hz]','int. svg [V^2]')]
+        y_int_list=[('sid/ID^2 [1/Hz]','int. sid/ID^2'),('svg [V^2/Hz]','int. svg [V^2]'),('Gm [uS/um]','avg. Gm [uS/um]')]
         for yvar,intyvar in y_int_list:
             x=np.array(df['freq'])
             y=np.array(df[yvar])
@@ -1185,17 +1185,20 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
             # Conventional integration
             cinty=cumtrapz(y,x,initial=0)
             inty=np.diff(interp1d(x,cinty,fill_value='extrapolate')([lower,upper]))[0]
+            assert ('int.' in intyvar) or ('avg.' in intyvar)
+            if 'avg.' in intyvar: inty=inty/(upper-lower)
 
             # 1/f tuned integration
 
             row[intyvar]=[inty]
         for c in df.columns:
             if c not in [yvar for yvar,intyvar in y_int_list]+['freq']:
-                #if 'Gm' in c: import pdb; pdb.set_trace()
+
                 if np.allclose(df[c],df[c].iloc[0],atol=0):
                     row[c]=[df[c].iloc[0]]
+                #else:
+                #    row[c]=[np.NaN]
 
-        print(row.keys())
         return pd.DataFrame(row)
 
     def __init__(self, *args,
@@ -1208,7 +1211,7 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
                                           vs_vo=[],
                                           #vs_vd=['sid/W^2 [A^2/Hz/um^2]','svg [V^2/Hz]','Gm [uS/um]']
                                           vs_vd=[],
-                                          vs_id=['int. sid/ID^2','int. svg [V^2]','Gm [uS/um]'])
+                                          vs_id=['int. sid/ID^2','int. svg [V^2]','avg. Gm [uS/um]'])
         self.inner_range=(fstart,pts_per_dec,fstop)
         self._sweeper_kwargs={'collapser':self._integrate_1of}
 
