@@ -1170,9 +1170,8 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
 
     @staticmethod
     def _integrate_1of(df):
-        #import pdb; pdb.set_trace()
-        lower=100
-        upper=1e6
+        lower = 100
+        upper = 1e6
 
         row={}
         y_int_list=[('sid/ID^2 [1/Hz]','int. sid/ID^2'),('svg [V^2/Hz]','int. svg [V^2]'),('Gm [uS/um]','avg. Gm [uS/um]')]
@@ -1183,14 +1182,26 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
             assert x[-1]>upper*.9
 
             # Conventional integration
-            cinty=cumtrapz(y,x,initial=0)
-            inty=np.diff(interp1d(x,cinty,fill_value='extrapolate')([lower,upper]))[0]
+            if ('Gm' in yvar):
+                cinty=cumtrapz(y,x,initial=0)
+                inty=np.diff(interp1d(x,cinty,fill_value='extrapolate')([lower,upper]))[0]
+            elif ('sid' in yvar) or ('svg' in yvar):
+                # 1/f tuned integration
+                # This is equivalent to integral g(f)df in the dense points limit
+                # but numerically should be better for sparse frequency points assuming g(f) goes as ~1/f
+                # This is just the same integral with u-substituion u=ln(f), du=df/f -> integral g(f)f dln(f)
+                # And the edge interpolation is done with ln(f) rather than f
+                # since the result should be a smoother function of ln(f)
+                cinty = cumtrapz(y*x, np.log(x), initial=0)
+                inty=np.diff(interp1d(np.log(x),cinty,fill_value='extrapolate')(np.log([lower,upper])))[0]
+            else:
+                raise Exception(f"What's the best way to integrate {yvar}")
+
+
             assert ('int.' in intyvar) or ('avg.' in intyvar)
             if 'avg.' in intyvar: inty=inty/(upper-lower)
-
-            # 1/f tuned integration
-
             row[intyvar]=[inty]
+
         for c in df.columns:
             if c not in [yvar for yvar,intyvar in y_int_list]+['freq']:
 
