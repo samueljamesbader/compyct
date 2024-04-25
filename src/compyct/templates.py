@@ -83,7 +83,9 @@ class SimTemplate():
     # def _get_instance_param_part(self):
     #     return ' '.join(f'{k}=instparam_{k}' for k in self._patch
     #                     if self._patch.get_place(k)==ParamPlace.INSTANCE)
-            
+    def to_csv(self, param, filename):
+        raise NotImplementedError
+
 
 class MultiSweepSimTemplate(SimTemplate):
     def __init__(self, *args,
@@ -276,10 +278,16 @@ class MultiSweepSimTemplate(SimTemplate):
     def to_merged_table(self,result):
         dfs=[]
         for (ovv,d),df in result.items():
-            if d!='f': continue
-            df=df.drop(columns=[self.outer_variable]).set_index([self.inner_variable])
-            dfs.append(df.rename(columns=(lambda c: f'{c} @{self.outer_variable}={ovv}')))
-        assert all(np.all(dfs[0].index==df.index) for df in dfs)
+            #if d!='f': continue
+            if self.outer_variable in df:
+                df=df.drop(columns=[self.outer_variable])
+            df=df.set_index([self.inner_variable])
+            dfs.append(df.rename(columns=(lambda c: f'{c} @{self.outer_variable}={ovv} {d}')))
+
+        # Make sure the indices are the same before merging (fillna trick to equate nan's)
+        if not all(np.all(dfs[0].index.fillna(np.inf)==df.index.fillna(np.inf)) for df in dfs):
+            import pdb; pdb.set_trace()
+            raise Exception("Unequal indices, how to merge?")
         return pd.concat(dfs,axis=1)
 
     def to_csv(self,result,filename=None):
@@ -288,15 +296,18 @@ class MultiSweepSimTemplate(SimTemplate):
 class DCIdVdTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args, pol='n', temp=27, probe_r=0,
-                 vg_values=[0,.6,1.2,1.8], vd_range=(0,.1,1.8), **kwargs):
+                 vg_values=[0,.6,1.2,1.8], vd_range=(0,.1,1.8), plot_RD=True, **kwargs):
         super().__init__(outer_variable='VG', inner_variable='VD',
                          outer_values=vg_values, inner_range=(vd_range if type(vd_range) is not dict else None),
                          ynames=[('ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]'),
                                  ('ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]'),
-                                 ('IG/W [uA/um]' if pol=='n' else '-IG/W [uA/um]')],
+                                 ('IG/W [uA/um]' if pol=='n' else '-IG/W [uA/um]'),
+                                 *(['RD*W [Ohm*um]'] if plot_RD else [])
+                                 ],
                          *args, **kwargs)
         self.temp=temp
         self.probe_r=probe_r
+        self._plot_RD=plot_RD
 
         if type(vd_range) is not dict:
             vd_range={(vg,d):vd_range for vg in vg_values for d in self.directions}
@@ -345,11 +356,12 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
         sgn = -1 if self.pol == 'p' else 1
         sgnstr = "-" if self.pol == 'p' else ''
         for (vg,d), df in parsed_result.items():
-            df[f'RD*W [Ohm*um]'] = 1/np.gradient(1e-6 * sgn * df[f'{sgnstr}ID/W [uA/um]'], self.vd_range[(vg,d)][1])
+            with np.errstate(divide='ignore'):
+                df[f'RD*W [Ohm*um]'] = 1/np.gradient(1e-6 * sgn * df[f'{sgnstr}ID/W [uA/um]'], self.vd_range[(vg,d)][1])
         return parsed_result
 
     def generate_figures(self,*args,**kwargs):
-        kwargs['y_axis_type']=kwargs.get('y_axis_type',['linear','log','log'])
+        kwargs['y_axis_type']=kwargs.get('y_axis_type',['linear','log','log']+(['linear'] if self._plot_RD else []))
         return super().generate_figures(*args,**kwargs)
 
     def _rescale_vector(self, arr, col, meas_arr):
@@ -1210,7 +1222,7 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
                 #else:
                 #    row[c]=[np.NaN]
 
-        return pd.DataFrame(row)
+        return pd.concat([df,pd.DataFrame(row)]).reset_index(drop=True)
 
     def __init__(self, *args,
                  vgvds, frequency, temp=27, **kwargs):
@@ -1224,7 +1236,8 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
                                           vs_vd=[],
                                           vs_id=['int. sid/ID^2','int. svg [V^2]','avg. Gm [uS/um]'])
         self.inner_range=(fstart,pts_per_dec,fstop)
-        self._sweeper_kwargs={'collapser':self._integrate_1of}
+        #self._sweeper_kwargs={'collapser':self._integrate_1of}
+        self._sweeper_kwargs={'queryvar':'freq'}
 
 
     def get_analysis_listing(self,netlister:Netlister):
@@ -1256,6 +1269,13 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
                     subresult['VoV']=vg_-vt
                     subresult['I/W [uA/um]']=subresult['I [A]']/self._patch.get_total_device_width()
         return result
+
+    def postparse_return(self,parsed_result):
+        parsed_result=super().postparse_return(parsed_result)
+        res={}
+        for k,df in parsed_result.items():
+            res[k]=self._integrate_1of(df)
+        return res
 
     def generate_figures(self, *args, **kwargs):
         #import pdb; pdb.set_trace()
@@ -1303,4 +1323,7 @@ class TemplateGroup(UserDict[str,SimTemplate]):
 
     def to_csv(self,parsed_results,prefix=''):
         for stname in self:
-            self[stname].to_csv(parsed_results[stname],filename=f'{prefix}{stname}.csv')
+            if stname in parsed_results and parsed_results[stname] is not None:
+                self[stname].to_csv(parsed_results[stname],filename=f'{prefix}{stname}.csv')
+            else:
+                print(f"Skipping {stname} because not present")
