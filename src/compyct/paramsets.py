@@ -522,6 +522,7 @@ class SimplifierParamSet(ParamSet):
         drops=[]
         self._lowercase_homonyms=[]
         for l in trans_code.split("\n"):
+            #import pdb; pdb.set_trace()
             l=l.strip()
             if l=='' or l.startswith("#"): continue
             dont_supply = ("-x>" in l)
@@ -559,10 +560,11 @@ class SimplifierParamSet(ParamSet):
                         pdict[i]=deepcopy(self.base._pdict[for_base_psets[0]])
                         #logger.debug(str(pdict[i]))
                         adds.append(i)
-                        used_from_this_pset[i]=used_from_this_pset.get(i,[])+for_base_psets
+                    used_from_this_pset[i]=used_from_this_pset.get(i,[])+for_base_psets
                 else:
                     for i in involved:
                         assert (i in pdict) or (i in additional_parameters), f"Provide more info about {i}"
+                        used_from_this_pset[i] = used_from_this_pset.get(i, []) + for_base_psets
 
                 if len(involved) and (for_this_pset!=involved[0]):
                     #for_this_pset=(involved,
@@ -574,8 +576,9 @@ class SimplifierParamSet(ParamSet):
 
             for for_base_pset in for_base_psets:
                 if for_base_pset.lower() in [x.lower() for x in used_from_this_pset]:
+                    #print(f"Homonym: {for_base_pset} ~ {[x for x in used_from_this_pset if x.lower()==for_base_pset.lower()]}")
                     self._lowercase_homonyms.append(for_base_pset.lower())
-                else:
+                if for_base_pset not in used_from_this_pset:
                     del pdict[for_base_pset]
                     drops.append(for_base_pset)
                 if just_default:

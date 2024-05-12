@@ -7,6 +7,7 @@ import pickle
 
 import bokeh.io
 import numpy as np
+import yaml
 
 from PySpice.Spice.NgSpice.Shared import NgSpiceCommandError
 from compyct import logger, set_logging_callback, unset_logging_callback
@@ -19,8 +20,6 @@ from dataclasses import dataclass, field
 from compyct.templates import TemplateGroup
 from contextlib import contextmanager
 
-
-OUTPUT_DIR=Path(os.environ['MODELFIT_HOME'])/'output'
 
 class OptimizationException(Exception):
     def __init__(self, bounds, latest, sim_err):
@@ -42,23 +41,30 @@ class SemiAutoOptimizer():
     backend: str = 'ngspice'
     backend_kwargs: dict = field(default_factory=dict)
 
+    output_dir: str = None
+
     def __post_init__(self):
+        assert self.output_dir is not None
         self._tabbed_template_groups: dict[str,TemplateGroup] =\
             {tabname: self.global_template_group.only(*tempnames)\
                  for tabname,tempnames in self.tabbed_templates.items()}
         self._mss=MultiSimSesh.get_with_backend(self.global_template_group, backend=self.backend,**self.backend_kwargs)
 
     def load(self, save_name, rerun=True):
-        with open(OUTPUT_DIR/(save_name+".pkl"),'rb') as f:
-            saved=pickle.load(f)
+        with open(self.output_dir/(save_name+".yaml"),'r') as f:
+            saved=yaml.safe_load(f)
+        # with open(self.output_dir/(save_name+".pkl"),'rb') as f:
+        #     saved=pickle.load(f)
         self.global_patch.update({k:v for k,v in saved['global_values'].items() if k in self.global_patch})
         if rerun:
             self.rerun(None)
         return saved['additional']
 
     def save(self, save_name, additional=None):
-        with open(OUTPUT_DIR/(save_name+".pkl"),'wb') as f:
-            pickle.dump({'global_values':dict(self.global_patch),'additional':additional},f)
+        with open(self.output_dir/(save_name+".yaml"),'w') as f:
+            yaml.dump({'global_values':dict(self.global_patch),'additional':additional},f)
+        # with open(self.output_dir/(save_name+".pkl"),'wb') as f:
+        #     pickle.dump({'global_values':dict(self.global_patch),'additional':additional},f)
 
     def start_sesh(self):
         for _,t in self.global_template_group.items():
