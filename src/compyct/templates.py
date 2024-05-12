@@ -24,11 +24,11 @@ from compyct.paramsets import ParamPatch, spicenum_to_float, ParamPlace
 from compyct.util import s2y, s2z, form_multisweep
 
 class SimTemplate():
-    title='Unnamed plot'
-    def __init__(self, patch=None, internals_to_save=[]):
+    def __init__(self, patch=None, internals_to_save=[], title=None):
         if patch is not None:
             self.set_patch(patch)
         self.internals_to_save=internals_to_save
+        self.title=title
 
     def set_patch(self,patch):
         assert isinstance(patch,ParamPatch)
@@ -180,6 +180,7 @@ class MultiSweepSimTemplate(SimTemplate):
             fig=bokeh.plotting.figure(tools=get_tools(),#x_range=self.vg_range,y_range=(1e-8,1),
                                       #tooltips=TOOLTIPS,
                                       y_axis_type=y_axis_type[i],x_axis_type=x_axis_type[i],**layout_params)
+            if self.title is not None: fig.title=self.title
             mtrans=multi_abs_transform if y_axis_type[i]=='log' else (lambda x: x)
             strans=abs_transform if y_axis_type[i]=='log' else (lambda x: x)
 
@@ -349,7 +350,8 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
                                 {'netd':'VD','netg':'VG'})\
                             [['VD','VG',f'{sgnstr}ID/W [uA/um]',f'{sgnstr}IG/W [uA/um]']]
                     # DC sim doesn't distinguish f/r
-                    parsed_result[(vg,'r')]=parsed_result[(vg,'f')]
+                    if 'r' in self.directions:
+                        parsed_result[(vg,'r')]=parsed_result[(vg,'f')]
         return parsed_result
 
     def postparse_return(self, parsed_result):
@@ -375,21 +377,23 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
         ynames=['ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]']*2
         if plot_gm: ynames+=['GM/W [uS/um]']
         super().__init__(outer_variable='VD', inner_variable='VG',
-                         outer_values=vd_values, inner_range=vg_range,
+                         outer_values=vd_values, inner_range=(vg_range if type(vg_range) is not dict else None),
                          ynames=ynames,
                          *args, **kwargs)
         self.temp=temp
         self.probe_r=probe_r
-        
-        num_vg=(vg_range[2]-vg_range[0])/vg_range[1]+1
-        assert abs(num_vg-round(num_vg))<1e-3, f"Make sure the IdVg range gives even steps {str(vg_range)}"
-        
+
+        if type(vg_range) is not dict:
+            vg_range={(vd,d):vg_range for vd in vd_values for d in self.directions}
+        for vd,vgr in vg_range.items():
+            num_vg=(vgr[2]-vgr[0])/vgr[1]
+            assert abs(num_vg-round(num_vg))<1e-3, f"Make sure the IdVg range gives even steps {str(vgr)} @ VD={vd}"
+        self.vg_range=vg_range
+
         self.pol=pol
 
     @property
     def vd_values(self): return self.outer_values
-    @property
-    def vg_range(self): return self.inner_range
 
 
     def get_schematic_listing(self,netlister:Netlister, dcvg=0, dcvd=0):
@@ -413,10 +417,11 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
 
     def get_analysis_listing(self,netlister:Netlister):
         analysis_listing=[]
+        d=self.directions[0]
         for i_vd,vd in enumerate(self.vd_values,start=1):
             analysis_listing.append(netlister.astr_altervdc('D',vd))
             analysis_listing.append(netlister.astr_sweepvdc('G',name=f'idvg_vdnum{i_vd}',
-                start=self.vg_range[0],step=self.vg_range[1],stop=self.vg_range[2]))
+                start=self.vg_range[(vd,d)][0],step=self.vg_range[(vd,d)][1],stop=self.vg_range[(vd,d)][2]))
         return analysis_listing
         
     def parse_return(self,result):
@@ -439,14 +444,15 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
                                 {'netd':'VD','netg':'VG'})\
                             [['VD','VG',f'{sgnstr}ID/W [uA/um]',f'{sgnstr}IG/W [uA/um]']]
                     # DC sim doesn't distinguish f/r
-                    parsed_result[(vd,'r')]=parsed_result[(vd,'f')]
+                    if 'r' in self.directions:
+                        parsed_result[(vd,'r')]=parsed_result[(vd,'f')]
         return parsed_result
 
     def postparse_return(self,parsed_result):
         sgn=-1 if self.pol=='p' else 1
         sgnstr="-" if self.pol=='p' else ''
-        for vd,df in parsed_result.items():
-            df[f'GM/W [uS/um]']=np.gradient(sgn*df[f'{sgnstr}ID/W [uA/um]'],self.vg_range[1])
+        for (vd,d),df in parsed_result.items():
+            df[f'GM/W [uS/um]']=np.gradient(sgn*df[f'{sgnstr}ID/W [uA/um]'],self.vg_range[(vd,d)][1])
         return parsed_result
         
     def generate_figures(self,*args,**kwargs):
@@ -791,6 +797,9 @@ class VsFreqAtIrregularBias():
         parsed_result={(vg,vd): result[name]}
         return parsed_result
 
+    def to_merged_table(self,result):
+        return VsIrregularBiasAtFreq.to_merged_table(self,result)
+
 class VsIrregularBiasAtFreq():
     def init_helper(self, vgvds, vs_vg, vs_vd, vs_vo, vs_id, frequency):
         if hasattr(frequency,'__len__'):
@@ -801,9 +810,10 @@ class VsIrregularBiasAtFreq():
         VsFreqAtIrregularBias.init_helper(self,fstart=fstart,fstop=fstop,pts_per_dec=pts_per_dec)
         vgs=list(sorted(set([k[0] for k in vgvds])))
         vds=list(sorted(set([k[1] for k in vgvds])))
-        if True:
+        if len(vs_vg):
             self._vsvg=MultiSweepSimTemplate(outer_variable='VD',inner_variable='VG',
                                              ynames=vs_vg,outer_values=vds,directions=['f'])
+        if len(vs_vd):
             self._vsvd=MultiSweepSimTemplate(outer_variable='VG',inner_variable='VD',
                                              ynames=vs_vd,outer_values=vgs,directions=['f'])
         if len(vs_vo):
@@ -812,6 +822,8 @@ class VsIrregularBiasAtFreq():
         if len(vs_id):
             self._vsid=MultiSweepSimTemplate(outer_variable='VD',inner_variable='VG',
                                              ynames=vs_id,outer_values=vds,directions=['f'])
+            # Override validation for vs ID
+            self._vsid._validated=lambda x: x
             self._vsid._xname='I/W [uA/um]'
         return fstart,pts_per_dec,fstop
     def get_analysis_listing_helper(self, netlister_alter, netlister_func, namepre, inc_portnum=True):
@@ -840,23 +852,27 @@ class VsIrregularBiasAtFreq():
         return parsed_result
 
     def generate_figures_helper(self, meas_data=None,
-                         layout_params={}, y_axis_type='linear', x_axis_type=None,
+                         layout_params={}, y_axis_type='linear', x_axis_type='linear',
                          vizid=None):
-        assert (x_axis_type is None)
+        #assert (x_axis_type is None)
         vg_sweeps=form_multisweep(meas_data,1,0,'VG',**self._sweeper_kwargs)
         vd_sweeps=form_multisweep(meas_data,0,1,'VD',**self._sweeper_kwargs)
         return [
-            * self._vsvg.generate_figures(meas_data=vg_sweeps,layout_params=layout_params,vizid=vizid, y_axis_type=y_axis_type),
-            *(self._vsvo.generate_figures(meas_data=vg_sweeps,layout_params=layout_params,vizid=vizid, y_axis_type=y_axis_type) if hasattr(self,'_vsvo') else []),
-            * self._vsvd.generate_figures(meas_data=vd_sweeps,layout_params=layout_params,vizid=vizid, y_axis_type=y_axis_type),
-            *(self._vsid.generate_figures(meas_data=vg_sweeps,layout_params=layout_params,vizid=vizid, y_axis_type=y_axis_type) if hasattr(self,'_vsid') else []),]
+            *(self._vsvg.generate_figures(meas_data=vg_sweeps,layout_params=layout_params,vizid=vizid,
+                                          y_axis_type=y_axis_type) if hasattr(self,'_vsvg') else []),
+            *(self._vsvo.generate_figures(meas_data=vg_sweeps,layout_params=layout_params,vizid=vizid,
+                                          y_axis_type=y_axis_type) if hasattr(self,'_vsvo') else []),
+            *(self._vsvd.generate_figures(meas_data=vd_sweeps,layout_params=layout_params,vizid=vizid,
+                                          y_axis_type=y_axis_type) if hasattr(self,'_vsvd') else []),
+            *(self._vsid.generate_figures(meas_data=vg_sweeps,layout_params=layout_params,vizid=vizid,
+                                          y_axis_type=y_axis_type, x_axis_type=x_axis_type) if hasattr(self,'_vsid') else []),]
 
     def update_figures_helper(self, parsed_result, vizid=None):
         vg_sweeps=form_multisweep(parsed_result,1,0,'VG',**self._sweeper_kwargs)
         vd_sweeps=form_multisweep(parsed_result,0,1,'VD',**self._sweeper_kwargs)
-        self._vsvg.update_figures(vg_sweeps, vizid=vizid)
+        if hasattr(self,'_vsvg'): self._vsvg.update_figures(vg_sweeps, vizid=vizid)
         if hasattr(self,'_vsvo'): self._vsvo.update_figures(vg_sweeps, vizid=vizid)
-        self._vsvd.update_figures(vd_sweeps, vizid=vizid)
+        if hasattr(self,'_vsvd'): self._vsvd.update_figures(vd_sweeps, vizid=vizid)
         if hasattr(self,'_vsid'): self._vsid.update_figures(vg_sweeps, vizid=vizid)
 
     @property
@@ -873,6 +889,16 @@ class VsIrregularBiasAtFreq():
     def fstep(self):
         assert self.frequency_sweep_option=='lin', "Can't give fstep if it's not a linear-sweep"
         return self.inner_range[1]
+
+
+    def to_merged_table(self,result):
+        dfs=[]
+        for (vg,vd),df in result.items():
+            df=df.set_index([self.inner_variable])
+            df['VG']=vg
+            df['VD']=vd
+            dfs.append(df)
+        return pd.concat(dfs)
 
 class SParTemplate(MultiSweepSimTemplate):
 
@@ -1017,6 +1043,9 @@ class SParVFreqTemplate(SParTemplate,VsFreqAtIrregularBias):
 
         return [figpow,figsmi]
 
+    def to_merged_table(self,result):
+        return VsFreqAtIrregularBias.to_merged_table(self,result)
+
 class SParVBiasTemplate(SParTemplate,VsIrregularBiasAtFreq):
     def __init__(self, *args, vgvds, frequency, temp=27, **kwargs):
         SParTemplate.__init__(self,*args, outer_variable=None, outer_values=vgvds, inner_variable='freq',
@@ -1038,6 +1067,9 @@ class SParVBiasTemplate(SParTemplate,VsIrregularBiasAtFreq):
 
     def update_figures(self, *args, **kwargs):
         return VsIrregularBiasAtFreq.update_figures_helper(self,*args, **kwargs)
+
+    def to_merged_table(self,result):
+        return VsIrregularBiasAtFreq.to_merged_table(self,result)
 
 class HFNoiseTemplate(SParTemplate):
 
@@ -1087,6 +1119,9 @@ class HFNoiseVFreqTemplate(HFNoiseTemplate,VsFreqAtIrregularBias):
         kwargs['x_axis_type']=kwargs.get('x_axis_type','log')
         return super().generate_figures(*args,**kwargs)
 
+    def to_merged_table(self,result):
+        return VsFreqAtIrregularBias.to_merged_table(self,result)
+
 class HFNoiseVBiasTemplate(HFNoiseTemplate,VsIrregularBiasAtFreq):
     def __init__(self, *args, vgvds, frequency, temp=27, **kwargs):
         SParTemplate.__init__(self,*args, outer_variable=None, outer_values=vgvds, inner_variable='freq',
@@ -1113,6 +1148,8 @@ class HFNoiseVBiasTemplate(HFNoiseTemplate,VsIrregularBiasAtFreq):
     def update_figures(self, *args, **kwargs):
         return VsIrregularBiasAtFreq.update_figures_helper(self,*args, **kwargs)
 
+    def to_merged_table(self,result):
+        return VsIrregularBiasAtFreq.to_merged_table(self,result)
 
 class LFNoiseTemplate(MultiSweepSimTemplate):
 
@@ -1177,6 +1214,9 @@ class LFNoiseVFreqTemplate(LFNoiseTemplate, VsFreqAtIrregularBias):
         kwargs['y_axis_type']=kwargs.get('y_axis_type','log')
         kwargs['x_axis_type']=kwargs.get('x_axis_type','log')
         return super().generate_figures(*args,**kwargs,override_line_color='red')
+
+    def to_merged_table(self,result):
+        return VsFreqAtIrregularBias.to_merged_table(self,result)
 
 class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
 
@@ -1279,10 +1319,13 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
 
     def generate_figures(self, *args, **kwargs):
         #import pdb; pdb.set_trace()
-        return VsIrregularBiasAtFreq.generate_figures_helper(self,*args,**kwargs,y_axis_type='log')
+        return VsIrregularBiasAtFreq.generate_figures_helper(self,*args,**kwargs,y_axis_type='log',x_axis_type='log')
 
     def update_figures(self, *args, **kwargs):
         return VsIrregularBiasAtFreq.update_figures_helper(self,*args, **kwargs)
+
+    def to_merged_table(self,result):
+        return VsIrregularBiasAtFreq.to_merged_table(self,result)
 
 class TemplateGroup(UserDict[str,SimTemplate]):
     def __init__(self,**templates):
