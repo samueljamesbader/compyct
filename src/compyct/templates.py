@@ -800,6 +800,8 @@ class VsFreqAtIrregularBias():
     def to_merged_table(self,result):
         return VsIrregularBiasAtFreq.to_merged_table(self,result)
 
+def _identity(x): return x
+
 class VsIrregularBiasAtFreq():
     def init_helper(self, vgvds, vs_vg, vs_vd, vs_vo, vs_id, frequency):
         if hasattr(frequency,'__len__'):
@@ -823,8 +825,10 @@ class VsIrregularBiasAtFreq():
             self._vsid=MultiSweepSimTemplate(outer_variable='VD',inner_variable='VG',
                                              ynames=vs_id,outer_values=vds,directions=['f'])
             # Override validation for vs ID
-            self._vsid._validated=lambda x: x
-            self._vsid._xname='I/W [uA/um]'
+            self._vsid._validated=_identity
+            sgn = -1 if self.pol == 'p' else 1
+            sgnstr = "-" if self.pol == 'p' else ''
+            self._vsid._xname=f'{sgnstr}I/W [uA/um]'
         return fstart,pts_per_dec,fstop
     def get_analysis_listing_helper(self, netlister_alter, netlister_func, namepre, inc_portnum=True):
         assert self.frequency_sweep_option=='log'
@@ -1123,7 +1127,8 @@ class HFNoiseVFreqTemplate(HFNoiseTemplate,VsFreqAtIrregularBias):
         return VsFreqAtIrregularBias.to_merged_table(self,result)
 
 class HFNoiseVBiasTemplate(HFNoiseTemplate,VsIrregularBiasAtFreq):
-    def __init__(self, *args, vgvds, frequency, temp=27, **kwargs):
+    def __init__(self, *args, vgvds, frequency, temp=27, pol='n',**kwargs):
+        self.pol=pol
         SParTemplate.__init__(self,*args, outer_variable=None, outer_values=vgvds, inner_variable='freq',
                               inner_range=(frequency,1,frequency), temp=temp, **kwargs)
         VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
@@ -1137,9 +1142,11 @@ class HFNoiseVBiasTemplate(HFNoiseTemplate,VsIrregularBiasAtFreq):
             netlister_alter=netlister.astr_altervportdc,netlister_func=netlister.astr_sparnoise,namepre='sparnoise')
 
     def parse_return(self,result):
+        sgn = -1 if self.pol == 'p' else 1
+        sgnstr = "-" if self.pol == 'p' else ''
         result=VsIrregularBiasAtFreq.parse_return_helper(self,result,namepre='sparnoise')
         for subresult in result.values():
-            subresult['I/W [uA/um]'] = subresult['I [A]'] / self._patch.get_total_device_width()
+            subresult[f'{sgnstr}I/W [uA/um]'] = sgn*subresult['I [A]'] / self._patch.get_total_device_width()
         return result
 
     def generate_figures(self, *args, **kwargs):
@@ -1265,9 +1272,10 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
         return pd.concat([df,pd.DataFrame(row)]).reset_index(drop=True)
 
     def __init__(self, *args,
-                 vgvds, frequency, temp=27, **kwargs):
+                 vgvds, frequency, temp=27, pol='n',**kwargs):
+        self.pol=pol
         LFNoiseTemplate.__init__(self, *args, outer_variable=None, outer_values=vgvds, inner_variable='freq',
-                                 temp=temp, **kwargs)
+                                 temp=temp,**kwargs)
         fstart,pts_per_dec,fstop=VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
                                           vs_vg=[],#['sid/W^2 [A^2/Hz/um^2]','sid/ID^2 [1/Hz]','svg [V^2/Hz]','Gm [uS/um]'],
                                           #vs_vo=['sid/ID^2 [1/Hz]','svg [V^2/Hz]','Gm [uS/um]'],
@@ -1288,12 +1296,14 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
     def parse_return(self,result):
         result=VsIrregularBiasAtFreq.parse_return_helper(self,result,namepre='noise')
 
+        sgn = -1 if self.pol == 'p' else 1
+        sgnstr = "-" if self.pol == 'p' else ''
         vg_sweeps=form_multisweep(result,1,0,'VG',queryvar='freq', querytarget=self.fstart)
         for (vd,dir_),sw in vg_sweeps.items():
-            sw['I/W [uA/um]']=sw['I [A]']/self._patch.get_total_device_width()
+            sw[f'{sgnstr}I/W [uA/um]']=sgn*sw['I [A]']/self._patch.get_total_device_width()
             from datavac.util.maths import VTCC
             try:
-                Iarr,VGarr=np.array([sw['I/W [uA/um]']]),np.array([sw['VG']])
+                Iarr,VGarr=np.array([sw[f'{sgnstr}I/W [uA/um]']]),np.array([sw['VG']])
                 icc=1
                 if Iarr[0][0]<icc:
                     vt=VTCC(Iarr,VGarr,icc)[0]
@@ -1307,7 +1317,7 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
             for (vg_,vd_),subresult in result.items():
                 if vd_==vd:
                     subresult['VoV']=vg_-vt
-                    subresult['I/W [uA/um]']=subresult['I [A]']/self._patch.get_total_device_width()
+                    subresult[f'{sgnstr}I/W [uA/um]']=sgn*subresult['I [A]']/self._patch.get_total_device_width()
         return result
 
     def postparse_return(self,parsed_result):

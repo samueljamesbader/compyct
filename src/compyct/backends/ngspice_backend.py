@@ -108,8 +108,12 @@ class NgspiceNetlister(Netlister):
         return f"V{name} {netp} {netm} PWL(0 {dc} {float_to_spicenum(rise_time)} {final_v})"
 
     def astr_altervdc(self,whichv, tovalue, name=None):
-        return lambda ngss:\
-                    (None,ngss.alter_device(f'v{whichv.lower()}',dc=tovalue))
+        # return lambda ngss:\
+        #             (None,ngss.alter_device(f'v{whichv.lower()}',dc=tovalue))
+        def do_alter(ngss):
+            #print(f"Altering {whichv} to {tovalue}")
+            return (None,ngss.alter_device(f'v{whichv.lower()}',dc=tovalue))
+        return do_alter
 
     def astr_sweepvdc(self,whichv, start, stop, step, name=None):
         def sweepvdc(ngss):
