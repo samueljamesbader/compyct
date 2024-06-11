@@ -307,6 +307,10 @@ class GuessedSubcktParamSet(ParamSet):
         in_section=""
         defaults=None
         with open(file) as f:
+
+            # First join lines that have "+" on the next line
+            f=iter(re.sub("[ \t]*\n[ \t]*\+[ \t]*", " ", f.read()).split("\n"))
+
             for l in f:
                 if l.startswith("section"):
                     in_section=l.strip().split(" ")[1]

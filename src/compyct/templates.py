@@ -1081,6 +1081,7 @@ class HFNoiseTemplate(SParTemplate):
         from scipy.constants import k as kb
         Ts=290 # to match IEEE definition, source temperature is 290K
         for df in parsed_result.values():
+            print(f"Calculating Fmin from {list(df.columns)}")
             self._sparam_dataframe_helper(df)
             Rn=np.real(1/(4*kb*Ts)*df.cy22/np.abs(df.Y21)**2)
 
