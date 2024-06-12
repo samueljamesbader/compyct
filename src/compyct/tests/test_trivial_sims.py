@@ -3,7 +3,8 @@ from compyct.backends import ngspice_backend
 from compyct.backends.backend import MultiSimSesh
 from compyct.examples.trivial_xtor_defs import TrivialXtorParamSet, TrivialXtor
 from compyct.templates import TemplateGroup, DCIVTemplate, CVTemplate, IdealPulsedIdVdTemplate, SParTemplate, \
-    SParVFreqTemplate, SParVBiasTemplate, LFNoiseVBiasTemplate, LFNoiseVFreqTemplate, HFNoiseVFreqTemplate
+    SParVFreqTemplate, SParVBiasTemplate, LFNoiseVBiasTemplate, LFNoiseVFreqTemplate, HFNoiseVFreqTemplate, \
+    HFNoiseVBiasTemplate
 
 from _pytest.python import Metafunc
 import os
@@ -179,22 +180,16 @@ def test_trivial_xtor_lfnoisevbias(backend):
     #TrivialXtor(patch=patch).GM(self,VD,VG,VS,VB,T,trap_state='DC',traps_move=True):
 
 
-def test_trivial_xtor_hfnoisevfreq(backend):
-    print("Not actually checking results, just seeing if it runs!")
-    patch=TrivialXtorParamSet().mcp_(gtrap=0)
-    vg,vd=.8,1.8
-    tg=TemplateGroup(thetherm=HFNoiseVFreqTemplate(vg=vg, vd=vd, fstart=1e6, fstop=1e10, pts_per_dec=1, patch=patch))
-    #meas_data={'theflick':TrivialXtor(patch=patch).evaluate_template(tg['theflick'])}
-    with MultiSimSesh.get_with_backend(tg,backend=backend) as sim:
+def test_trivial_xtor_hfnoisevb(backend):
+    print("Not checking results")
+    patch = TrivialXtorParamSet().mcp_(gtrap=0)
+    vgvds = [(.1, 1.8), (1.2, 1.8)]
+    tg = TemplateGroup(thetherm=HFNoiseVBiasTemplate(vgvds=vgvds, frequency=1e9, patch=patch))
+    #meas_data = {'thetherm': TrivialXtor(patch=patch).evaluate_template(tg['theflick'])}
+    with MultiSimSesh.get_with_backend(tg, backend=backend) as sim:
         sim.print_netlists()
-        res=sim.run_with_params()
-    print(res['thetherm'][(vg,vd)][['NFmin','Rn']])
-    # for x in ['freq','sid [A^2/Hz]','svg [V^2/Hz]','gain [A/V]']:
-    #     print(x,res['theflick'][(vg,vd)][x].iloc[0])
-    #     assert np.allclose(
-    #         meas_data['theflick'][(vg,vd)][x],
-    #         res['theflick'][(vg,vd)][x],
-    #         rtol=1e-4,atol=0), f"failed {x}"
+        res = sim.run_with_params()
+    print(res['thetherm'][vgvds[1]][['NFmin','Rn']])
 
 if __name__=='__main__':
     #test_get_with_backend()
@@ -206,11 +201,11 @@ if __name__=='__main__':
     #test_trivial_xtor_sparvbias(backend='ngspice')
     #test_trivial_xtor_lfnoisevfreq(backend='ngspice')
     #test_trivial_xtor_lfnoisevbias(backend='ngspice')
-    test_trivial_xtor_hfnoisevfreq(backend='ngspice')
+    test_trivial_xtor_hfnoisevb(backend='ngspice')
     #print("passed ngspice")
     #test_trivial_xtor_sparvfreq(backend='spectre')
     #test_trivial_xtor_sparvbias(backend='spectre')
     #test_trivial_xtor_lfnoisevbias(backend='spectre')
-    test_trivial_xtor_hfnoisevfreq(backend='spectre')
+    test_trivial_xtor_hfnoisevb(backend='spectre')
     #print("passed spectre")
     pass

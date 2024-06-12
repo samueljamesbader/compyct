@@ -113,8 +113,10 @@ class SpectreNetlister(Netlister):
             name=f"sweepspar{self._analysiscount}"
             self._analysiscount+=1
         if fstart==fstop:
+            raise Exception("Spectre+Nutmeg fails for s-parameter noise for newer spectre versions (once 20.10.382.isr12 would complain but mostly work(?) for single-freq)")
             return f"dc_{name} dc\n{name} sp ports=[PORT1 PORT2] freq={n2scs(fstart)} annotate=status donoise=yes noisedata=cy iprobe=PORT1 oprobe=PORT2"
         else:
+            raise Exception("Spectre+Nutmeg fails for multi-freq s-parameter noise")
             narg = {'lin': points, 'dec': pts_per_dec}[sweep_option]
             return f"dc_{name} dc\n{name} sp ports=[PORT1 PORT2] start={n2scs(fstart)} stop={n2scs(fstop)} {sweep_option}={narg} annotate=status donoise=yes noisedata=cy iprobe=PORT1 oprobe=PORT2"
 
