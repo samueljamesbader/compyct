@@ -20,7 +20,7 @@ def n2scs(num):
         return f'{(num/10**ord):g}{si}'
 
 
-def simplifier_patch_to_scs(self:ParamPatch, pdk_model_name, netmap, use_spectre_builtin=False):
+def simplifier_patch_to_scs(self:ParamPatch, pdk_model_name, netmap, use_spectre_builtin=False, inner_name=None, print_inner=True):
     #print(f"In p_to_scs: {pdk_model_name} with {use_spectre_builtin}")
     ps=self.param_set
     f=StringIO()
@@ -50,7 +50,8 @@ def simplifier_patch_to_scs(self:ParamPatch, pdk_model_name, netmap, use_spectre
 
     #assert self.param_set.terminals==['d','g','s','b','dt']
     term_part=' '.join([netmap.get(t,t) for t in ps.terminals])
-    print(wrap_scs(f"{pdk_model_name} {term_part} {pdk_model_name}_inner {inst_passings}",indent='\t'),file=f)
+    inner_name=inner_name or f"{pdk_model_name}_inner"
+    print(wrap_scs(f"{pdk_model_name} {term_part} {inner_name} {inst_passings}",indent='\t'),file=f)
     if ps.extra_subckt_text is not None:
         print('\n'.join(["\t"+l for l in ps.extra_subckt_text['spectre'].split('\n') if l!='']),file=f)
     print(f"ends {pdk_model_name}",file=f)
@@ -58,10 +59,12 @@ def simplifier_patch_to_scs(self:ParamPatch, pdk_model_name, netmap, use_spectre
     assert len(self.param_set.va_includes)==1
     vafile=self.param_set.va_includes[0]
     #print(f"ahdl_include \"./{vafile}\"",file=f)
-    modelstr=f"model {pdk_model_name}_inner {use_spectre_builtin or self.param_set.model} "+\
+    modelstr=f"model {inner_name} {use_spectre_builtin or self.param_set.model} "+\
              ' '.join([f"{k.lower() if use_spectre_builtin else k}={v}" for k,v in self.filled().to_base().items()
-                       if (k!='m' and ps.base.get_place(k)==ParamPlace.MODEL and ps.base.get_default(k)!=v)])
-    print(wrap_scs(modelstr,indent=''),file=f)
+                       #if (k!='m' and ps.base.get_place(k)==ParamPlace.MODEL and ps.base.get_default(k)!=v)])
+                       if (k != 'm' and ps.base.get_place(k) == ParamPlace.MODEL)])
+    if print_inner:
+        print(wrap_scs(modelstr,indent=''),file=f)
 
     f.seek(0)
     return f.read(), [f"ahdl_include \"./{vafile}\""]

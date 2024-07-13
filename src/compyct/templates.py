@@ -10,7 +10,8 @@ import bokeh.layouts
 import panel as pn
 from bokeh.models import HoverTool, CustomJSHover
 from bokeh.palettes import TolRainbow, Category10_10
-from scipy.integrate import cumtrapz
+#from scipy.integrate import cumtrapz
+from scipy.integrate import cumulative_trapezoid as cumtrapz
 from scipy.interpolate import interp1d
 
 from bokeh_transform_utils.transforms import MultiAbsTransform, multi_abs_transform, abs_transform
@@ -465,6 +466,195 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
         else:
             return 5*arr/np.max(meas_arr)
 
+
+class DCIdVgVbTemplate(MultiSweepSimTemplate):
+
+    def __init__(self, *args, pol='n', temp=27,
+                 vd_value=1.8,vb_values=[0, 1.8], vg_range=(0, .03, 1.8), plot_gm=True, probe_r=0, **kwargs):
+        ynames = ['ID/W [uA/um]' if pol == 'n' else '-ID/W [uA/um]'] * 2
+        if plot_gm: ynames += ['GM/W [uS/um]']
+        super().__init__(outer_variable='VB', inner_variable='VG',
+                         outer_values=vb_values, inner_range=(vg_range if type(vg_range) is not dict else None),
+                         ynames=ynames,
+                         *args, **kwargs)
+        self.temp = temp
+        self.probe_r = probe_r
+
+        if type(vg_range) is not dict:
+            vg_range = {(vb, d): vg_range for vb in vb_values for d in self.directions}
+        for vb, vgr in vg_range.items():
+            num_vg = (vgr[2] - vgr[0]) / vgr[1]
+            assert abs(num_vg - round(num_vg)) < 1e-3, f"Make sure the IdVg range gives even steps {str(vgr)} @ VB={vb}"
+        self.vg_range = vg_range
+
+        self.vd_value=vd_value
+        self.pol = pol
+
+    @property
+    def vb_values(self):
+        return self.outer_values
+
+    def get_schematic_listing(self, netlister: Netlister, dcvg=0, dcvd=0):
+        # netlister.nstr_param(params={'vg':0,'vd':0})+\
+        gnded = [t for t in self._patch.terminals if t not in ['b','d', 'g', 't', 'dt']]
+        if self.probe_r == 0:
+            netmap = dict(**{'d': 'netd', 'g': 'netg', 'b':'netb'}, **{k: netlister.GND for k in gnded})
+        else:
+            netmap = dict(**{'d': 'netdw', 'g': 'netg', 'b':'netb'}, **{k: 'netsw' for k in gnded})
+        nl = [
+            netlister.nstr_iabstol('1e-15'),
+            netlister.nstr_temp(temp=self.temp),
+            netlister.nstr_modeled_xtor("inst", netmap=netmap,
+                                        internals_to_save=self.internals_to_save),
+            netlister.nstr_VDC("D", netp='netd', netm=netlister.GND, dc=self.vd_value),
+            netlister.nstr_VDC("G", netp='netg', netm=netlister.GND, dc=dcvg),
+            netlister.nstr_VDC("B", netp='netb', netm=netlister.GND, dc=self.vb_values[0])
+        ]
+        if self.probe_r != 0:
+            nl.append(netlister.nstr_res('probes', 'netsw', netlister.GND, self.probe_r))
+            nl.append(netlister.nstr_res('probed', 'netdw', 'netd', self.probe_r))
+        return nl
+
+    def get_analysis_listing(self, netlister: Netlister):
+        analysis_listing = []
+        d = self.directions[0]
+        for i_vb, vb in enumerate(self.vb_values, start=1):
+            analysis_listing.append(netlister.astr_altervdc('B', vb))
+            analysis_listing.append(netlister.astr_sweepvdc('G', name=f'idvg_vbnum{i_vb}',
+                                                            start=self.vg_range[(vb, d)][0],
+                                                            step=self.vg_range[(vb, d)][1],
+                                                            stop=self.vg_range[(vb, d)][2]))
+        return analysis_listing
+
+    def parse_return(self, result):
+        parsed_result = {}
+        # print(f"Result keys: {list(result.keys())}")
+        for i_vb, vb in enumerate(self.vb_values, start=1):
+            for key in result:
+                if key == f'idvg_vbnum{i_vb}':
+                    # import pdb; pdb.set_trace()
+                    df = result[key].copy()
+                    # print(vd,"gmi:",list(df['@ninst[gmi]']))
+                    sgn = -1 if self.pol == 'p' else 1
+                    sgnstr = "-" if self.pol == 'p' else ''
+                    df[f'{sgnstr}ID/W [uA/um]'] = -sgn * df['vd#p'] / \
+                                                  self._patch.get_total_device_width()
+                    df[f'{sgnstr}IG/W [uA/um]'] = -sgn * df['vg#p'] / \
+                                                  self._patch.get_total_device_width()
+                    # TODO: reinstate column restriction (removed for device internals testing)
+                    parsed_result[(vb, 'f')] = df.rename(columns= \
+                                                             {'netd': 'VD', 'netg': 'VG', 'netb': 'VB'}) \
+                        [['VD', 'VG', 'VB', f'{sgnstr}ID/W [uA/um]', f'{sgnstr}IG/W [uA/um]']]
+                    # DC sim doesn't distinguish f/r
+                    if 'r' in self.directions:
+                        parsed_result[(vb, 'r')] = parsed_result[(vb, 'f')]
+        return parsed_result
+
+    def postparse_return(self, parsed_result):
+        sgn = -1 if self.pol == 'p' else 1
+        sgnstr = "-" if self.pol == 'p' else ''
+        for (vb, d), df in parsed_result.items():
+            df[f'GM/W [uS/um]'] = np.gradient(sgn * df[f'{sgnstr}ID/W [uA/um]'], self.vg_range[(vb, d)][1])
+        return parsed_result
+
+    def generate_figures(self, *args, **kwargs):
+        kwargs['y_axis_type'] = [*kwargs.get('y_axis_type', ['log', 'linear']), 'linear']
+        return super().generate_figures(*args, **kwargs)
+
+    def _rescale_vector(self, arr, col, meas_arr):
+        if col[0] == 'I':
+            return np.log10(np.abs(arr) + 1e-14)
+        else:
+            return 5 * arr / np.max(meas_arr)
+
+class DCIbVbTemplate(MultiSweepSimTemplate):
+
+    def __init__(self, *args, pol='n', temp=27,
+                 vgvdvs_values=0, vb_range=(-2.6, .03, 2.6),probe_r=0, **kwargs):
+        ynames = ['|IB/W| [uA/um]','|ID/W| [uA/um]','|IS/W| [uA/um]']
+        super().__init__(outer_variable='VGVDVS', inner_variable='VB',
+                         outer_values=vgvdvs_values, inner_range=(vb_range if type(vb_range) is not dict else None),
+                         ynames=ynames,
+                         *args, **kwargs)
+        self.temp = temp
+        self.probe_r = probe_r
+
+        if type(vb_range) is not dict:
+            vb_range = {(vgvdvs, d): vb_range for vgvdvs in vgvdvs_values for d in self.directions}
+        for vgvdvs, vbr in vb_range.items():
+            num_vg = (vbr[2] - vbr[0]) / vbr[1]
+            assert abs(num_vg - round(num_vg)) < 1e-3, f"Make sure the IdVg range gives even steps {str(vbr)} @ VGVDVS={vgvdvs}"
+        self.vb_range = vb_range
+
+        self.pol = pol
+
+    @property
+    def vgvdvs_values(self):
+        return self.outer_values
+
+    def get_schematic_listing(self, netlister: Netlister):
+        gnded = [t for t in self._patch.terminals if t not in ['b','d', 'g', 's', 't', 'dt']]
+        if self.probe_r == 0:
+            netmap = dict(**{'d': 'netd', 'g': 'netg', 'b':'netb', 's':'nets'}, **{k: netlister.GND for k in gnded})
+        else:
+            raise Exception("Probably wrong handling of source here")
+            netmap = dict(**{'d': 'netdw', 'g': 'netg', 'b':'netb'}, **{k: 'netsw' for k in gnded})
+        nl = [
+            netlister.nstr_iabstol('1e-15'),
+            netlister.nstr_temp(temp=self.temp),
+            netlister.nstr_modeled_xtor("inst", netmap=netmap,
+                                        internals_to_save=self.internals_to_save),
+            netlister.nstr_VDC("D", netp='netd', netm=netlister.GND, dc=self.vgvdvs_values[0][1]),
+            netlister.nstr_VDC("G", netp='netg', netm=netlister.GND, dc=self.vgvdvs_values[0][0]),
+            netlister.nstr_VDC("S", netp='nets', netm=netlister.GND, dc=self.vgvdvs_values[0][2]),
+            netlister.nstr_VDC("B", netp='netb', netm=netlister.GND, dc=0)
+        ]
+        if self.probe_r != 0:
+            nl.append(netlister.nstr_res('probes', 'netsw', netlister.GND, self.probe_r))
+            nl.append(netlister.nstr_res('probed', 'netdw', 'netd', self.probe_r))
+        return nl
+
+    def get_analysis_listing(self, netlister: Netlister):
+        analysis_listing = []
+        d = self.directions[0]
+        for i_vgvdvs, (vg,vd,vs) in enumerate(self.vgvdvs_values, start=1):
+            analysis_listing.append(netlister.astr_altervdc('G',vg ))
+            analysis_listing.append(netlister.astr_altervdc('D',vd ))
+            analysis_listing.append(netlister.astr_altervdc('S',vs ))
+            analysis_listing.append(netlister.astr_sweepvdc('B', name=f'idvb_vnum{i_vgvdvs}',
+                                                            start=self.vb_range[((vg,vd,vs), d)][0],
+                                                            step=self.vb_range[((vg,vd,vs), d)][1],
+                                                            stop=self.vb_range[((vg,vd,vs), d)][2]))
+        return analysis_listing
+
+    def parse_return(self, result):
+        parsed_result = {}
+        # print(f"Result keys: {list(result.keys())}")
+        for i_vgvdvs, vgvdvs in enumerate(self.vgvdvs_values, start=1):
+            for key in result:
+                if key == f'idvb_vnum{i_vgvdvs}':
+                    df = result[key].copy()
+                    df[f'|ID/W| [uA/um]'] = np.abs(df['vd#p']) / \
+                                                  self._patch.get_total_device_width()
+                    df[f'|IB/W| [uA/um]'] = np.abs(df['vb#p']) / \
+                                                  self._patch.get_total_device_width()
+                    df[f'|IS/W| [uA/um]'] = np.abs(df['vs#p']) / \
+                                                  self._patch.get_total_device_width()
+                    parsed_result[(vgvdvs, 'f')] = df.rename(columns= \
+                                                    {'netd': 'VD', 'netg': 'VG', 'netb': 'VB', 'nets':'VS'}) \
+                        [['VD', 'VG', 'VB', f'|ID/W| [uA/um]', f'|IB/W| [uA/um]', f'|IS/W| [uA/um]']]
+                    # DC sim doesn't distinguish f/r
+                    if 'r' in self.directions:
+                        parsed_result[(vgvdvs, 'r')] = parsed_result[(vgvdvs, 'f')]
+        return parsed_result
+
+    def generate_figures(self, *args, **kwargs):
+        kwargs['y_axis_type'] = 'log'#[*kwargs.get('y_axis_type', ['log', 'linear']), 'linear']
+        lp=kwargs['layout_params']=kwargs.get('layout_params',{}).copy()
+        lp['y_range']=(1e-12,1e4)
+        return super().generate_figures(*args, **kwargs)
+
+
 class JointTemplate(SimTemplate):
     def __init__(self,subtemplates:dict, *args, patch:ParamPatch=None, **kwargs):
         self.subtemplates=subtemplates
@@ -608,7 +798,7 @@ class DCKelvinIDVDTemplate(MultiSweepSimTemplate):
 class CVTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args, temp=27,
-                 vg_range=(0,.03,1.8), freq='1meg', **kwargs):
+                 vg_range=(0,.03,1.8), freq='1meg', float_body=False, **kwargs):
         super().__init__(outer_variable=None, outer_values=[freq], inner_variable='VG', inner_range=vg_range,
                          ynames=['Cgg [fF/um]'],
                          *args, **kwargs)
@@ -617,6 +807,7 @@ class CVTemplate(MultiSweepSimTemplate):
         assert abs(num_vg-round(num_vg))<1e-3, f"Make sure the CV VG range gives even steps {str(vg_range)}"
         
         self.freq=freq
+        self.float_body=float_body
         try:
             spicenum_to_float(freq)
         except:
@@ -628,7 +819,9 @@ class CVTemplate(MultiSweepSimTemplate):
 
     def get_schematic_listing(self,netlister:Netlister):
             #netlister.nstr_param(params={'vg':0})+\
-        gnded=[t for t in self._patch.terminals if t not in ['g','t','dt']]
+        if self.float_body:
+            print("Will float body")
+        gnded=[t for t in self._patch.terminals if t not in ['g','t','dt']+(['b'] if self.float_body else [])]
         netmap=dict(**{'g':'netg'},**{k:netlister.GND for k in gnded})
         return [
             netlister.nstr_temp(temp=self.temp),
