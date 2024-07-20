@@ -443,6 +443,7 @@ def compile_va_to_osdi(vaname=None):
     for vapath in get_va_paths():
         if vaname is None or vapath.name==vaname:
             osdipath=get_unconfirmed_osdi_path(vaname)
+            osdipath.parent.mkdir(parents=True,exist_ok=True)
             print(f"Compiling {vapath} to {osdipath}")
             result=subprocess.run([str(COMPYCT_OPENVAF_PATH/"openvaf"),str(vapath),"-o",str(osdipath)],
                            stdout=subprocess.PIPE,stderr=subprocess.STDOUT)

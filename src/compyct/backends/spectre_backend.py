@@ -12,6 +12,8 @@ from .spectre_util import n2scs
 
 class SpectreNetlister(Netlister):
     GND='0'
+
+    spectre_format:str = None
     
     def __init__(self,template: SimTemplate):#, additional_includes=[], override_model_subckt=None):
         self.simtemp: SimTemplate=template
@@ -109,14 +111,15 @@ class SpectreNetlister(Netlister):
             narg = {'lin': points, 'dec': pts_per_dec}[sweep_option]
             return f"{name} sp ports=[PORT1 PORT2] start={n2scs(fstart)} stop={n2scs(fstop)} {sweep_option}={narg} annotate=status"
     def astr_sparnoise(self, fstart, fstop, pts_per_dec=None, points=None, sweep_option='dec', name=None):
+        self.spectre_format='psfascii'
         if name is None:
             name=f"sweepspar{self._analysiscount}"
             self._analysiscount+=1
         if fstart==fstop:
-            raise Exception("Spectre+Nutmeg fails for s-parameter noise for newer spectre versions (once 20.10.382.isr12 would complain but mostly work(?) for single-freq)")
+            #raise Exception("Spectre+Nutmeg fails for s-parameter noise for newer spectre versions (once 20.10.382.isr12 would complain but mostly work(?) for single-freq)")
             return f"dc_{name} dc\n{name} sp ports=[PORT1 PORT2] freq={n2scs(fstart)} annotate=status donoise=yes noisedata=cy iprobe=PORT1 oprobe=PORT2"
         else:
-            raise Exception("Spectre+Nutmeg fails for multi-freq s-parameter noise")
+            #raise Exception("Spectre+Nutmeg fails for multi-freq s-parameter noise")
             narg = {'lin': points, 'dec': pts_per_dec}[sweep_option]
             return f"dc_{name} dc\n{name} sp ports=[PORT1 PORT2] start={n2scs(fstart)} stop={n2scs(fstop)} {sweep_option}={narg} annotate=status donoise=yes noisedata=cy iprobe=PORT1 oprobe=PORT2"
 
@@ -142,6 +145,9 @@ class SpectreNetlister(Netlister):
         the system may delete the netlist file.  So hold on to your Netlister!
         """
         if self._tf is None:
+            # Reset the format to None
+            self.spectre_format=None
+
             self._tf=NamedTemporaryFile(prefix=self.simtemp.__class__.__name__,mode='w')
             self._tf.write(f"// {self.simtemp.__class__.__name__}\n")
             self._tf.write(f"simulator lang = spectre\n")
@@ -184,6 +190,8 @@ class SpectreNetlister(Netlister):
                     +"\n}\n\n")
             self._tf.write("\n".join(self.simtemp.get_analysis_listing(self))+"\n")
             self._tf.flush()
+        # If nothing has demanded 'psfascii', use nutbin
+        if self.spectre_format is None: self.spectre_format='nutbin'
         return self._tf.name
 
     def get_spectre_names_for_param(self,param):
@@ -233,7 +241,9 @@ class SpectreMultiSimSesh(MultiSimSesh):
             try:
                 logger.debug(f"  {simname}")
                 nl=SpectreNetlister(simtemp, **self._netlist_kwargs)
-                sesh=psp.start_session(net_path=nl.get_netlist_file(), timeout=600) # longer timeout in-case compiling ahdl
+                net_path=nl.get_netlist_file()
+                assert nl.spectre_format is not None, "Spectre format not set by netlister"
+                sesh=psp.start_session(net_path=net_path, timeout=600, format=nl.spectre_format, keep_log=True) # longer timeout in-case compiling ahdl
             except Exception as myexc:
                 args=next((k for k in myexc.value.split("\n") if k.startswith("args:")))
                 print(" ".join(eval(args.split(":")[1])))

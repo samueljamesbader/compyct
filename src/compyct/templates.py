@@ -1184,7 +1184,7 @@ class SParTemplate(MultiSweepSimTemplate):
     def postparse_return(self, parsed_result):
         W = self._patch.get_total_device_width()
         for df in parsed_result.values():
-            self.rf_param_helper(parsed_result,width=W)
+            self.rf_param_helper(df,width=W)
         return parsed_result
 
     def _rescale_vector(self,arr,col, meas_arr):
@@ -1284,10 +1284,12 @@ class SParVBiasTemplate(SParTemplate,VsIrregularBiasAtFreq):
 class HFNoiseTemplate(SParTemplate):
 
     def postparse_return(self,parsed_result):
+
         from scipy.constants import k as kb
         Ts=290 # to match IEEE definition, source temperature is 290K
+        #import pdb; pdb.set_trace()
         for df in parsed_result.values():
-            print(f"Calculating Fmin from {list(df.columns)}")
+            #print(f"Calculating Fmin from {list(df.columns)}")
             self._sparam_dataframe_helper(df)
             Rn=np.real(1/(4*kb*Ts)*df.cy22/np.abs(df.Y21)**2)
 
