@@ -25,7 +25,7 @@ class SpectreNetlister(Netlister):
     #def nstr_param(params):
     #    return f"parameters "+\
     #        " ".join([f"{k}={v}" for k,v in params.items()])
-        
+
     def nstr_modeled_xtor(self,name,netmap,inst_param_ovrd={},internals_to_save=[]):
         assert len(inst_param_ovrd)==0
         #assert len(internals_to_save)==0, "Haven't implemented internal saving for spectre backend"
@@ -33,7 +33,7 @@ class SpectreNetlister(Netlister):
         for tterm in ['t','dt']:
             if tterm in patch.terminals: assert netmap.get(tterm,None) is None
         #terms=[t for t in patch.param_set.terminals if t!='dt']
-        terms = " ".join([netmap[t] for t in patch.terminals if netmap.get(t, None) is not None])
+        terms = " ".join([netmap.get(t,self.unique_term()) for t in patch.terminals])
         if True:
         #    assert ps.terminals==['d','g','s','b']
             #terms=" ".join([{'d':netd,'g':netg,'s':nets,'b':netb}[k] for k in terms])

@@ -13,7 +13,13 @@ import importlib.resources as irsc
 #from compyct.python_models import python_compact_models
 
 class Netlister():
-        
+
+    def unique_term(self):
+        if not hasattr(self,'unique_counter'):
+            self.unique_counter=0
+        self.unique_counter+=1
+        return f'uniqueterm{self.unique_counter}'
+
     @staticmethod
     def nstr_modeled_xtor(self,name,netd,netg,nets,netb,dt,inst_param_ovrd={},internals_to_save=[]):
         raise NotImplementedError

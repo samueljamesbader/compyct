@@ -797,17 +797,23 @@ class DCKelvinIDVDTemplate(MultiSweepSimTemplate):
 
 class CVTemplate(MultiSweepSimTemplate):
 
-    def __init__(self, *args, temp=27,
-                 vg_range=(0,.03,1.8), freq='1meg', float_body=False, **kwargs):
-        super().__init__(outer_variable=None, outer_values=[freq], inner_variable='VG', inner_range=vg_range,
-                         ynames=['Cgg [fF/um]'],
+    def __init__(self, *args, temp=27, hi='g', dcs={'d':0,'s':0,'b':0}, sw='g',
+                 vg_range=(0,.03,1.8), freq='1meg', **kwargs):
+        super().__init__(outer_variable=None, outer_values=[freq],
+                         inner_variable=f'V{sw.upper()}', inner_range=vg_range,
+                         ynames=[f'C{hi}{hi} [fF/um]'],
                          *args, **kwargs)
         self.temp=temp
         num_vg=(vg_range[2]-vg_range[0])/vg_range[1]+1
-        assert abs(num_vg-round(num_vg))<1e-3, f"Make sure the CV VG range gives even steps {str(vg_range)}"
+        assert abs(num_vg-round(num_vg))<1e-3, f"Make sure the CV Vsweep range gives even steps {str(vg_range)}"
         
         self.freq=freq
-        self.float_body=float_body
+        self.hi=hi
+        self.dcs=dcs
+        self.sw=sw
+        if hi not in dcs: dcs[hi]=0
+        if sw not in dcs: dcs[hi]=0
+        assert 'float_body' not in kwargs
         try:
             spicenum_to_float(freq)
         except:
@@ -818,18 +824,16 @@ class CVTemplate(MultiSweepSimTemplate):
         return self.inner_range
 
     def get_schematic_listing(self,netlister:Netlister):
-            #netlister.nstr_param(params={'vg':0})+\
-        if self.float_body:
-            print("Will float body")
-        gnded=[t for t in self._patch.terminals if t not in ['g','t','dt']+(['b'] if self.float_body else [])]
-        netmap=dict(**{'g':'netg'},**{k:netlister.GND for k in gnded})
+        netmap={k:f'net{k}' for k in self.dcs}
         return [
             netlister.nstr_temp(temp=self.temp),
-            netlister.nstr_modeled_xtor("inst",netmap=netmap),
-            netlister.nstr_VAC("G",netp='netg',netm=netlister.GND,dc=0)]
+            netlister.nstr_modeled_xtor("CVinst",netmap=netmap)]+\
+            [netlister.nstr_VAC(k.upper(),netp=netmap[k],netm=netlister.GND,
+                                dc=self.dcs[k],ac=(1 if k==self.hi else 0))
+                for k in self.dcs]
     
     def get_analysis_listing(self,netlister:Netlister):
-        return [netlister.astr_sweepvac('G',
+        return [netlister.astr_sweepvac(self.hi.upper(),
                 start=self.vg_range[0],step=self.vg_range[1],
                 stop=self.vg_range[2], freq=self.freq, name='cv')]
         return analysis_listing
@@ -839,12 +843,11 @@ class CVTemplate(MultiSweepSimTemplate):
         assert len(result)==1
         freq=spicenum_to_float(self.freq)
         df=list(result.values())[0]
-        I=-df['vg#p']
-        df['Cgg [fF/um]']=np.imag(I)/(2*np.pi*freq) /1e-15 /\
+        I=-df[f'v{self.hi}#p']
+        df[f'C{self.hi}{self.hi} [fF/um]']=np.imag(I)/(2*np.pi*freq) /1e-15 /\
             (self._patch.get_total_device_width()/1e-6)
-        df['VG']=np.real(df['v-sweep'])
-        # TODO: reinstate column restriction (removed for device internals testing)
-        parsed_result={(self.freq,'f'):df,(self.freq,'r'):df}#[['VG','Cgg [fF/um]']]}
+        df[f'V{self.sw.upper()}']=np.real(df['v-sweep'])
+        parsed_result={(self.freq,'f'):df,(self.freq,'r'):df}
         return parsed_result
 
     def _rescale_vector(self,arr,col,meas_arr):
@@ -1118,6 +1121,8 @@ class SParTemplate(MultiSweepSimTemplate):
     @staticmethod
     def _sparam_dataframe_helper(df):
         df['freq'] = np.real(df['freq'])
+        if 's11' in df.columns and 'S11' not in df.columns:
+            df.rename(columns={'s11':'S11','s12':'S12','s21':'S21','s22':'S22'},inplace=True)
 
         # print(df[['S11', 'S12', 'S21', 'S22']])
         if 'Y11' not in df.columns:
@@ -1125,53 +1130,61 @@ class SParTemplate(MultiSweepSimTemplate):
         if 'Z11' not in df.columns:
             df['Z11'], df['Z12'], df['Z21'], df['Z22'] = s2z(df['S11'], df['S12'], df['S21'], df['S22'])
 
-    def postparse_return(self,parsed_result):
+    @staticmethod
+    def rf_param_helper(df,width):
+        SParTemplate._sparam_dataframe_helper(df)
+
+        # h21 is a current ratio, so 20x log
+        df[f'|h21| [dB]']=20*np.log10(np.abs(df.Y21/df.Y11))
+
+        # https://en.wikipedia.org/wiki/Mason%27s_invariant#Derivation_of_U
+        # U is already a power ratio so just 10x log
+        re=np.real; im=np.imag
+        with np.errstate(invalid='ignore'):
+            df[f'U [dB]']=10*np.log10(
+                (np.abs(df.Y21-df.Y12)**2 /
+                      (4*(re(df.Y11)*re(df.Y22)-re(df.Y12)*re(df.Y21)))))
+
+        # https://www.microwaves101.com/encyclopedias/stability-factor
+        Delta=df.S11*df.S22-df.S12*df.S21
+        K = (1-np.abs(df.S11)**2-np.abs(df.S22)**2+np.abs(Delta)**2)/(2*np.abs(df.S21*df.S12))
+
+        # this formula with 1/(K+sqrt(K^2-1)) is less common but more robust for large K
+        # according to Microwaves 101 and easy to show it's equal.
+        k2m1=np.clip(K**2-1,0,np.inf) # we only use the K>1 values of MAG anyway, so clip to avoid sqrt(-)
+        MAG = (1/(K+np.sqrt(k2m1))) * np.abs(df.S21)/np.abs(df.S12)
+        MSG = np.abs(df.S21)/np.abs(df.S12)
+        df['K']=K
+        df['MAG [dB]']=10*np.log10(np.choose(MAG>0,[np.NaN,MAG]))
+        df['MSG [dB]']=10*np.log10(MSG)
+        df['MAG-MSG [dB]']=10*np.log10(np.choose(K>=1,[MSG,MAG]))
+
+        # RF small-signal circuit parameters
+        Wum=width*1e6
+
+        fF=1e-15; uS=1e-6
+        w=2*np.pi*df['freq']
+        df['Cgd/W [fF/um]']=-im(df.Y12) / w / Wum /fF
+        df['Cgs/W [fF/um]']=im(df.Y11 + df.Y12) / w / Wum /fF
+        df['Cds/W [fF/um]']=im(df.Y22+df.Y12) / w / Wum /fF
+        df['Rds*W [Ohm.um]']=1/re(df.Y22+df.Y12) * Wum
+        df['GM/W [uS/um]']=np.abs(df.Y21-df.Y12) / Wum / uS
+        Rs=df['Rs [Ohm.um]']=re(df.Z12) * Wum
+        df['Rd*W [Ohm.um]']=(re(df.Z22)-Rs) * Wum
+        df['Rg*W [Ohm.um]']=(re(df.Z11)-Rs) * Wum
+        df['GM/2πCgs [GHz]']=df['GM/W [uS/um]']/(2*np.pi*df['Cgs/W [fF/um]']) #uS/fF=GHz
+
+        # S-parameters
+        for ii in ['11','12','21','22']:
+            for comp,func in (('Re',np.real),('Im',np.imag)):
+                df[f'{comp}S{ii}']=func(df[f'S{ii}'])
+
+        return df
+
+    def postparse_return(self, parsed_result):
+        W = self._patch.get_total_device_width()
         for df in parsed_result.values():
-            self._sparam_dataframe_helper(df)
-
-            # h21 is a current ratio, so 20x log
-            df[f'|h21| [dB]']=20*np.log10(np.abs(df.Y21/df.Y11))
-
-            # https://en.wikipedia.org/wiki/Mason%27s_invariant#Derivation_of_U
-            # U is already a power ratio so just 10x log
-            re=np.real; im=np.imag
-            with np.errstate(invalid='ignore'):
-                df[f'U [dB]']=10*np.log10(
-                    (np.abs(df.Y21-df.Y12)**2 /
-                          (4*(re(df.Y11)*re(df.Y22)-re(df.Y12)*re(df.Y21)))))
-
-            # https://www.microwaves101.com/encyclopedias/stability-factor
-            Delta=df.S11*df.S22-df.S12*df.S21
-            K = (1-np.abs(df.S11)**2-np.abs(df.S22)**2+np.abs(Delta)**2)/(2*np.abs(df.S21*df.S12))
-
-            # this formula with 1/(K+sqrt(K^2-1)) is less common but more robust for large K
-            # according to Microwaves 101 and easy to show it's equal.
-            k2m1=np.clip(K**2-1,0,np.inf) # we only use the K>1 values of MAG anyway, so clip to avoid sqrt(-)
-            MAG = (1/(K+np.sqrt(k2m1))) * np.abs(df.S21)/np.abs(df.S12)
-            MSG = np.abs(df.S21)/np.abs(df.S12)
-            df['K']=K
-            df['MAG [dB]']=10*np.log10(np.choose(MAG>0,[np.NaN,MAG]))
-            df['MSG [dB]']=10*np.log10(MSG)
-            df['MAG-MSG [dB]']=10*np.log10(np.choose(K>=1,[MSG,MAG]))
-
-            # RF small-signal circuit parameters
-            Wum=self._patch.get_total_device_width()/1e-6
-            fF=1e-15; uS=1e-6
-            w=2*np.pi*df['freq']
-            df['Cgd/W [fF/um]']=-im(df.Y12) / w / Wum /fF
-            df['Cgs/W [fF/um]']=im(df.Y11 + df.Y12) / w / Wum /fF
-            df['Cds/W [fF/um]']=im(df.Y22+df.Y12) / w / Wum /fF
-            df['Rds*W [Ohm.um]']=1/re(df.Y22+df.Y12) * Wum
-            df['GM/W [uS/um]']=np.abs(df.Y21-df.Y12) / Wum / uS
-            Rs=df['Rs [Ohm.um]']=re(df.Z12) * Wum
-            df['Rd*W [Ohm.um]']=(re(df.Z22)-Rs) * Wum
-            df['Rg*W [Ohm.um]']=(re(df.Z11)-Rs) * Wum
-            df['GM/2πCgs [GHz]']=df['GM/W [uS/um]']/(2*np.pi*df['Cgs/W [fF/um]']) #uS/fF=GHz
-
-            # S-parameters
-            for ii in ['11','12','21','22']:
-                for comp,func in (('Re',np.real),('Im',np.imag)):
-                    df[f'{comp}S{ii}']=func(df[f'S{ii}'])
+            self.rf_param_helper(parsed_result,width=W)
         return parsed_result
 
     def _rescale_vector(self,arr,col, meas_arr):

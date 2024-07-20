@@ -52,15 +52,17 @@ class NgspiceNetlister(Netlister):
     def nstr_modeled_xtor(self,name,netmap,inst_param_ovrd={},internals_to_save=[]):
         assert len(inst_param_ovrd)==0
         patch=self.simtemp._patch
-        for tterm in ['t','dt']:
-            if tterm in patch.terminals: assert netmap.get(tterm,None) is None
+        # for tterm in ['t','dt']:
+        #     if tterm in patch.terminals: assert netmap.get(tterm,None) is None
         #assert patch.terminals[:4]==['d','g','s','b']
-        termpart=" ".join([netmap[t] for t in patch.terminals if netmap.get(t,None) is not None])
+        termpart = " ".join([netmap.get(t, self.unique_term()) for t in patch.terminals if t not in ['t','dt']])
         inst_paramstr=' '.join(f'{k}={v}'\
                 for k,v in sorted(patch.filled().to_base().break_into_model_and_instance()[1].items()))
         intstr=f"\n.save all "+\
                 " ".join([f"@n{name.lower()}[{k}]" for k in internals_to_save])
-        return f"N{name.lower()} {termpart} {self.modelcard_name} {inst_paramstr}"+ intstr
+        s= f"N{name.lower()} {termpart} {self.modelcard_name} {inst_paramstr}"+ intstr
+        if 'unique' in s: print(s)
+        return s
 
     @staticmethod
     def nstr_VDC(name,netp,netm,dc):
@@ -300,10 +302,16 @@ class NgspiceMultiSimSesh(MultiSimSesh):
 
     singleton_in_use=False
 
-    def print_netlists(self):
+    def print_netlists(self, crop_lines=False):
         for simname, simtemp in self.simtemps.items():
+            print("### getting nelist ...")
+            nl=NgspiceNetlister(simtemp).get_netlist()
             print(f"###################### {simname} #############")
-            print(NgspiceNetlister(simtemp).get_netlist())
+            if crop_lines:
+                maxlen=crop_lines if crop_lines!=True else 80
+                print("\n".join([l[:maxlen] + ("..." if len(l)>maxlen else "") for l in nl.split("\n")]))
+            else:
+                print(nl)
 
     def _ensure_clear_ngspice(self, if_circuits='warn'):
         # Make sure its clear of any previous circuits
