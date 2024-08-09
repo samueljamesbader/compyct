@@ -67,12 +67,13 @@ def simplifier_patch_to_scs(self:ParamPatch, pdk_model_name, netmap, use_spectre
     assert len(self.param_set.va_includes)==1
     vafile=self.param_set.va_includes[0]
     #print(f"ahdl_include \"./{vafile}\"",file=f)
-    modelstr=f"model {inner_name} {use_spectre_builtin or self.param_set.model} "+\
-             ' '.join([f"{k.lower() if use_spectre_builtin else k}={v}" for k,v in self.filled().to_base().items()
+    modelstr=f"model {inner_name} {use_spectre_builtin or self.param_set.model}\n"+\
+             '\n'.join([f"  + {k.lower() if use_spectre_builtin else k}={v}"
+                            for k,v in sorted(self.filled().to_base().items(),key=(lambda x: x[0]))
                        #if (k!='m' and ps.base.get_place(k)==ParamPlace.MODEL and ps.base.get_default(k)!=v)])
                        if (k != 'm' and ps.base.get_place(k) == ParamPlace.MODEL)])
     if print_inner:
-        print(wrap_scs(modelstr,indent=''),file=f)
+        print(modelstr+'\n',file=f)
 
     f.seek(0)
     return f.read(), [f"ahdl_include \"./{vafile}\""]

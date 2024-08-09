@@ -186,11 +186,11 @@ class MultiSweepSimTemplate(SimTemplate):
             strans=abs_transform if y_axis_type[i]=='log' else (lambda x: x)
 
             # blue-red scheme
-            #fig.circle(x='x',y=self.ynames[i],source=meas_cds_c,legend_field='legend')
+            #fig.scatter(x='x',y=self.ynames[i],source=meas_cds_c,legend_field='legend')
             #fig.multi_line(xs='x',ys=self.ynames[i],source=meas_cds_l)
             #fig.multi_line(xs='x',ys=self.ynames[i],source=sim_cds,color='red')
             # technicolor
-            circ_rend=fig.circle(x='x',y=strans(self.ynames[i]),source=meas_cds_c,legend_field='legend',name='circle',color='color')
+            circ_rend=fig.scatter(x='x',y=strans(self.ynames[i]),source=meas_cds_c,legend_field='legend',name='scatter',color='color')
             mult_rend=fig.multi_line(xs='x',ys=mtrans(self.ynames[i]),source=sim_cds,
                                  color=(override_line_color or 'color'),**({'line_width':2} if override_line_color else {}))
             # https://stackoverflow.com/a/68536069
@@ -1223,15 +1223,15 @@ class SParVFreqTemplate(SParTemplate,VsFreqAtIrregularBias):
         assert x_axis_type=='log'
         assert override_line_color is None
         figpow=bokeh.plotting.figure(tools=get_tools(),x_axis_type='log',**layout_params,tooltips=[('','$snap_x Hz'),('','$name = $snap_y')])
-        figpow.circle(x='x',y='|h21| [dB]',source=meas_cds_c,color='blue',legend_label='h21',name='|h21| meas')
+        figpow.scatter(x='x',y='|h21| [dB]',source=meas_cds_c,color='blue',legend_label='h21',name='|h21| meas')
         figpow.multi_line(xs='x',ys='|h21| [dB]',source=meas_cds_l,color='blue',legend_label='h21',name='|h21| meas')
         figpow.multi_line(xs='x',ys='|h21| [dB]',source=sim_cds,color='red',legend_label='h21',name='|h21| sim')
 
-        figpow.circle(x='x',y='U [dB]',source=meas_cds_c,color='green',legend_label='U',name='U meas')
+        figpow.scatter(x='x',y='U [dB]',source=meas_cds_c,color='green',legend_label='U',name='U meas')
         figpow.multi_line(xs='x',ys='U [dB]',source=meas_cds_l,color='green',legend_label='U',name='U meas')
         figpow.multi_line(xs='x',ys='U [dB]',source=sim_cds,color='orange',legend_label='U',name='U sim')
 
-        figpow.circle(x='x',y='MAG-MSG [dB]',source=meas_cds_c,color='lightblue',legend_label='MAG/MSG',name='MAG/MSG meas')
+        figpow.scatter(x='x',y='MAG-MSG [dB]',source=meas_cds_c,color='lightblue',legend_label='MAG/MSG',name='MAG/MSG meas')
         figpow.multi_line(xs='x',ys='MAG-MSG [dB]',source=meas_cds_l,color='lightblue',legend_label='MAG/MSG',name='MAG/MSG meas')
         figpow.multi_line(xs='x',ys='MAG-MSG [dB]',source=sim_cds,color='burlywood',legend_label='MAG/MSG',name='MAG/MSG sim')
 
@@ -1242,9 +1242,9 @@ class SParVFreqTemplate(SParTemplate,VsFreqAtIrregularBias):
         figpow.title=str(self.outer_values)
 
         figsmi=smith_chart(**layout_params)
-        figsmi.circle(x='ReS11',y='ImS11',source=meas_cds_c,color='blue',legend_label='S11',line_width=2)
-        figsmi.circle(x='ReS22',y='ImS22',source=meas_cds_c,color='green',legend_label='S22',line_width=2)
-        figsmi.circle(x='ReS12',y='ImS12',source=meas_cds_c,color='lightblue',legend_label='S12',line_width=2)
+        figsmi.scatter(x='ReS11',y='ImS11',source=meas_cds_c,color='blue',legend_label='S11',line_width=2)
+        figsmi.scatter(x='ReS22',y='ImS22',source=meas_cds_c,color='green',legend_label='S22',line_width=2)
+        figsmi.scatter(x='ReS12',y='ImS12',source=meas_cds_c,color='lightblue',legend_label='S12',line_width=2)
         figsmi.multi_line(xs='ReS11',ys='ImS11',source=sim_cds,color='red',legend_label='S11',line_width=2)
         figsmi.multi_line(xs='ReS22',ys='ImS22',source=sim_cds,color='orange',legend_label='S22',line_width=2)
         figsmi.multi_line(xs='ReS12',ys='ImS12',source=sim_cds,color='burlywood',legend_label='S12',line_width=2)
