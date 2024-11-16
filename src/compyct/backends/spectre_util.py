@@ -95,7 +95,7 @@ saveOptions options save=allpub
 """
 
 
-def export_netlist(library, cell, view='schematic', design_variables=[], scs_includes="", additional_code="",
+def export_netlist(library, cell, view='schematic', design_variables={}, scs_includes="", additional_code="",
                    include_typical=True):
     WARD = Path(os.environ['WARD'])
     rundir = WARD / 'spyctre' / f"{library}__{cell}"
@@ -115,8 +115,8 @@ def export_netlist(library, cell, view='schematic', design_variables=[], scs_inc
         dvarskill = " ".join([f'"_EXPR_{i}" "{var}"' for i, var in enumerate(design_variables)])
         print(textwrap.dedent(f"""
         simLibName = "{library}"
-        simCellName ="{cell}"
-        simViewName ="{view}"
+        simCellName = "{cell}"
+        simViewName = "{view}"
         simSimulator = "spectre"
         simNotIncremental = 't
         simReNetlistAll = nil
@@ -125,8 +125,9 @@ def export_netlist(library, cell, view='schematic', design_variables=[], scs_inc
         simNetlistHier = 't
         nlFormatterClass = 'spectreFormatter
         nlCreateAmap = 't
-        nlDesignVarNameList = '({dvarskill})
-        """), file=f)
+        nlDesignVarNameList = {f"'({dvarskill})" if len(dvarskill) else "nil"}
+        simNetlistHier = t
+        """).strip(), file=f)
 
     shutil.copy(WARD / "cds.lib", rundir / "cds.lib")
 
