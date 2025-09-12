@@ -1411,7 +1411,7 @@ class LFNoiseVFreqTemplate(LFNoiseTemplate, VsFreqAtIrregularBias):
         VsFreqAtIrregularBias.init_helper(self,fstart=fstart,fstop=fstop,pts_per_dec=pts_per_dec,fstep=fstep)
         LFNoiseTemplate.__init__(self, outer_variable=None, outer_values=[(vg, vd)], inner_variable='freq',
                                  inner_range=(fstart,pts_per_dec,fstop), temp=temp,
-                                 ynames=['sid/ID^2 [1/Hz]','svg [V^2/Hz]'],
+                                 ynames=['sid [A^2/Hz]','sid/ID^2 [1/Hz]','svg [V^2/Hz]'],
                                  *args, **kwargs)
     def get_analysis_listing(self,netlister:Netlister):
         netlister_func=lambda *args,**kwargs: netlister.astr_noise(outprobe='IPRB',vsrc='VG',*args,**kwargs)
@@ -1437,9 +1437,7 @@ class LFNoiseVFreqTemplate(LFNoiseTemplate, VsFreqAtIrregularBias):
 class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
 
     @staticmethod
-    def _integrate_1of(df):
-        lower = 100
-        upper = 1e6
+    def _integrate_1of(df, lower, upper):
 
         row={}
         y_int_list=[('sid/ID^2 [1/Hz]','int. sid/ID^2'),('svg [V^2/Hz]','int. svg [V^2]'),('Gm [uS/um]','avg. Gm [uS/um]')]
@@ -1481,10 +1479,10 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
         return pd.concat([df,pd.DataFrame(row)]).reset_index(drop=True)
 
     def __init__(self, *args,
-                 vgvds, frequency, temp=27, pol='n',**kwargs):
+                 vgvds, frequency, temp=27, pol='n', integration_minf=100, integration_maxf=1e6, **kwargs):
         self.pol=pol
         LFNoiseTemplate.__init__(self, *args, outer_variable=None, outer_values=vgvds, inner_variable='freq',
-                                 temp=temp,**kwargs)
+                                 temp=temp, **kwargs)
         fstart,pts_per_dec,fstop=VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
                                           vs_vg=[],#['sid/W^2 [A^2/Hz/um^2]','sid/ID^2 [1/Hz]','svg [V^2/Hz]','Gm [uS/um]'],
                                           #vs_vo=['sid/ID^2 [1/Hz]','svg [V^2/Hz]','Gm [uS/um]'],
@@ -1495,6 +1493,8 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
         self.inner_range=(fstart,pts_per_dec,fstop)
         #self._sweeper_kwargs={'collapser':self._integrate_1of}
         self._sweeper_kwargs={'queryvar':'freq'}
+        self._integration_minf=integration_minf
+        self._integration_maxf=integration_maxf
 
 
     def get_analysis_listing(self,netlister:Netlister):
@@ -1533,7 +1533,7 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
         parsed_result=super().postparse_return(parsed_result)
         res={}
         for k,df in parsed_result.items():
-            res[k]=self._integrate_1of(df)
+            res[k]=self._integrate_1of(df, self._integration_minf, self._integration_maxf)
         return res
 
     def generate_figures(self, *args, **kwargs):
