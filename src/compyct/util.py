@@ -1,3 +1,4 @@
+from typing import TypeVar, Callable
 from functools import wraps
 import pickle
 import sys
@@ -124,7 +125,8 @@ class ExprFunc:
     def __setstate__(self,args):
         self.__init__(*args)
 
-def pickle_cache(func, cache_path=None):
+T = TypeVar('T')
+def pickle_cache(func: Callable[...,T], cache_path=None) -> Callable[...,T]:
     if cache_path is None:
         return func
     else:
@@ -151,7 +153,7 @@ def only(lst):
     assert len(lst)==1
     return lst[0]
 
-def form_multisweep(point_results,outeri,inneri,inner_name,queryvar,querytarget=np.NaN):
+def form_multisweep(point_results,outeri,inneri,inner_name,queryvar,querytarget=np.nan):
     if point_results is None: return point_results
     outers=list(sorted(set([k[outeri] for k in point_results])))
     inners=list(sorted(set([k[inneri] for k in point_results])))

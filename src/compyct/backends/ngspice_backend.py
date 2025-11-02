@@ -6,7 +6,7 @@ import os
 import pandas as pd
 import sys
 
-from numpy import ComplexWarning
+from numpy.exceptions import ComplexWarning
 
 from PySpice.Spice.NgSpice.Shared import NgSpiceShared
 from collections import namedtuple
@@ -344,6 +344,8 @@ class NgspiceMultiSimSesh(MultiSimSesh):
             if "Unsupported Ngspice version 41" in w:
                 continue
             if "Unsupported Ngspice version 42" in w:
+                continue
+            if "Unsupported Ngspice version 45" in w:
                 continue
             raise Exception("New error while trying to load Ngspice... "+w)
 

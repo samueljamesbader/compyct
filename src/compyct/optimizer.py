@@ -14,7 +14,7 @@ from compyct import logger, set_logging_callback, unset_logging_callback
 from compyct.paramsets import spicenum_to_float, ParamPatch
 from compyct.backends.backend import MultiSimSesh, SimulatorCommandException
 from scipy.optimize import curve_fit
-from typing import Any
+from typing import Any, Optional
 from copy import deepcopy
 from dataclasses import dataclass, field
 from compyct.templates import TemplateGroup
@@ -41,7 +41,7 @@ class SemiAutoOptimizer():
     backend: str = 'ngspice'
     backend_kwargs: dict = field(default_factory=dict)
 
-    output_dir: str = None
+    output_dir: Optional[str|Path] = None
 
     def __post_init__(self):
         assert self.output_dir is not None

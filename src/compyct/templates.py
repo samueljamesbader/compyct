@@ -1155,7 +1155,7 @@ class SParTemplate(MultiSweepSimTemplate):
         MAG = (1/(K+np.sqrt(k2m1))) * np.abs(df.S21)/np.abs(df.S12)
         MSG = np.abs(df.S21)/np.abs(df.S12)
         df['K']=K
-        df['MAG [dB]']=10*np.log10(np.choose(MAG>0,[np.NaN,MAG]))
+        df['MAG [dB]']=10*np.log10(np.choose(MAG>0,[np.nan,MAG]))
         df['MSG [dB]']=10*np.log10(MSG)
         df['MAG-MSG [dB]']=10*np.log10(np.choose(K>=1,[MSG,MAG]))
 
@@ -1423,7 +1423,7 @@ class LFNoiseVFreqTemplate(LFNoiseTemplate, VsFreqAtIrregularBias):
         # Only necessary because don't support getting I in spectre yet
         for k,sw in result.items():
             if 'I [A]' not in sw:
-                sw['I [A]'] = sw['freq'] * np.NaN
+                sw['I [A]'] = sw['freq'] * np.nan
         return result
 
     def generate_figures(self,*args,**kwargs):
@@ -1474,7 +1474,7 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
                 if np.allclose(df[c],df[c].iloc[0],atol=0):
                     row[c]=[df[c].iloc[0]]
                 #else:
-                #    row[c]=[np.NaN]
+                #    row[c]=[np.nan]
 
         return pd.concat([df,pd.DataFrame(row)]).reset_index(drop=True)
 
@@ -1522,7 +1522,7 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
                     assert (Iarr[0]/icc)<1.3, "Not gonna extrapolate more than 30%"
                     vt=VGarr[0]-((VGarr[1]-VGarr[0])/np.log(Iarr[1]/Iarr[0])*np.log(Iarr[0]/icc))
             except:
-                vt=np.NaN
+                vt=np.nan
             for (vg_,vd_),subresult in result.items():
                 if vd_==vd:
                     subresult['VoV']=vg_-vt

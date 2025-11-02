@@ -2,3 +2,46 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+[project]
+name = "compyct"
+dynamic = ["version"]
+authors = [
+    { name = "Samuel James Bader", email = "samuel.james.bader@gmail.com" }
+]
+description = "Compact model fitting"
+license = { text = "None yet, development only." }
+
+dependencies = [
+    "panel==1.7.5",
+    "bokeh==3.6.3",
+    "numpy",
+    "scipy",
+    "pint"
+]
+
+[project.optional-dependencies]
+spectre = [
+    "pynut",
+    "psf_utils",
+    "pyspectre",
+    "pexpect"
+]
+ngspice = ["PySpice"]
+test = [
+    "python-dotenv[cli]",
+    "pytest",
+    "pytest-dotenv"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
+
+[tool.setuptools.package-data]
+compyct = ["**/*.va"]
+
+[project.scripts]
+compyct_compile_osdi = "compyct.backends.ngspice_backend:compile_va_to_osdi"
+
+[tool.setuptools.dynamic]
+version = {attr = "compyct.__version__"}

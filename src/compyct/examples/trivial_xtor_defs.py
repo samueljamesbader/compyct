@@ -80,7 +80,7 @@ class TrivialXtor():
                 for sdir in ('f','r'):
                     results[(vd,sdir)]=pd.DataFrame({'VG':VG,
                                               'ID/W [uA/um]':self.ID(vd,VG,0,0,T,trap_state='DC')/w,
-                                              'GM/W [uS/um]':self.ID(vd,VG,0,0,T,trap_state='DC')/w*np.NaN,
+                                              'GM/W [uS/um]':self.ID(vd,VG,0,0,T,trap_state='DC')/w*np.nan,
                                               })
             return results
 
@@ -128,7 +128,7 @@ class TrivialXtor():
                 'Y11':1j*w*Cgs,
                 'Y12':freq*0,
                 'Y21':gm,
-                'Y22': freq*np.NaN
+                'Y22': freq*np.nan
             })
             return results
         elif isinstance(simtemp,SParVBiasTemplate):
@@ -147,7 +147,7 @@ class TrivialXtor():
                     'Y11':1j*w*Cgs,
                     'Y12':freq*0,
                     'Y21':gm,
-                    'Y22': freq*np.NaN
+                    'Y22': freq*np.nan
                 })
             return results
         elif isinstance(simtemp, LFNoiseVFreqTemplate):
