@@ -136,23 +136,24 @@ class SemiAutoOptimizer():
             raise
 
     def rerun(self,temps:list[str]|None):
-        # Ignoring tabname and rerunning-updating all
-        #assert tabname is None
-        new_results={}
-        remaining_temps=set(temps) if temps is not None else set(self.global_template_group.keys())
-        while len(remaining_temps):
-            ready_to_run=[tn for tn in remaining_temps if all(self.global_template_group.name_of_template(dt) not in remaining_temps
-                                                              for dt in self.global_template_group[tn].dependencies)]
-            logger.debug(f"Rerun remaining temps: {remaining_temps}, ready to run: {ready_to_run}")
-            with self.ensure_within_sesh() as mss:
-                simtemps=[tn for tn in ready_to_run if isinstance(self.global_template_group[tn],SimTemplate)]
-                nonsimtemps=[tn for tn in ready_to_run if not isinstance(self.global_template_group[tn],SimTemplate)]
-                new_results|=mss.run_with_params(self.global_patch, only_temps=simtemps)
-                new_results|={tn:self.global_template_group[tn].extract() for tn in nonsimtemps}
-                for tn in ready_to_run:
-                    self.global_template_group[tn].update_sim_results(new_results.get(tn,None))
-            remaining_temps.difference_update(ready_to_run)
-        return new_results
+        with self.ensure_within_sesh() as mss:
+            rerun_with_params(patch=self.global_patch,temps=temps,global_template_group=self.global_template_group, mss=mss)
+
+def rerun_with_params(patch:ParamPatch, temps:list[str]|None, global_template_group: TemplateGroup, mss: MultiSimSesh):
+    new_results={}
+    remaining_temps=set(temps) if temps is not None else set(global_template_group.keys())
+    while len(remaining_temps):
+        ready_to_run=[tn for tn in remaining_temps if all(global_template_group.name_of_template(dt) not in remaining_temps
+                                                          for dt in global_template_group[tn].dependencies)]
+        logger.debug(f"Rerun remaining temps: {remaining_temps}, ready to run: {ready_to_run}")
+        simtemps=[tn for tn in ready_to_run if isinstance(global_template_group[tn],SimTemplate)]
+        nonsimtemps=[tn for tn in ready_to_run if not isinstance(global_template_group[tn],SimTemplate)]
+        new_results|=mss.run_with_params(patch, only_temps=simtemps)
+        new_results|={tn:global_template_group[tn].extract() for tn in nonsimtemps}
+        for tn in ready_to_run:
+            global_template_group[tn].update_sim_results(new_results.get(tn,None))
+        remaining_temps.difference_update(ready_to_run)
+    return new_results
 
 
 import panel as pn
