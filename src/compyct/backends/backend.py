@@ -1,8 +1,8 @@
-import typing
+from typing import TYPE_CHECKING, Optional, Any, Callable
 
 from compyct import logger
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from compyct.templates import TemplateGroup
     from compyct.paramsets import ParamPatch
 import importlib
@@ -66,7 +66,7 @@ class MultiSimSesh():
 
     def __init__(self, simtemps: 'TemplateGroup', netlist_kwargs={}):
         self.simtemps: TemplateGroup=simtemps
-        self._sessions: dict[str,typing.Any]={}
+        self._sessions: dict[str,Any]={}
         self._netlist_kwargs=netlist_kwargs
         
     def __enter__(self):
@@ -88,7 +88,7 @@ class MultiSimSesh():
     def is_entered(self):
         return len(self._sessions)>0
 
-    def run_with_params(self, params:'ParamPatch'={}, full_resync=False, only_temps:list[str] = None):
+    def run_with_params(self, params:'ParamPatch'={}, full_resync=False, only_temps:Optional[list[str]] = None):
         raise NotImplementedError
 
 def get_va_path(vaname):

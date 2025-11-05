@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from itertools import product
 from collections import UserDict
+from typing import Any, Callable, Generator, Optional
 
 import numpy as np
 import bokeh
@@ -8,7 +9,7 @@ import bokeh.plotting
 import pandas as pd
 import bokeh.layouts
 import panel as pn
-from bokeh.models import HoverTool, CustomJSHover
+from bokeh.models import HoverTool, CustomJSHover, ColumnDataSource
 from bokeh.palettes import TolRainbow, Category10_10
 #from scipy.integrate import cumtrapz
 from scipy.integrate import cumulative_trapezoid as cumtrapz
@@ -21,30 +22,26 @@ from compyct import logger
 from compyct.backends.backend import Netlister
 from compyct.gui import fig_legend_config, get_tools
 
-from compyct.paramsets import ParamPatch, spicenum_to_float, ParamPlace
+from compyct.paramsets import ParamPatch, ParamSet, spicenum_to_float, ParamPlace
 from compyct.util import s2y, s2z, form_multisweep
 
-class SimTemplate():
-    def __init__(self, patch=None, internals_to_save=[], title=None):
-        if patch is not None:
-            self.set_patch(patch)
-        self.internals_to_save=internals_to_save
+type ParsedResult = dict[Any, pd.DataFrame]|None
+type PostParsedResult = dict[Any, pd.DataFrame]|None
+
+class Template():
+
+    xname: str
+    ynames: list[str]
+
+    def __init__(self, title: Optional[str]=None):
+        self._sources={}
         self.title=title
 
-    def set_patch(self,patch):
-        assert isinstance(patch,ParamPatch)
-        self._patch=patch.copy() if patch else None
-        
-    def parse_return(self, result):
-        return result
+    @property
+    def dependencies(self) -> list['Template']: return []
 
-    def postparse_return(self,parsed_result):
-        return parsed_result
-
-    def _parsed_result_to_cds_data(self,parsed_result):
-        raise NotImplementedError
-        
-    def _update_cds_with_parsed_result(self,cds,parsed_result,flattened=False):
+    def _update_cds_with_parsed_result(self, cds: ColumnDataSource|None,
+                                       parsed_result:ParsedResult,flattened=False):
         data=self._parsed_result_to_cds_data(parsed_result)
         if flattened and len(list(data.values())[0]):
             flattened_data={k:np.concatenate(v) for k,v in data.items()
@@ -52,111 +49,52 @@ class SimTemplate():
             swpkey=list(flattened_data.keys())[0]
             flattened_data.update({k:[v[i] for i in range(len(data[swpkey])) for _ in data[swpkey][i]]
                                    for k,v in data.items()
-                                       if k in ['legend','color','outervariable','additionalinfo'] or (not hasattr(v[0],'__len__'))})
-            # Only works for rectangular arrays
-            #npts=len(data[list(flattened_data.keys())[0]][0])
-            #flattened_data.update({k:np.repeat(v,npts) for k,v in data.items()
-                                 #if k=='legend' or (not hasattr(v[0],'__len__'))})
+                                       if k in ['legend','color','outervariable','additionalinfo'] or (not hasattr(v[0],'__len__'))}) # type: ignore
             data=flattened_data
         if cds is None:
-            cds=bokeh.models.ColumnDataSource(data)
+            cds=ColumnDataSource(data)
         else:
-            cds.data=data
+            cds.data=data # type: ignore
         return cds
-
-    def _validated(self, parsed_result):
+    
+    def _required_keys(self) -> list:
         raise NotImplementedError
-
-    @contextmanager
-    def tentative_base_deltas(self,params) -> ParamPatch:
-        assert isinstance(params, ParamPatch)
-        bk=self._patch.copy()
-        try:
-            yield self._patch.update_inplace_and_return_base_changes(params)
-        except:
-            self._patch.update_inplace_and_return_changes(bk)
-            raise
-
-    def apply_patch(self,params):
-        self._patch.update_inplace_and_return_changes(params)
-
-
-    # def _get_instance_param_part(self):
-    #     return ' '.join(f'{k}=instparam_{k}' for k in self._patch
-    #                     if self._patch.get_place(k)==ParamPlace.INSTANCE)
-    def to_csv(self, param, filename):
-        raise NotImplementedError
-
-
-class MultiSweepSimTemplate(SimTemplate):
-    def __init__(self, *args,
-                 outer_variable=None, inner_variable=None,
-                 outer_values=None, inner_range=None,
-                 ynames=[], directions=['f','r'], **kwargs):
-        super().__init__(*args, **kwargs)
-        self.outer_variable=outer_variable
-        self.inner_variable=inner_variable
-        self.outer_values=outer_values
-        self.inner_range=inner_range
-        self.ynames=ynames
-        self.directions=directions
-        self._sources={}
-        self._fig_is_clear=True
-
-        #fnpt=(inner_range[2]-inner_range[0])/inner_range[1]
-        #if self.__class__ is CVTemplate:
-        #    import pdb; pdb.set_trace()
-        #if np.abs(np.round(fnpt)-fnpt)<1e-3:
-        #    if inner_range[1]*np.round(fnpt)>(inner_range[2]-inner_range[0]):
-        #        logger.debug(f"Tuning step for {self.__class__.__name__}")
-        #        inner_range[1]=(inner_range[2]-inner_range[0])/np.round(fnpt)*.99999
-
-    #def __copy__(self):
-    #    return copy(super()
-
-    @property
-    def xname(self):
-        if hasattr(self,'_xname'):
-            return self._xname
-        else:
-            return self.inner_variable
-        
-    def _parsed_result_to_cds_data(self,parsed_result):
-        #assert len(self.ynames)==1
-        #yname=self.ynames[0]
-        
+    
+    def _parsed_result_to_cds_data(self, parsed_result:dict[Any,pd.DataFrame]|None) -> dict[str, list]:
         data=dict(x=[],legend=[],color=[],additionalinfo=[],outervariable=[],**{yname:[] for yname in self.ynames})
         if parsed_result is None: parsed_result={}
-        #for key, df in parsed_result.items():
-        k0s=list(sorted(set([k[0] for k in self._required_keys()])))
-        colors=dict(zip(k0s,(TolRainbow[max(len(k0s),3)] if len(k0s)>3 else Category10_10)))
-        if len(parsed_result):
-            for key in self._required_keys():
-                try:
+
+        required_keys=list(self._required_keys())
+        if len(required_keys):
+            subkey_for_labelling_func= (lambda key: key[0]) if type(required_keys[0]) is tuple else (lambda key: key)
+            subkey_for_addinfo_func= (lambda key: ','.join(str(k) for k in key[1:])) if type(required_keys[0]) is tuple else (lambda key: '')
+            k0s=list(sorted(set([subkey_for_labelling_func(k) for k in self._required_keys()])))
+            colors=dict(zip(k0s,(TolRainbow[max(len(k0s),3)] if len(k0s)>3 else Category10_10)))
+            if len(parsed_result):
+                for key in self._required_keys():
                     df=parsed_result[key]
-                except KeyError as e:
-                    import pdb; pdb.set_trace()
-                    raise e
-                data['x'].append(df[self.xname].to_numpy())
-                for yname in set(self.ynames):
-                    data[yname].append(df[yname].to_numpy())
-                data['legend'].append(' '.join(str(ki) for ki in key))
-                data['outervariable'].append(key[0])
-                data['additionalinfo'].append(','.join(str(ki) for ki in key[1:]))
-                data['color'].append(colors[key[0]])
+                    data['x'].append(df[self.xname].to_numpy())
+                    for yname in set(self.ynames):
+                        data[yname].append(df[yname].to_numpy())
+                    data['legend'].append(' '.join(str(ki) for ki in key))
+                    data['outervariable'].append(subkey_for_labelling_func(key))
+                    data['additionalinfo'].append(subkey_for_addinfo_func(key))
+                    data['color'].append(colors[subkey_for_labelling_func(key)])
         return data
-        
-        
-    def generate_figures(self, meas_data=None,
+    
+    @property
+    def meas_data(self) -> PostParsedResult:
+        raise NotImplementedError
+    
+    def generate_figures(self, 
                          layout_params={}, y_axis_type='linear', x_axis_type='linear', override_line_color=None,
                          vizid=None):
     
         self._sources[vizid]\
                =[self._update_cds_with_parsed_result(cds=None,parsed_result=None)]
+        self._fig_is_clear={vizid:True}
 
-        if meas_data is not None:
-            self._validated(meas_data)
-
+        meas_data=self.meas_data
         meas_cds_c=self._update_cds_with_parsed_result(cds=None,
                     parsed_result=meas_data,flattened=True)
         meas_cds_l=self._update_cds_with_parsed_result(cds=None,
@@ -166,6 +104,8 @@ class MultiSweepSimTemplate(SimTemplate):
         return self._make_figures(meas_cds_c=meas_cds_c, meas_cds_l=meas_cds_l, sim_cds=sim_cds,
                                   layout_params=layout_params, override_line_color=override_line_color,
                                   y_axis_type=y_axis_type, x_axis_type=x_axis_type)
+        
+        
 
     def _make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params, y_axis_type='linear',x_axis_type='linear',override_line_color=None):
         num_ys=len(self.ynames)
@@ -220,15 +160,100 @@ class MultiSweepSimTemplate(SimTemplate):
             figs.append(fig)
         return figs
 
-    def update_figures(self, parsed_result, vizid=None):
-        if parsed_result is None and self._fig_is_clear:
-            return False
-        logger.debug(f"Updating figure {self.__class__.__name__}")
-        self._validated(parsed_result)
-        self._update_cds_with_parsed_result(
-            cds=self._sources[vizid][0],parsed_result=parsed_result)
-        self._fig_is_clear=(parsed_result is None)
+class SimTemplate(Template):
+    def __init__(self, patch:Optional[ParamPatch]=None, meas_data: ParsedResult=None, internals_to_save=[], **kwargs):
+        super().__init__(**kwargs)
+        self.set_patch(patch)
+        self._raw_meas_data=meas_data
+        self.internals_to_save=internals_to_save
+        self.latest_results=None
+        self._fig_is_clear={}
+
+    def set_patch(self,patch):
+        if patch: assert isinstance(patch,ParamPatch)
+        self._patch=patch.copy() if patch else None
+    def apply_patch(self,params):
+        self._patch.update_inplace_and_return_changes(params)
+    def rebase_paramset(self,paramset:ParamSet|None):
+        if paramset is None: return
+        p=self._patch
+        self._patch=paramset.mcp_()
+        self.apply_patch(p)
+        
+    def parse_return(self, result):
+        return result
+
+    def postparse_return(self,parsed_result):
+        return parsed_result
+
+    def _validated(self, parsed_result):
+        raise NotImplementedError
+    
+    @property
+    def meas_data(self):
+        if not hasattr(self,'_meas_data'): self._set_meas_data(self._raw_meas_data)
+        return self._meas_data
+    def _set_meas_data(self, raw_meas_data):
+        assert not hasattr(self,'_meas_data'), "Meas data already set"
+        self._meas_data=self._validated(self.postparse_return(raw_meas_data))
+    def update_sim_results(self, parsed_result):
+        self.latest_results=self._validated(parsed_result)
+    def update_figures(self,vizid=None)->bool:
+        parsed_result=self.latest_results
+        #logger.debug(f"Updating figure {self.__class__.__name__}")
+        vizids=[vizid] if vizid is not None else list(self._sources.keys())
+        for vizid in vizids:
+            if parsed_result is None and self._fig_is_clear[vizid]: continue
+            self._update_cds_with_parsed_result(
+                cds=self._sources[vizid][0],parsed_result=parsed_result)
+            self._fig_is_clear[vizid]=(parsed_result is None)
         return True
+    def update_sim_results_and_figures(self, parsed_result, vizid=None):
+        logger.debug('in update_sim_results_and_figures')
+        self.update_sim_results(parsed_result)
+        self.update_figures(vizid=vizid)
+
+    @contextmanager
+    def tentative_base_deltas(self,params) -> Generator[ParamPatch]:
+        assert isinstance(params, ParamPatch)
+        bk=self._patch.copy()
+        try:
+            yield self._patch.update_inplace_and_return_base_changes(params)
+        except:
+            self._patch.update_inplace_and_return_changes(bk)
+            raise
+
+
+    # def _get_instance_param_part(self):
+    #     return ' '.join(f'{k}=instparam_{k}' for k in self._patch
+    #                     if self._patch.get_place(k)==ParamPlace.INSTANCE)
+    def to_csv(self, param, filename):
+        raise NotImplementedError
+
+
+class MultiSweepSimTemplate(SimTemplate):
+    def __init__(self, *args,
+                 outer_variable=None, inner_variable=None,
+                 outer_values=None, inner_range=None,
+                 ynames=[], directions=['f','r'], **kwargs):
+        super().__init__(*args, **kwargs)
+        self.outer_variable=outer_variable
+        self.inner_variable=inner_variable
+        self.outer_values=outer_values
+        self.inner_range=inner_range
+        self.ynames=ynames
+        self.directions=directions
+
+        #fnpt=(inner_range[2]-inner_range[0])/inner_range[1]
+        #if self.__class__ is CVTemplate:
+        #    import pdb; pdb.set_trace()
+        #if np.abs(np.round(fnpt)-fnpt)<1e-3:
+        #    if inner_range[1]*np.round(fnpt)>(inner_range[2]-inner_range[0]):
+        #        logger.debug(f"Tuning step for {self.__class__.__name__}")
+        #        inner_range[1]=(inner_range[2]-inner_range[0])/np.round(fnpt)*.99999
+
+    #def __copy__(self):
+    #    return copy(super()
 
     def parsed_results_to_vector(self, parsed_results, rois, meas_parsed_results):
         if rois is None: return np.array([])
@@ -294,6 +319,14 @@ class MultiSweepSimTemplate(SimTemplate):
 
     def to_csv(self,result,filename=None):
         return self.to_merged_table(result).to_csv(filename)
+
+    @property
+    def xname(self):
+        if hasattr(self,'_xname'):
+            return self._xname
+        else:
+            return self.inner_variable
+        
 
 class DCIdVdTemplate(MultiSweepSimTemplate):
 
@@ -390,7 +423,6 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
             num_vg=(vgr[2]-vgr[0])/vgr[1]
             assert abs(num_vg-round(num_vg))<1e-3, f"Make sure the IdVg range gives even steps {str(vgr)} @ VD={vd}"
         self.vg_range=vg_range
-
         self.pol=pol
 
     @property
@@ -670,12 +702,17 @@ class JointTemplate(SimTemplate):
 
     def _validated(self, parsed_result):
         return {k:t._validated(parsed_result[k]) for k,t in self.subtemplates.items()}
+    
+    def update_sim_results(self, parsed_result):
+        for k,t in self.subtemplates.items():
+            t.update_sim_results((parsed_result[k] if parsed_result else None))
+    def latest_results(self):
+        return {k:t.latest_results() for k,t in self.subtemplates.items()}
 
-    def update_figures(self, parsed_result, vizid=None):
+    def update_figures(self, vizid=None):
         actually_did_update=False
         for k,t in self.subtemplates.items():
-            if t.update_figures((parsed_result[k] if parsed_result else None),vizid=vizid):
-                actually_did_update=True
+            if t.update_figures(vizid=vizid): actually_did_update=True
         return actually_did_update
 
 
@@ -709,14 +746,16 @@ class DCIVTemplate(JointTemplate):
         return {'IdVg': self._dcidvg.parse_return(result_idvg),
                 'IdVd': self._dcidvd.parse_return(result_idvd)}
     
-    def generate_figures(self, meas_data=None, layout_params={}, vizid=None):
-        # Typical templates receive None for no meas_data...
+    def _set_meas_data(self, meas_data):
         meas_data={} if meas_data is None else meas_data
+        self._dcidvg._set_meas_data(meas_data.get('IdVg',None))
+        self._dcidvd._set_meas_data(meas_data.get('IdVd',None))
+        self._meas_data={'IdVg':self._dcidvg._meas_data,
+                         'IdVd':self._dcidvd._meas_data}
 
-        figs1=self._dcidvg.generate_figures(
-            meas_data=meas_data.get('IdVg',None), layout_params=layout_params, vizid=vizid)
-        figs2=self._dcidvd.generate_figures(
-            meas_data=meas_data.get('IdVd',None), layout_params=layout_params, vizid=vizid)
+    def generate_figures(self, layout_params={}, vizid=None):
+        figs1=self._dcidvg.generate_figures(layout_params=layout_params, vizid=vizid)
+        figs2=self._dcidvd.generate_figures(layout_params=layout_params, vizid=vizid)
         return figs1+figs2
         
 
@@ -1050,30 +1089,44 @@ class VsIrregularBiasAtFreq():
                         result[f'{namepre}{i}']['I [A]'] = -result[f'dc_{namepre}{i}'][x].iloc[0]
             parsed_result[(vg,vd)]=result[f'{namepre}{i}']
         return parsed_result
-
-    def generate_figures_helper(self, meas_data=None,
+    
+    def set_meas_data_helper(self, raw_meas_data):
+        vg_sweeps=form_multisweep(raw_meas_data,1,0,'VG',**self._sweeper_kwargs)
+        vd_sweeps=form_multisweep(raw_meas_data,0,1,'VD',**self._sweeper_kwargs)
+        if hasattr(self,'_vsvg'): self._vsvg._set_meas_data(vg_sweeps)
+        if hasattr(self,'_vsvo'): self._vsvo._set_meas_data(vg_sweeps)
+        if hasattr(self,'_vsvd'): self._vsvd._set_meas_data(vd_sweeps)
+        if hasattr(self,'_vsid'): self._vsid._set_meas_data(vg_sweeps)
+        self._meas_data=self._validated(self.postparse_return(raw_meas_data))
+    
+    def generate_figures_helper(self, 
                          layout_params={}, y_axis_type='linear', x_axis_type='linear',
                          vizid=None):
-        #assert (x_axis_type is None)
-        vg_sweeps=form_multisweep(meas_data,1,0,'VG',**self._sweeper_kwargs)
-        vd_sweeps=form_multisweep(meas_data,0,1,'VD',**self._sweeper_kwargs)
         return [
-            *(self._vsvg.generate_figures(meas_data=vg_sweeps,layout_params=layout_params,vizid=vizid,
+            *(self._vsvg.generate_figures(layout_params=layout_params,vizid=vizid,
                                           y_axis_type=y_axis_type) if hasattr(self,'_vsvg') else []),
-            *(self._vsvo.generate_figures(meas_data=vg_sweeps,layout_params=layout_params,vizid=vizid,
+            *(self._vsvo.generate_figures(layout_params=layout_params,vizid=vizid,
                                           y_axis_type=y_axis_type) if hasattr(self,'_vsvo') else []),
-            *(self._vsvd.generate_figures(meas_data=vd_sweeps,layout_params=layout_params,vizid=vizid,
+            *(self._vsvd.generate_figures(layout_params=layout_params,vizid=vizid,
                                           y_axis_type=y_axis_type) if hasattr(self,'_vsvd') else []),
-            *(self._vsid.generate_figures(meas_data=vg_sweeps,layout_params=layout_params,vizid=vizid,
+            *(self._vsid.generate_figures(layout_params=layout_params,vizid=vizid,
                                           y_axis_type=y_axis_type, x_axis_type=x_axis_type) if hasattr(self,'_vsid') else []),]
 
-    def update_figures_helper(self, parsed_result, vizid=None):
+    def update_sim_results_helper(self, parsed_result):
         vg_sweeps=form_multisweep(parsed_result,1,0,'VG',**self._sweeper_kwargs)
         vd_sweeps=form_multisweep(parsed_result,0,1,'VD',**self._sweeper_kwargs)
-        if hasattr(self,'_vsvg'): self._vsvg.update_figures(vg_sweeps, vizid=vizid)
-        if hasattr(self,'_vsvo'): self._vsvo.update_figures(vg_sweeps, vizid=vizid)
-        if hasattr(self,'_vsvd'): self._vsvd.update_figures(vd_sweeps, vizid=vizid)
-        if hasattr(self,'_vsid'): self._vsid.update_figures(vg_sweeps, vizid=vizid)
+        if hasattr(self,'_vsvg'): self._vsvg.update_sim_results(vg_sweeps)
+        if hasattr(self,'_vsvo'): self._vsvo.update_sim_results(vg_sweeps)
+        if hasattr(self,'_vsvd'): self._vsvd.update_sim_results(vd_sweeps)
+        if hasattr(self,'_vsid'): self._vsid.update_sim_results(vg_sweeps)
+        
+    def update_figures_helper(self, vizid=None):
+        actually_did_update=False
+        if hasattr(self,'_vsvg'): actually_did_update|=self._vsvg.update_figures(vizid=vizid)
+        if hasattr(self,'_vsvo'): actually_did_update|=self._vsvo.update_figures(vizid=vizid)
+        if hasattr(self,'_vsvd'): actually_did_update|=self._vsvd.update_figures(vizid=vizid)
+        if hasattr(self,'_vsid'): actually_did_update|=self._vsid.update_figures(vizid=vizid)
+        return actually_did_update
 
     @property
     def fstart(self):
@@ -1274,7 +1327,10 @@ class SParVBiasTemplate(SParTemplate,VsIrregularBiasAtFreq):
 
     def generate_figures(self, *args, **kwargs):
         return VsIrregularBiasAtFreq.generate_figures_helper(self,*args,**kwargs)
-
+    def _set_meas_data(self, raw_meas_data):
+        return VsIrregularBiasAtFreq.set_meas_data_helper(self,raw_meas_data)
+    def update_sim_results(self, *args, **kwargs):
+        return VsIrregularBiasAtFreq.update_sim_results_helper(self,*args, **kwargs)
     def update_figures(self, *args, **kwargs):
         return VsIrregularBiasAtFreq.update_figures_helper(self,*args, **kwargs)
 
@@ -1361,6 +1417,10 @@ class HFNoiseVBiasTemplate(HFNoiseTemplate,VsIrregularBiasAtFreq):
     def generate_figures(self, *args, **kwargs):
         return VsIrregularBiasAtFreq.generate_figures_helper(self,*args,**kwargs)
 
+    def _set_meas_data(self, raw_meas_data):
+        return VsIrregularBiasAtFreq.set_meas_data_helper(self,raw_meas_data)
+    def update_sim_results(self, *args, **kwargs):
+        return VsIrregularBiasAtFreq.update_sim_results_helper(self,*args, **kwargs)
     def update_figures(self, *args, **kwargs):
         return VsIrregularBiasAtFreq.update_figures_helper(self,*args, **kwargs)
 
@@ -1539,7 +1599,10 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
     def generate_figures(self, *args, **kwargs):
         #import pdb; pdb.set_trace()
         return VsIrregularBiasAtFreq.generate_figures_helper(self,*args,**kwargs,y_axis_type='log',x_axis_type='log')
-
+    def _set_meas_data(self, raw_meas_data):
+        return VsIrregularBiasAtFreq.set_meas_data_helper(self,raw_meas_data)
+    def update_sim_results(self, *args, **kwargs):
+        return VsIrregularBiasAtFreq.update_sim_results_helper(self,*args, **kwargs)
     def update_figures(self, *args, **kwargs):
         return VsIrregularBiasAtFreq.update_figures_helper(self,*args, **kwargs)
 
@@ -1550,6 +1613,7 @@ class TemplateGroup(UserDict[str,SimTemplate]):
     def __init__(self,**templates):
         super().__init__(**templates)
         self._panes={}
+        self._reverse_lookup={id(t):tn for tn,t in self.items()}
     def set_patch(self,params_by_template):
         if isinstance(params_by_template,ParamPatch):
             for t in self.values():
@@ -1561,24 +1625,41 @@ class TemplateGroup(UserDict[str,SimTemplate]):
     def only(self,*names):
         assert all(n in self for n in names)
         return self.__class__(**{k:v for k,v in self.items() if k in names})
+    def name_of_template(self,template:Template):
+        return self._reverse_lookup[id(template)]
 
     def get_figure_pane(self, meas_data=None, fig_layout_params={},vizid=None):
         figs=sum([t.generate_figures(
-                            meas_data=meas_data.get(stname,None),
                             layout_params=fig_layout_params, vizid=vizid)
                        for stname,t in self.items()],[])
         self._panes[vizid]=pn.pane.Bokeh(bokeh.layouts.gridplot([figs]))
         return self._panes[vizid]
 
-    def update_figures(self, new_results, vizid=None):
+    def items_simtemps(self) -> Generator[tuple[str,SimTemplate],None,None]:
+        for tn,t in self.items():
+            if isinstance(t,SimTemplate): yield tn,t
+    def items_non_simtemps(self) -> Generator[tuple[str,Template],None,None]:
+        for tn,t in self.items():
+            if not isinstance(t,SimTemplate): yield tn,t
+
+    def update_sim_results(self, new_results):
+        for stname,st in self.items_simtemps():
+            st.update_sim_results((new_results[stname] if new_results else None))
+        
+    def update_figures(self, vizid=None):
         actually_did_update=False
         for stname in self:
-            if self[stname].update_figures((new_results[stname] if new_results else None),vizid=vizid):
+            if self[stname].update_figures(vizid=vizid):
                 actually_did_update=True
         if actually_did_update:
             logger.debug(f"(Not) pushing bokeh update to notebook for vizid {vizid}")
             # Apparently this isn't needed anymore?
             #pn.io.push_notebook(self._panes[vizid])
+
+    def update_sim_results_and_figures(self,new_results, vizid):
+        raise Exception("Deprecated, use separate calls to update_sim_results and update_figures because you should update all sim results (from potentially other groups) before figures!")
+        self.update_sim_results(new_results)
+        self.update_figures(vizid=vizid)
 
     def parsed_results_to_vector(self,parsed_results,roi, meas_parsed_results):
         return np.concatenate([simtemp.parsed_results_to_vector(parsed_results[k],roi[k],meas_parsed_results[k]) for k,simtemp in self.items()])
@@ -1589,3 +1670,45 @@ class TemplateGroup(UserDict[str,SimTemplate]):
                 self[stname].to_csv(parsed_results[stname],filename=f'{prefix}{stname}.csv')
             else:
                 print(f"Skipping {stname} because not present")
+
+class CollationTemplate(Template):
+
+    # These don't serve a real purpose but adding them for now so that
+    # Optimizers don't have to special-case CollationTemplates
+    def set_patch(self,patch): pass
+    def apply_patch(self,params): pass
+    def rebase_paramset(self,paramset:ParamSet|None): pass
+
+class FunctionCollationTemplate(CollationTemplate):
+    def __init__(self, templates_by_x:dict[Any,SimTemplate],
+                 func: Callable[[SimTemplate,PostParsedResult],dict[str,float]],
+                 x_name:str, y_names:list[str], func_kwargs:dict={}, **kwargs):
+        super().__init__(**kwargs)
+        self.templates_by_x=templates_by_x
+        self.func=func
+        self.func_kwargs=func_kwargs
+        self.xname=x_name
+        self.ynames=y_names
+        self.outer_variable=None
+        self.latest_results=None
+
+    def _required_keys(self) -> list:
+        return ['']
+    
+    @property
+    def dependencies(self) -> list['Template']: return list(self.templates_by_x.values())
+
+    @property
+    def meas_data(self):
+        df=pd.DataFrame([{self.xname:x}|self.func(templ,templ.meas_data,**self.func_kwargs) for x,templ in self.templates_by_x.items()])
+        return {'':df[[self.xname]+self.ynames]}
+    
+    def extract(self):
+        logger.debug("recollecting latest results")
+        df=pd.DataFrame([{self.xname:x}|self.func(templ,templ.latest_results,**self.func_kwargs) for x,templ in self.templates_by_x.items()])
+        return {'':df[[self.xname]+self.ynames]}
+    
+    def update_sim_results(self, new_results:dict[str,PostParsedResult]|None):
+        self.latest_results=new_results
+    def update_figures(self, vizid=None) -> bool:
+        return SimTemplate.update_figures(self, vizid=vizid)

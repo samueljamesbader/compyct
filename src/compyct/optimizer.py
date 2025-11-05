@@ -14,10 +14,10 @@ from compyct import logger, set_logging_callback, unset_logging_callback
 from compyct.paramsets import spicenum_to_float, ParamPatch
 from compyct.backends.backend import MultiSimSesh, SimulatorCommandException
 from scipy.optimize import curve_fit
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
-from compyct.templates import TemplateGroup
+from compyct.templates import SimTemplate, TemplateGroup
 from contextlib import contextmanager
 
 
@@ -48,7 +48,9 @@ class SemiAutoOptimizer():
         self._tabbed_template_groups: dict[str,TemplateGroup] =\
             {tabname: self.global_template_group.only(*tempnames)\
                  for tabname,tempnames in self.tabbed_templates.items()}
-        self._mss=MultiSimSesh.get_with_backend(self.global_template_group, backend=self.backend,**self.backend_kwargs)
+        self._mss=MultiSimSesh.get_with_backend(
+                    {k:v for k,v in self.global_template_group.items() if isinstance(v,SimTemplate)},
+                    backend=self.backend,**self.backend_kwargs)
 
     def load(self, save_name, rerun=True):
         with open(self.output_dir/(save_name+".yaml"),'r') as f:
@@ -133,12 +135,23 @@ class SemiAutoOptimizer():
             self.global_patch.update(backup_values)
             raise
 
-    def rerun(self,tabname):
+    def rerun(self,temps:list[str]|None):
         # Ignoring tabname and rerunning-updating all
         #assert tabname is None
-        with self.ensure_within_sesh() as mss:
-            new_results=mss.run_with_params(self.global_patch,
-                    only_temps=(self._tabbed_template_groups[tabname] if tabname else None))
+        new_results={}
+        remaining_temps=set(temps) if temps is not None else set(self.global_template_group.keys())
+        while len(remaining_temps):
+            ready_to_run=[tn for tn in remaining_temps if all(self.global_template_group.name_of_template(dt) not in remaining_temps
+                                                              for dt in self.global_template_group[tn].dependencies)]
+            logger.debug(f"Rerun remaining temps: {remaining_temps}, ready to run: {ready_to_run}")
+            with self.ensure_within_sesh() as mss:
+                simtemps=[tn for tn in ready_to_run if isinstance(self.global_template_group[tn],SimTemplate)]
+                nonsimtemps=[tn for tn in ready_to_run if not isinstance(self.global_template_group[tn],SimTemplate)]
+                new_results|=mss.run_with_params(self.global_patch, only_temps=simtemps)
+                new_results|={tn:self.global_template_group[tn].extract() for tn in nonsimtemps}
+                for tn in ready_to_run:
+                    self.global_template_group[tn].update_sim_results(new_results.get(tn,None))
+            remaining_temps.difference_update(ready_to_run)
         return new_results
 
 
@@ -148,6 +161,7 @@ from compyct.gui import make_widget
 
 class SemiAutoOptimizerGui(CompositeWidget):
 
+    _sao: SemiAutoOptimizer
     def __init__(self, sao: SemiAutoOptimizer, save_name: str = 'sim_save', fig_layout_params={},load_before_run=False,**kwargs):
         super().__init__(height=600,sizing_mode='stretch_width',**kwargs)
         self._sao=sao
@@ -158,10 +172,10 @@ class SemiAutoOptimizerGui(CompositeWidget):
 
         self.start_sesh()
         #self._load()
-        self._needs_rerun={tn:True for tn in self._tabbed_template_groups}
+        self._needs_rerun={stn:True for stn in self.global_template_group}
         if load_before_run:
             self._load_button_pressed(None)
-        self.rerun_and_update(self._active_tab)
+        self.rerun_and_update_tab(self._active_tab)
 
 
     def start_sesh(self):
@@ -301,7 +315,7 @@ class SemiAutoOptimizerGui(CompositeWidget):
             raise e
         finally:
             self.running_ind.value=False
-        self.rerun_and_update(active)
+        self.rerun_and_update_tab(active)
         self.update_widgets_from_global_patch()
 
     def _load_button_pressed(self, event):
@@ -318,24 +332,29 @@ class SemiAutoOptimizerGui(CompositeWidget):
         except Exception as e:
             logger.debug("Error loading from previous save:")
             logger.debug(str(e))
-        self.rerun_and_update(self._active_tab)
+        self.rerun_and_update_tab(self._active_tab)
 
     def _save_button_pressed(self, event):
         save_name=self._save_name_input.value if hasattr(self,'_save_name_input') else self.default_save_name
         self._sao.save(save_name,additional={'activated':{tn:{a:check.value for a,check in checks.items()}
                                                           for tn, checks in self._checkboxes.items()}})
 
-    def reset_all_figures(self, except_for=None):
-        for tn,vizid in self._tabname_to_vizid.items():
-            if except_for==tn: continue
-            if not self._needs_rerun[tn]:
-                self._tabbed_template_groups[tn].update_figures(None,vizid=vizid)
-            self._needs_rerun[tn]=True
-
+    def reset_all_figures(self, except_for_tabname=None):
+        for stname,st in self.global_template_group.items():
+            st.update_sim_results(None)
+            self._needs_rerun[stname]=True
+        for tabn,vizid in self._tabname_to_vizid.items():
+            if except_for_tabname==tabn: continue
+            for stname,st in self._tabbed_template_groups[tabn].items():
+                st.update_figures(vizid=vizid)
 
     def _tab_changed(self, event):
-        if self._needs_rerun[self._active_tab]:
-            self.rerun_and_update(self._active_tab)
+        self.rerun_and_update_tab(self._active_tab)
+        #tg=self._tabbed_template_groups[self._active_tab]
+        #simtemps=[tn for tn,t in tg.items() if isinstance(t,SimTemplate) and self._needs_rerun[tn]]
+        #self.rerun(simtemps)
+        #for tname,t in tg.items():
+        #    t.update_figures(vizid=self._tabname_to_vizid[self._active_tab])
 
     def _updated_widget(self,tabname,param):
         if self._should_respond_to_param_widgets:
@@ -349,9 +368,9 @@ class SemiAutoOptimizerGui(CompositeWidget):
                 #self.update_widgets_from_global_patch(only_param="YYYYYYYYYYYY")
                 self.update_widgets_from_global_patch(only_param=param) # Can hopefully skip this, except would need to update visibility manually
                 logger.debug(f'about to reset figures')
-                self.reset_all_figures(except_for=tabname)
+                self.reset_all_figures(except_for_tabname=tabname)
                 logger.debug(f'about to rerun')
-                self.rerun_and_update(tabname)
+                self.rerun_and_update_tab(tabname)
                 logger.debug(f'Done')
 
     def update_widgets_from_global_patch(self,only_param=None):
@@ -387,17 +406,31 @@ class SemiAutoOptimizerGui(CompositeWidget):
         #    bokeh.io.curdoc().unhold()
         logger.info(f"done redo vis")
 
-    def rerun_and_update(self,tabname):
+    def _rerun(self,simtemps:list[str]):
+        if not len(simtemps): return
         try:
             self.running_ind.value=True
-            new_results=self._sao.rerun(tabname)
-            run_error=False
+            new_results=self._sao.rerun(simtemps)
         except NgSpiceCommandError as e:
             new_results=None
-            run_error=True
+            logger.warning(f"Ngspice run error: {e}")
+        else:
+            logger.info(f"Simulation run complete {list(new_results.keys())}")
         finally:
             self.running_ind.value=False
-        for tn,vizid in self._tabname_to_vizid.items():
-            if ((tabname is None) or (tn==tabname)):
-                self._needs_rerun[tn]=False
-                self._tabbed_template_groups[tn].update_figures(new_results,vizid=vizid)
+        if new_results is None: return
+        for stname in simtemps:
+            self._needs_rerun[stname]=False
+    
+    def rerun_and_update_tab(self, tabname):
+        to_rerun={tn:t for tn,t in self._tabbed_template_groups[tabname].items() if self._needs_rerun[tn]}
+        while True:
+            adds={self.global_template_group.name_of_template(dt):dt for t in to_rerun.values() for dt in t.dependencies}
+            new_tos={tn:t for tn,t in adds.items() if self._needs_rerun[tn] and (tn not in to_rerun)}
+            if not len(new_tos): break
+            to_rerun.update(new_tos)
+        self._rerun(list(to_rerun))
+        #self.rerun([tn for tn,t in self._tabbed_template_groups[tabname].items() if isinstance(t,SimTemplate)])
+        vizid=self._tabname_to_vizid[tabname]
+        for tname,t in self._tabbed_template_groups[tabname].items():
+            t.update_figures(vizid=vizid)
