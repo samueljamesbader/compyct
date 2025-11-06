@@ -341,13 +341,17 @@ class NgspiceMultiSimSesh(MultiSimSesh):
             cms=['spice2poly','analog','digital','xtradev','xtraevt','table']
             if any((f"{cm}.cm couldn't be loaded" in w) for cm in cms):
                 continue
+            if any((f"{cm}.cm" in w) and ("Error opening code model" in w) for cm in cms):
+                continue
+            if "The specified module could not be found" in w: # accompanies the above
+                continue
             if "Unsupported Ngspice version 41" in w:
                 continue
             if "Unsupported Ngspice version 42" in w:
                 continue
             if "Unsupported Ngspice version 45" in w:
                 continue
-            raise Exception("New error while trying to load Ngspice... "+w)
+            raise Exception("New error while trying to load Ngspice... "+w+"\n\n"+"\n".join('>>>'+w for w in ngs_warnings))
 
         self._ensure_clear_ngspice()
 

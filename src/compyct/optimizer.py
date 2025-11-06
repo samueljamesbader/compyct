@@ -45,9 +45,17 @@ class SemiAutoOptimizer():
 
     def __post_init__(self):
         assert self.output_dir is not None
-        self._tabbed_template_groups: dict[str,TemplateGroup] =\
-            {tabname: self.global_template_group.only(*tempnames)\
-                 for tabname,tempnames in self.tabbed_templates.items()}
+        if any('|||' in k for k in self.global_template_group):
+            self.major_tabnames=list(dict.fromkeys(k.split("|||")[0] for k in self.global_template_group))
+        else: self.major_tabnames=['']
+        print(self.major_tabnames)
+        self._tabbed_template_groups: dict[str,TemplateGroup] = {k:v for k,v in \
+                {f"{mt}|||{tabname}": self.global_template_group\
+                        .only(*[f"{mt}|||{tn}" for tn in tempnames],error_if_missing=False)\
+                    for mt in self.major_tabnames for tabname,tempnames in self.tabbed_templates.items()}\
+            .items() if len(v)>0}
+        print(self._tabbed_template_groups.keys())
+            
         self._mss=MultiSimSesh.get_with_backend(
                     {k:v for k,v in self.global_template_group.items() if isinstance(v,SimTemplate)},
                     backend=self.backend,**self.backend_kwargs)
@@ -137,7 +145,7 @@ class SemiAutoOptimizer():
 
     def rerun(self,temps:list[str]|None):
         with self.ensure_within_sesh() as mss:
-            rerun_with_params(patch=self.global_patch,temps=temps,global_template_group=self.global_template_group, mss=mss)
+            return rerun_with_params(patch=self.global_patch,temps=temps,global_template_group=self.global_template_group, mss=mss)
 
 def rerun_with_params(patch:ParamPatch, temps:list[str]|None, global_template_group: TemplateGroup, mss: MultiSimSesh):
     new_results={}
@@ -203,7 +211,6 @@ class SemiAutoOptimizerGui(CompositeWidget):
             raise AttributeError(attr)
 
     def make_gui(self):
-        tabs=[]
         self._widgets={}
         self._checkboxes={}
         self._wlines={}
@@ -211,56 +218,64 @@ class SemiAutoOptimizerGui(CompositeWidget):
         self._wcols={}
         self._tabname_to_vizid={}
         self._param_to_widgets={}
+        major_tabs=[]
+        self._mtnotno_to_tabn={}
 
         vizid_offset=round(datetime.now().timestamp()*1e3)
-        for vizid_, (tabname, tg) in enumerate(self._tabbed_template_groups.items()):
-            vizid=vizid_offset+vizid_
-            self._tabname_to_vizid[tabname]=vizid
-            fp=tg.get_figure_pane(meas_data=self.global_meas_data,fig_layout_params=self._fig_layout_params,vizid=vizid)
+        for imt,mt in enumerate(self._sao.major_tabnames):
+            tabs=[]
+            for vizid_, (tabname, tg) in enumerate([(tabname,tg) for tabname,tg in self._tabbed_template_groups.items() if tabname.startswith(f"{mt}|||")]):
+                vizid=vizid_offset+vizid_
+                self._tabname_to_vizid[tabname]=vizid
+                fp=tg.get_figure_pane(fig_layout_params=self._fig_layout_params,vizid=vizid)
 
-            self._widgets[tabname]={param:make_widget(self.global_patch.param_set, param, self.global_patch[param])
-                                    for param in self.tabbed_actives[tabname]}
-            self._hovers[tabname]={param:pn.widgets.Button(name='?') for param in self.tabbed_actives[tabname]}
-            for p,h in self._hovers[tabname].items():
-                h.on_click(lambda e,p=p: logger.info(f"{p}: {self.global_patch.get_description(p)}"))
-            self._checkboxes[tabname]={
-                param:pn.widgets.Checkbox(value=(self.global_patch.get_dtype(param)==float),
-                                          width=5,sizing_mode='stretch_height',
-                                          disabled=(self.global_patch.get_dtype(param)!=float))\
-                    for param in self.tabbed_actives[tabname]}
-            self._wlines[tabname]={p:pn.Row(pn.Column(
-                                             pn.VSpacer(),pn.VSpacer(),c,pn.VSpacer(),width=15,height=60),w,h)
-                                   for (p,c),w,h in zip(self._checkboxes[tabname].items(),
-                                                      self._widgets[tabname].values(),
-                                                      self._hovers[tabname].values())}
-            for param,w in self._widgets[tabname].items():
-                w.param.watch((lambda event, tabname=tabname, param=param: self._updated_widget(tabname,param)),'value')
+                self._widgets[tabname]={param:make_widget(self.global_patch.param_set, param, self.global_patch[param])
+                                        for param in self.tabbed_actives[tabname.split("|||")[-1]]}
+                self._hovers[tabname]={param:pn.widgets.Button(name='?') for param in self.tabbed_actives[tabname.split("|||")[-1]]}
+                for p,h in self._hovers[tabname].items():
+                    h.on_click(lambda e,p=p: logger.info(f"{p}: {self.global_patch.get_description(p)}"))
+                self._checkboxes[tabname]={
+                    param:pn.widgets.Checkbox(value=(self.global_patch.get_dtype(param)==float),
+                                              width=5,sizing_mode='stretch_height',
+                                              disabled=(self.global_patch.get_dtype(param)!=float))\
+                        for param in self.tabbed_actives[tabname.split("|||")[-1]]}
+                self._wlines[tabname]={p:pn.Row(pn.Column(
+                                                 pn.VSpacer(),pn.VSpacer(),c,pn.VSpacer(),width=15,height=60),w,h)
+                                       for (p,c),w,h in zip(self._checkboxes[tabname].items(),
+                                                          self._widgets[tabname].values(),
+                                                          self._hovers[tabname].values())}
+                for param,w in self._widgets[tabname].items():
+                    w.param.watch((lambda event, tabname=tabname, param=param: self._updated_widget(tabname,param)),'value')
 
-            p_by_cat=self._sao.global_patch.param_set.get_categorized(list(self.tabbed_actives[tabname]))
-            for p, w in self._widgets[tabname].items():
-                self._param_to_widgets[p]=self._param_to_widgets.get(p,[])+[w]
-            #pse=self._sao.global_patch._ps_example
-            #for p in self._wlines[tabname]:
-            #    cat=pse._shared_paramdict[p].get("category","Misc")
-            #    if cat not in p_by_cat: p_by_cat[cat]=[]
-            #    p_by_cat[cat].append(p)
-            #for cat in p_by_cat:
-            #    p_by_cat[cat]=list(sorted(p_by_cat[cat],key=lambda p: ((pse.get_dtype(p) is not int), p)))
-            self._wcols[tabname]=pn.Column(pn.layout.Accordion(
-                    *[(cat,pn.Column(*(self._wlines[tabname][p] for p in p_by_cat[cat])))
-                        for cat in sorted(p_by_cat)],
-                    active=(list(range(len(p_by_cat))) if len(p_by_cat)<=2 else []),
-                    sizing_mode='fixed',
-                    width=175,),
-                    width=200,sizing_mode='stretch_height',scroll=True)
+                p_by_cat=self._sao.global_patch.param_set.get_categorized(list(self.tabbed_actives[tabname.split("|||")[-1]]))
+                for p, w in self._widgets[tabname].items():
+                    self._param_to_widgets[p]=self._param_to_widgets.get(p,[])+[w]
+                #pse=self._sao.global_patch._ps_example
+                #for p in self._wlines[tabname]:
+                #    cat=pse._shared_paramdict[p].get("category","Misc")
+                #    if cat not in p_by_cat: p_by_cat[cat]=[]
+                #    p_by_cat[cat].append(p)
+                #for cat in p_by_cat:
+                #    p_by_cat[cat]=list(sorted(p_by_cat[cat],key=lambda p: ((pse.get_dtype(p) is not int), p)))
+                self._wcols[tabname]=pn.Column(pn.layout.Accordion(
+                        *[(cat,pn.Column(*(self._wlines[tabname][p] for p in p_by_cat[cat])))
+                            for cat in sorted(p_by_cat)],
+                        active=(list(range(len(p_by_cat))) if len(p_by_cat)<=2 else []),
+                        sizing_mode='fixed',
+                        width=175,),
+                        width=200,sizing_mode='stretch_height',scroll=True)
 
-            #self._wcols[tabname]=pn.Column(acc,
-                                     #width=175,sizing_mode='stretch_height',scroll=True)
-            content=pn.Row(self._wcols[tabname],fp)
+                #self._wcols[tabname]=pn.Column(acc,
+                                         #width=175,sizing_mode='stretch_height',scroll=True)
+                content=pn.Row(self._wcols[tabname],fp)
 
-            tabs.append((tabname,content))
+                tabs.append((tabname.split("|||")[-1],content))
+                self._mtnotno_to_tabn[(imt,vizid_)]=tabname
+            tabs=pn.Tabs(*tabs,height=350)
+            tabs.param.watch(self._tab_changed,['active'])
+            major_tabs.append((mt,tabs))
 
-        self._tabs=pn.Tabs(*tabs,height=350)
+        self._major_tabs=pn.Tabs(*major_tabs,height=400)
         sesh_button=self._sesh_button=pn.widgets.Button(name="Start Sesh")
         opt_button=pn.widgets.Button(name="Optimize tab")
         running_ind=self.running_ind=pn.widgets.LoadingSpinner(value=False,size=25)
@@ -272,12 +287,12 @@ class SemiAutoOptimizerGui(CompositeWidget):
         opt_button.on_click(self._opt_button_pressed)
         save_button.on_click(self._save_button_pressed)
         load_button.on_click(self._load_button_pressed)
-        self._tabs.param.watch(self._tab_changed,['active'])
+        self._major_tabs.param.watch(self._tab_changed,['active'])
         self._log_view=pn.widgets.TextAreaInput(sizing_mode='stretch_both')
 
         self.redo_widget_visibility()
         return pn.Column(pn.Row(sesh_button,opt_button,running_ind,pn.HSpacer(),save_name_input,save_button,load_button,sizing_mode='stretch_width'),
-                         self._tabs,self._log_view,height=550)
+                         self._major_tabs,self._log_view,height=550)
 
     @contextmanager
     def dont_trigger_param_widgets(self):
@@ -290,7 +305,7 @@ class SemiAutoOptimizerGui(CompositeWidget):
 
     @property
     def _active_tab(self):
-        return list(self._tabbed_template_groups)[self._tabs.active]
+        return self._mtnotno_to_tabn[(self._major_tabs.active,self._major_tabs[self._major_tabs.active].active)]
 
     def _sesh_button_pressed(self, event):
         if self._sao._mss.is_entered:

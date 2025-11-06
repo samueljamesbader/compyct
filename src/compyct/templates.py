@@ -36,6 +36,7 @@ class Template():
     def __init__(self, title: Optional[str]=None):
         self._sources={}
         self.title=title
+        self._fig_is_clear={}
 
     @property
     def dependencies(self) -> list['Template']: return []
@@ -92,7 +93,7 @@ class Template():
     
         self._sources[vizid]\
                =[self._update_cds_with_parsed_result(cds=None,parsed_result=None)]
-        self._fig_is_clear={vizid:True}
+        self._fig_is_clear[vizid]=True
 
         meas_data=self.meas_data
         meas_cds_c=self._update_cds_with_parsed_result(cds=None,
@@ -1622,13 +1623,14 @@ class TemplateGroup(UserDict[str,SimTemplate]):
             assert set(params_by_template.keys())==set(self.keys())
             for k,t in self.items():
                 t.set_patch(params_by_template[k])
-    def only(self,*names):
-        assert all(n in self for n in names)
+    def only(self,*names,error_if_missing=True):
+        if error_if_missing:
+            assert all(n in self for n in names), f"Some of {names} not in TemplateGroup"
         return self.__class__(**{k:v for k,v in self.items() if k in names})
     def name_of_template(self,template:Template):
         return self._reverse_lookup[id(template)]
 
-    def get_figure_pane(self, meas_data=None, fig_layout_params={},vizid=None):
+    def get_figure_pane(self, fig_layout_params={},vizid=None):
         figs=sum([t.generate_figures(
                             layout_params=fig_layout_params, vizid=vizid)
                        for stname,t in self.items()],[])
