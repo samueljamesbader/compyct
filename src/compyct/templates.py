@@ -1689,7 +1689,9 @@ class FunctionCollationTemplate(CollationTemplate):
                  templates_by_x:list[tuple[Any,SimTemplate]]|None=None,
                  templates:list[SimTemplate]|None=None,
                  x_patch_attribute:str|None=None,
-                 func_kwargs:dict={}, **kwargs):
+                 func_kwargs:dict={},
+                 yscales=None,
+                 **kwargs):
         super().__init__(**kwargs)
         if templates_by_x is not None:
             assert templates is None, "Provide either templates_by_x or templates, not both"
@@ -1708,6 +1710,7 @@ class FunctionCollationTemplate(CollationTemplate):
         self.func_kwargs=func_kwargs
         self.xname=x_name
         self.ynames=y_names
+        self.yscales=yscales
         self.outer_variable=None
         self.latest_results=None
 
@@ -1734,3 +1737,8 @@ class FunctionCollationTemplate(CollationTemplate):
         self.latest_results=new_results
     def update_figures(self, vizid=None) -> bool:
         return SimTemplate.update_figures(self, vizid=vizid)
+    
+    def generate_figures(self, *args, **kwargs):
+        if 'y_axis_type' not in kwargs and self.yscales is not None:
+            kwargs['y_axis_type']=self.yscales
+        return super().generate_figures(*args, **kwargs)
