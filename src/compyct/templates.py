@@ -12,6 +12,7 @@ import panel as pn
 from bokeh.models import HoverTool, CustomJSHover, ColumnDataSource
 from bokeh.palettes import TolRainbow, Category10_10
 #from scipy.integrate import cumtrapz
+from pint import DimensionalityError
 from scipy.integrate import cumulative_trapezoid as cumtrapz
 from scipy.interpolate import interp1d
 
@@ -1682,11 +1683,27 @@ class CollationTemplate(Template):
     def rebase_paramset(self,paramset:ParamSet|None): pass
 
 class FunctionCollationTemplate(CollationTemplate):
-    def __init__(self, templates_by_x:dict[Any,SimTemplate],
+    def __init__(self,
                  func: Callable[[SimTemplate,PostParsedResult],dict[str,float]],
-                 x_name:str, y_names:list[str], func_kwargs:dict={}, **kwargs):
+                 x_name:str, y_names:list[str], 
+                 templates_by_x:list[tuple[Any,SimTemplate]]|None=None,
+                 templates:list[SimTemplate]|None=None,
+                 x_patch_attribute:str|None=None,
+                 func_kwargs:dict={}, **kwargs):
         super().__init__(**kwargs)
-        self.templates_by_x=templates_by_x
+        if templates_by_x is not None:
+            assert templates is None, "Provide either templates_by_x or templates, not both"
+            assert x_patch_attribute is None, "x_patch_attribute not needed when providing templates_by_x"
+            self.templates_by_x=templates_by_x
+        else:
+            assert templates is not None, "Must provide either templates_by_x or templates"
+            assert x_patch_attribute is not None, "Must provide x_patch_attribute when providing templates"
+            if '[' in x_patch_attribute:
+                disp_units=x_patch_attribute.split('[')[1].split(']')[0].strip()
+                x_patch_attribute=x_patch_attribute.split('[')[0].strip()
+            else: disp_units=None
+            self.templates_by_x=[(t._patch.get_as_float(x_patch_attribute,units=disp_units),t) for t in templates]
+
         self.func=func
         self.func_kwargs=func_kwargs
         self.xname=x_name
@@ -1698,16 +1715,19 @@ class FunctionCollationTemplate(CollationTemplate):
         return ['']
     
     @property
-    def dependencies(self) -> list['Template']: return list(self.templates_by_x.values())
+    def dependencies(self) -> list['Template']: return [t for _,t in self.templates_by_x]
 
     @property
     def meas_data(self):
-        df=pd.DataFrame([{self.xname:x}|self.func(templ,templ.meas_data,**self.func_kwargs) for x,templ in self.templates_by_x.items()])
+        try:
+            df=pd.DataFrame([{self.xname:x}|self.func(templ,templ.meas_data,**self.func_kwargs) for x,templ in self.templates_by_x])
+        except:
+            import pdb; pdb.set_trace()
         return {'':df[[self.xname]+self.ynames]}
     
     def extract(self):
         logger.debug("recollecting latest results")
-        df=pd.DataFrame([{self.xname:x}|self.func(templ,templ.latest_results,**self.func_kwargs) for x,templ in self.templates_by_x.items()])
+        df=pd.DataFrame([{self.xname:x}|self.func(templ,templ.latest_results,**self.func_kwargs) for x,templ in self.templates_by_x])
         return {'':df[[self.xname]+self.ynames]}
     
     def update_sim_results(self, new_results:dict[str,PostParsedResult]|None):

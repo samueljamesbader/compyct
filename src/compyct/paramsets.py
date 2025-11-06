@@ -297,6 +297,24 @@ class ParamPatch(UserDict):
 
     def get_total_device_width(self):
         return self.param_set.get_total_device_width_for_patch(self)
+    
+    def get_as_float(self, param, units=None):
+        val=self[param]
+        if type(val) is str:
+            val=spicenum_to_float(val)
+        if units is not None:
+            from compyct import ureg
+            try: true_units=self.get_units(param)
+            except KeyError: raise Exception(f"No units provided for {p}")
+            try: scale=(ureg.parse_expression(true_units)/ureg.parse_expression(units)).to("").magnitude
+            except DimensionalityError as e:
+                raise Exception(f"Units of {true_units} and desired units of {units}" \
+                                f" for {param} are not compatible. Pint says \"{str(e)}\"")
+            except Exception as e:
+                raise Exception(f"Unit error on {param}. Pint says \"{str(e)}\"")
+            val=val*scale
+            
+        return val
 
 class GuessedSubcktParamSet(ParamSet):
 

@@ -228,17 +228,17 @@ class SemiAutoOptimizerGui(CompositeWidget):
                 vizid=vizid_offset+vizid_
                 self._tabname_to_vizid[tabname]=vizid
                 fp=tg.get_figure_pane(fig_layout_params=self._fig_layout_params,vizid=vizid)
-
+                params=self.tabbed_actives.get(tabname.split("|||")[-1],[])
                 self._widgets[tabname]={param:make_widget(self.global_patch.param_set, param, self.global_patch[param])
-                                        for param in self.tabbed_actives[tabname.split("|||")[-1]]}
-                self._hovers[tabname]={param:pn.widgets.Button(name='?') for param in self.tabbed_actives[tabname.split("|||")[-1]]}
+                                        for param in params}
+                self._hovers[tabname]={param:pn.widgets.Button(name='?') for param in params}
                 for p,h in self._hovers[tabname].items():
                     h.on_click(lambda e,p=p: logger.info(f"{p}: {self.global_patch.get_description(p)}"))
                 self._checkboxes[tabname]={
                     param:pn.widgets.Checkbox(value=(self.global_patch.get_dtype(param)==float),
                                               width=5,sizing_mode='stretch_height',
                                               disabled=(self.global_patch.get_dtype(param)!=float))\
-                        for param in self.tabbed_actives[tabname.split("|||")[-1]]}
+                        for param in params}
                 self._wlines[tabname]={p:pn.Row(pn.Column(
                                                  pn.VSpacer(),pn.VSpacer(),c,pn.VSpacer(),width=15,height=60),w,h)
                                        for (p,c),w,h in zip(self._checkboxes[tabname].items(),
@@ -247,7 +247,7 @@ class SemiAutoOptimizerGui(CompositeWidget):
                 for param,w in self._widgets[tabname].items():
                     w.param.watch((lambda event, tabname=tabname, param=param: self._updated_widget(tabname,param)),'value')
 
-                p_by_cat=self._sao.global_patch.param_set.get_categorized(list(self.tabbed_actives[tabname.split("|||")[-1]]))
+                p_by_cat=self._sao.global_patch.param_set.get_categorized(params)
                 for p, w in self._widgets[tabname].items():
                     self._param_to_widgets[p]=self._param_to_widgets.get(p,[])+[w]
                 #pse=self._sao.global_patch._ps_example
