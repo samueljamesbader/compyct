@@ -318,7 +318,7 @@ class ParamPatch(UserDict):
 
 class GuessedSubcktParamSet(ParamSet):
 
-    def __init__(self, model, file, section="", display_yaml=None):
+    def __init__(self, model, file, section="", display_yaml=None, assumed_units={}):
         self.file=file
         self.section=section
         scs_includes=[(str(file),"section="+section)]
@@ -344,7 +344,7 @@ class GuessedSubcktParamSet(ParamSet):
                         assert defaults is None
                         defaults=dict([eq.split("=") for eq in l.split()[1:]])
         #defaults['m']=1
-        pdict= {k:{'default':v,'units':'A.U.'} for k,v in defaults.items()}
+        pdict= {k:{'default':v,'units':assumed_units.get(k,'A.U.')} for k,v in defaults.items()}
         if 'm' in pdict: del pdict['m']
         super().__init__(model=model, terminals=terminals, pdict=pdict,
                          display_yaml=display_yaml, scs_includes=scs_includes)

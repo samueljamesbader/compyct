@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Any, Callable
 
 from compyct import logger
@@ -88,7 +89,7 @@ class MultiSimSesh():
     def is_entered(self):
         return len(self._sessions)>0
 
-    def run_with_params(self, params:'ParamPatch'={}, full_resync=False, only_temps:Optional[list[str]] = None):
+    def run_with_params(self, params:ParamPatch|None, full_resync=False, only_temps:Optional[list[str]] = None):
         raise NotImplementedError
 
 def get_va_path(vaname):

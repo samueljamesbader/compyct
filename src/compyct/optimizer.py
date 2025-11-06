@@ -147,7 +147,7 @@ class SemiAutoOptimizer():
         with self.ensure_within_sesh() as mss:
             return rerun_with_params(patch=self.global_patch,temps=temps,global_template_group=self.global_template_group, mss=mss)
 
-def rerun_with_params(patch:ParamPatch, temps:list[str]|None, global_template_group: TemplateGroup, mss: MultiSimSesh):
+def rerun_with_params(patch:ParamPatch|None, temps:list[str]|None, global_template_group: TemplateGroup, mss: MultiSimSesh):
     new_results={}
     remaining_temps=set(temps) if temps is not None else set(global_template_group.keys())
     while len(remaining_temps):

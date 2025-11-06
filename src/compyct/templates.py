@@ -1630,14 +1630,27 @@ class TemplateGroup(UserDict[str,SimTemplate]):
         return self.__class__(**{k:v for k,v in self.items() if k in names})
     def name_of_template(self,template:Template):
         return self._reverse_lookup[id(template)]
+    def __setstate__(self,state):
+        self.__dict__.update(state)
+        self._reverse_lookup={id(t):tn for tn,t in self.items()}
 
-    def get_figure_pane(self, fig_layout_params={},vizid=None):
+    def get_figure_pane(self, fig_layout_params={},vizid=None,gridplot_options={},do_update=False):
         figs=sum([t.generate_figures(
                             layout_params=fig_layout_params, vizid=vizid)
                        for stname,t in self.items()],[])
-        self._panes[vizid]=pn.pane.Bokeh(bokeh.layouts.gridplot([figs]))
+        if do_update:
+            self.update_figures(vizid=vizid)
+        # If ncols is specified, use that, else make a single row
+        # Must "unnest" figs if using ncols
+        # https://docs.bokeh.org/en/2.4.3/docs/reference/layouts.html#bokeh.layouts.gridplot
+        if (gridplot_options or {}).get('ncols',None) is not None:
+            self._panes[vizid]=pn.pane.Bokeh(bokeh.layouts.gridplot(figs,**gridplot_options))
+        else:
+            self._panes[vizid]=pn.pane.Bokeh(bokeh.layouts.gridplot([figs],**gridplot_options))
         return self._panes[vizid]
 
+    def only_simtemps(self) -> 'TemplateGroup':
+        return TemplateGroup(**{tn:t for tn,t in self.items() if isinstance(t,SimTemplate)})
     def items_simtemps(self) -> Generator[tuple[str,SimTemplate],None,None]:
         for tn,t in self.items():
             if isinstance(t,SimTemplate): yield tn,t
@@ -1654,10 +1667,10 @@ class TemplateGroup(UserDict[str,SimTemplate]):
         for stname in self:
             if self[stname].update_figures(vizid=vizid):
                 actually_did_update=True
-        if actually_did_update:
-            logger.debug(f"(Not) pushing bokeh update to notebook for vizid {vizid}")
-            # Apparently this isn't needed anymore?
-            #pn.io.push_notebook(self._panes[vizid])
+        #if actually_did_update:
+        #    logger.debug(f"(Not) pushing bokeh update to notebook for vizid {vizid}")
+        #    # Apparently this isn't needed anymore?
+        #    #pn.io.push_notebook(self._panes[vizid])
 
     def update_sim_results_and_figures(self,new_results, vizid):
         raise Exception("Deprecated, use separate calls to update_sim_results and update_figures because you should update all sim results (from potentially other groups) before figures!")
