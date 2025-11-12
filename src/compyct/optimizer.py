@@ -378,7 +378,13 @@ class SemiAutoOptimizerGui(CompositeWidget):
             #print('updated widget')
             if self._active_tab==tabname:
                 #import pdb; pdb.set_trace()
-                values={n:float(w.value)/self.global_patch.get_display_scale(n) for n,w in self._widgets[tabname].items()}
+                try:
+                    values={n:float(w.value)/self.global_patch.get_display_scale(n) for n,w in self._widgets[tabname].items()}
+                except Exception as e:
+                    logger.debug(f"Error updating from widget change:")
+                    logger.debug(str(e))
+                    self.update_widgets_from_global_patch(only_param=param) # Can hopefully skip this, except would need to update visibility manually
+                    return
                 self.global_patch.update(values)
                 logger.debug(f'Re-updating widgets from patch')
                 #self.update_widgets_from_global_patch(only_param="YYYYYYYYYYYY")

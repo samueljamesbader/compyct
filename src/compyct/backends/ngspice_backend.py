@@ -21,6 +21,9 @@ from ..util import catch_stderr, logger
 
 PseudoAnalysis=namedtuple("PseudoAnalysis",["branches","nodes"])
 
+from io import StringIO
+ngss_log=StringIO()
+
 class NgspiceNetlister(Netlister):
     GND='0'
     _netlist_num=0
@@ -179,10 +182,12 @@ class NgspiceNetlister(Netlister):
         def spar(ngss):
             narg={'lin':points,'dec':pts_per_dec}[sweep_option]
             assert narg is not None
-            ngss.exec_command(f"sp {sweep_option} {narg} {fstart} {fstop}")
+            ngss_log.write(ngss.exec_command(f"sp {sweep_option} {narg} {fstart} {fstop}"))
             # PySpice doesn't have an s-parameter analysis class yet so we'll extract it differently
             #df=self.analysis_to_df(ngss.plot(None,ngss.last_plot).to_analysis())
             plot=ngss.plot(None,ngss.last_plot)
+            #print(plot.keys())
+            #import pdb; pdb.set_trace()
             df=pd.DataFrame({
                 'freq': plot['frequency'].to_waveform(to_real=True),
 
@@ -195,6 +200,7 @@ class NgspiceNetlister(Netlister):
                 'Y12':  plot['Y_1_2'].to_waveform(),
                 'Y21':  plot['Y_2_1'].to_waveform(),
                 'Y22':  plot['Y_2_2'].to_waveform(),
+                **{v.name:v for v in plot.internal_parameters()}
             })
             ngss.destroy()
             # If we want, there are also Y parameters, Z parameters here ripe for picking

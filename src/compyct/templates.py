@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from functools import partial
 from itertools import product
 from collections import UserDict
 from typing import Any, Callable, Generator, Optional
@@ -839,7 +840,7 @@ class DCKelvinIDVDTemplate(MultiSweepSimTemplate):
 class CVTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args, temp=27, hi='g', dcs={'d':0,'s':0,'b':0}, sw='g',
-                 vg_range=(0,.03,1.8), freq='1meg', **kwargs):
+                 vg_range=(0,.03,1.8), freq:float|str='1meg', **kwargs):
         super().__init__(outer_variable=None, outer_values=[freq],
                          inner_variable=f'V{sw.upper()}', inner_range=vg_range,
                          ynames=[f'C{hi}{hi} [fF/um]'],
@@ -1093,13 +1094,13 @@ class VsIrregularBiasAtFreq():
         return parsed_result
     
     def set_meas_data_helper(self, raw_meas_data):
+        self._meas_data=self._validated(self.postparse_return(raw_meas_data))
         vg_sweeps=form_multisweep(raw_meas_data,1,0,'VG',**self._sweeper_kwargs)
         vd_sweeps=form_multisweep(raw_meas_data,0,1,'VD',**self._sweeper_kwargs)
         if hasattr(self,'_vsvg'): self._vsvg._set_meas_data(vg_sweeps)
         if hasattr(self,'_vsvo'): self._vsvo._set_meas_data(vg_sweeps)
         if hasattr(self,'_vsvd'): self._vsvd._set_meas_data(vd_sweeps)
         if hasattr(self,'_vsid'): self._vsid._set_meas_data(vg_sweeps)
-        self._meas_data=self._validated(self.postparse_return(raw_meas_data))
     
     def generate_figures_helper(self, 
                          layout_params={}, y_axis_type='linear', x_axis_type='linear',
@@ -1169,7 +1170,7 @@ class SParTemplate(MultiSweepSimTemplate):
         return [
             netlister.nstr_iabstol('1e-15'),
             netlister.nstr_temp(temp=self.temp),
-            netlister.nstr_modeled_xtor("inst",netmap=netmap),
+            netlister.nstr_modeled_xtor("inst",netmap=netmap, internals_to_save=self.internals_to_save),
             netlister.nstr_port("D",netp='netd',netm=netlister.GND,dc=vd,portnum=2,ac=0),
             netlister.nstr_port("G",netp='netg',netm=netlister.GND,dc=vg,portnum=1,ac=1)]
 
@@ -1263,7 +1264,8 @@ class SParVFreqTemplate(SParTemplate,VsFreqAtIrregularBias):
                          *args, **kwargs)
 
     def get_analysis_listing(self,netlister:Netlister):
-        return VsFreqAtIrregularBias.get_analysis_listing_helper(self,netlister_func=netlister.astr_spar,name='spar')
+        nfunc=partial(netlister.astr_spar, internals_to_save=self.internals_to_save)
+        return VsFreqAtIrregularBias.get_analysis_listing_helper(self,netlister_func=nfunc,name='spar')
 
     def parse_return(self,result):
         return VsFreqAtIrregularBias.parse_return_helper(self,result,name='spar')

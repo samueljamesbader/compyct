@@ -180,4 +180,7 @@ def form_multisweep(point_results,outeri,inneri,inner_name,queryvar,querytarget=
         sweep_results[(outer,'f')]=pd.concat(rows).assign(**{inner_name:rel_inners})
     return sweep_results
 
-
+from typing import TypeVar
+T=TypeVar('T')
+def unnest_dict(d:dict[str,dict[str,T]])->dict[str,T]:
+    return {f"{k}|||{kk}":vv for k,v in d.items() for kk,vv in v.items()}

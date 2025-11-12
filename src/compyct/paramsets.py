@@ -1,3 +1,4 @@
+from __future__ import annotations
 from collections import UserDict
 from functools import lru_cache
 from pathlib import Path
@@ -6,7 +7,7 @@ import io
 import re
 import os
 from copy import copy as _copy, deepcopy
-from typing import Any, Union
+from typing import Any, Generic, Self, TypeVar, Union
 
 import numpy as np
 import yaml
@@ -159,7 +160,7 @@ class ParamSet():
         else:
             return ParamPatch(self,{k:v['default'] for k,v in self._pdict.items() if k not in (ignore_keys or [])})
 
-    def make_complete_patch(self, **kwargs):
+    def make_complete_patch(self, **kwargs) -> ParamPatch[Self]:
         for k in kwargs:
             if k!='m': assert k in self._pdict, f"Unknown parameter {k}"
         pat=ParamPatch(self,{k:(kwargs[k] if k in kwargs else self.get_default(k)) for k in self._pdict})
@@ -168,7 +169,9 @@ class ParamSet():
 
     def mcp_(self, **kwargs): return self.make_complete_patch(**kwargs)
 
-    def make_partial_patch(self, **kwargs):
+    def make_partial_patch(self, **kwargs) -> ParamPatch[Self]:
+        for k in kwargs:
+            if k!='m': assert k in self._pdict, f"Unknown parameter {k}"
         return ParamPatch(self,**kwargs)
 
     def mpp_(self, **kwargs): return self.make_partial_patch(**kwargs)
@@ -181,7 +184,7 @@ class ParamSet():
                         for v in str(vs).split('+')
                             if param in irrs]
 
-    def translate_patch(self, patch: Union['ParamPatch',dict], other_param_set: 'ParamSet', affected_only: bool = False) -> 'ParamPatch':
+    def translate_patch(self, patch: Union[ParamPatch,dict], other_param_set: 'ParamSet', affected_only: bool = False) -> ParamPatch:
         if hasattr(patch,'param_set'):
             assert patch.param_set is self, "Can only translate patches that belong to this ParamSet"
         else:
@@ -201,8 +204,8 @@ class ParamSet():
                                 f" when trying to go from {patch.param_set} to {other_param_set}")
             return ret
 
-    def _sub_translate_patch(self, patch: Union['ParamPatch',dict], other_param_set: 'ParamSet', affected_only: bool = False)\
-            -> Union['ParamPatch',dict]:
+    def _sub_translate_patch(self, patch: Union[ParamPatch,dict], other_param_set: 'ParamSet', affected_only: bool = False)\
+            -> Union[ParamPatch,dict]:
         raise NotImplementedError
 
     def get_bounds(self, param):
@@ -216,10 +219,12 @@ class ParamSet():
     def get_total_device_width_for_patch(patch):
         raise NotImplementedError
 
-class ParamPatch(UserDict):
+PS=TypeVar("PS",bound='ParamSet',covariant=True)
+PS2=TypeVar("PS2",bound='ParamSet',covariant=True)
+class ParamPatch(UserDict,Generic[PS]):
 
-    def __init__(self, param_set:ParamSet, *args, **kwargs):
-        self.param_set: ParamSet=param_set
+    def __init__(self, param_set:PS, *args, **kwargs):
+        self.param_set: PS=param_set
         super().__init__(*args,**kwargs)
         #if 'm' not in kwargs: self['m']=1
         for k in self:
@@ -230,18 +235,19 @@ class ParamPatch(UserDict):
                 import pdb; pdb.set_trace()
                 raise
 
-    def translated_to(self, param_set: ParamSet, affected_only: bool = False):
+    def translated_to(self, param_set: PS2, affected_only: bool = False) -> 'ParamPatch[PS2]':
         return self.param_set.translate_patch(self,param_set, affected_only=affected_only)
 
-    def with_updates(self, other:Union['ParamPatch',dict]):
+    def with_updates(self, other:Union['ParamPatch[PS]',dict]):
         n=self.copy()
         if hasattr(other,'translated_to'):
-            n.update(**other.translated_to(self.param_set))
+            translated_other:dict|ParamPatch[PS]=other.translated_to(self.param_set) # type: ignore
+            n.update(**translated_other)
         else:
             n.update(**other)
         return n
 
-    def filled(self):
+    def filled(self) -> 'ParamPatch[PS]':
         return self.param_set.make_complete_patch(**self)
 
     def update_inplace_and_return_changes(self, other: 'ParamPatch'):
