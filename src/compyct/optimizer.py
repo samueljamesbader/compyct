@@ -33,9 +33,9 @@ class SemiAutoOptimizer():
 
     global_template_group: TemplateGroup
     global_patch: ParamPatch
-    global_meas_data: dict[str,Any]
+    #global_meas_data: dict[str,Any]
 
-    tabbed_templates: dict[str,str]
+    tabbed_templates: dict[str,list[str]]
     tabbed_actives: dict[str,list[str]]
     tabbed_rois: dict[str,Any]
     backend: str = 'ngspice'
@@ -257,13 +257,14 @@ class SemiAutoOptimizerGui(CompositeWidget):
                 #    p_by_cat[cat].append(p)
                 #for cat in p_by_cat:
                 #    p_by_cat[cat]=list(sorted(p_by_cat[cat],key=lambda p: ((pse.get_dtype(p) is not int), p)))
-                self._wcols[tabname]=pn.Column(pn.layout.Accordion(
+                self._wcols[tabname]=pn.Column(
+                    pn.layout.Accordion(
                         *[(cat,pn.Column(*(self._wlines[tabname][p] for p in p_by_cat[cat])))
                             for cat in sorted(p_by_cat)],
                         active=(list(range(len(p_by_cat))) if len(p_by_cat)<=2 else []),
                         sizing_mode='fixed',
                         width=175,),
-                        width=200,sizing_mode='stretch_height',scroll=True)
+                    width=200,sizing_mode='stretch_height',scroll=True)
 
                 #self._wcols[tabname]=pn.Column(acc,
                                          #width=175,sizing_mode='stretch_height',scroll=True)

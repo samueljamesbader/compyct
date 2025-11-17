@@ -50,7 +50,7 @@ class ParamPlace(Enum):
 class ParamSet():
 
     def __init__(self, model:str, terminals:list[str],
-                 pdict:dict[str,dict[str,Any]], display_yaml:Union[Path,str,dict]=None,
+                 pdict:dict[str,dict[str,Any]], display_yaml:Union[Path,str,dict]|None=None,
                  scs_includes: list=[], va_includes: list[str]=[]
                  ):
 
@@ -72,6 +72,7 @@ class ParamSet():
                 self._disp_yaml=yaml.safe_load(f) or {}
         else:
             self._disp_yaml=display_yaml or {}
+        assert isinstance(self._disp_yaml,dict)
 
         # Display units and overriden units
         for p,v in self._disp_yaml.get("unit_overrides",{}).items(): self._pdict[p]['units']=v
@@ -648,6 +649,15 @@ class SimplifierParamSet(ParamSet):
         for p,pd in overrides.items():
             assert p in pdict, f"Override provided for unknown parameter {p}"
             pdict[p].update(**pd)
+            if 'category' in pd:
+                if 'categories' not in display_yaml:
+                    display_yaml['categories']={}
+                for cat, ps in display_yaml['categories'].items():
+                    if p in ps: ps.remove(p)
+                if pd['category'] not in display_yaml['categories']:
+                    display_yaml['categories'][pd['category']]=[]
+                display_yaml['categories'][pd['category']].append(p)
+                
         super().__init__(model=self.base.model, terminals=self.base.terminals, pdict=pdict,
                          scs_includes=self.base.scs_includes, va_includes=self.base.va_includes,
                          display_yaml=display_yaml)

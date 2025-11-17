@@ -185,23 +185,24 @@ class NgspiceNetlister(Netlister):
             ngss_log.write(ngss.exec_command(f"sp {sweep_option} {narg} {fstart} {fstop}"))
             # PySpice doesn't have an s-parameter analysis class yet so we'll extract it differently
             #df=self.analysis_to_df(ngss.plot(None,ngss.last_plot).to_analysis())
-            plot=ngss.plot(None,ngss.last_plot)
-            #print(plot.keys())
-            #import pdb; pdb.set_trace()
-            df=pd.DataFrame({
-                'freq': plot['frequency'].to_waveform(to_real=True),
+            with catch_stderr(["Unit is None"]):
+                plot=ngss.plot(None,ngss.last_plot)
+                #print(plot.keys())
+                #import pdb; pdb.set_trace()
+                df=pd.DataFrame({
+                    'freq': plot['frequency'].to_waveform(to_real=True),
 
-                'S11':  plot['S_1_1'].to_waveform(),
-                'S12':  plot['S_1_2'].to_waveform(),
-                'S21':  plot['S_2_1'].to_waveform(),
-                'S22':  plot['S_2_2'].to_waveform(),
+                    'S11':  plot['S_1_1'].to_waveform(),
+                    'S12':  plot['S_1_2'].to_waveform(),
+                    'S21':  plot['S_2_1'].to_waveform(),
+                    'S22':  plot['S_2_2'].to_waveform(),
 
-                'Y11':  plot['Y_1_1'].to_waveform(),
-                'Y12':  plot['Y_1_2'].to_waveform(),
-                'Y21':  plot['Y_2_1'].to_waveform(),
-                'Y22':  plot['Y_2_2'].to_waveform(),
-                **{v.name:v for v in plot.internal_parameters()}
-            })
+                    'Y11':  plot['Y_1_1'].to_waveform(),
+                    'Y12':  plot['Y_1_2'].to_waveform(),
+                    'Y21':  plot['Y_2_1'].to_waveform(),
+                    'Y22':  plot['Y_2_2'].to_waveform(),
+                    **{v.name:v for v in plot.internal_parameters()}
+                })
             ngss.destroy()
             # If we want, there are also Y parameters, Z parameters here ripe for picking
             return name, df
