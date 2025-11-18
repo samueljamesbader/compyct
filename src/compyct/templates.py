@@ -900,6 +900,70 @@ class CVTemplate(MultiSweepSimTemplate):
     #    #assert parsed_result.keys()==set([0])
     #    # TODO: check spacings
 
+class FourPointRonTemplate(MultiSweepSimTemplate):
+
+    def __init__(self, *args, temp=27,
+                 vg_values=[1.8,2], idow_range=(-200,20,200), **kwargs):
+        super().__init__(outer_variable='VG', inner_variable='ID/W [uA/um]',
+                         outer_values=vg_values, inner_range=idow_range,
+                         ynames=['RonW [ohm.um]'],*args, **kwargs)
+        self.temp=temp
+        num_id=(idow_range[2]-idow_range[0])/idow_range[1]
+        assert abs(num_id-round(num_id))<1e-3, f"Make sure the FourPointRon IdW range gives even steps {str(idow_range)}"
+    @property
+    def vg_values(self): return self.outer_values
+    @property
+    def idow_range(self) -> dict[tuple[float,float],tuple[float,float,float]]: return self.inner_range
+
+    def get_schematic_listing(self,netlister:Netlister, dcvg=0, dcvd=0):
+            #netlister.nstr_param(params={'vg':0,'vd':0})+\
+        gnded=[t for t in self._patch.terminals if t not in ['d','g','t','dt']]
+        if self.probe_r==0:
+            netmap=dict(**{'d':'netd','g':'netg'},**{k:netlister.GND for k in gnded})
+        else:
+            netmap=dict(**{'d':'netdw','g':'netg'},**{k:'netsw' for k in gnded})
+        nl= [
+            netlister.nstr_iabstol('1e-15'),
+            netlister.nstr_temp(temp=self.temp),
+            netlister.nstr_modeled_xtor("inst",netmap=netmap,
+                                        internals_to_save=self.internals_to_save),
+            netlister.nstr_IDC("D",netp='netd',netm=netlister.GND,dc=dcvd),
+            netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=dcvg)]
+        if self.probe_r!=0:
+            nl.append(netlister.nstr_res('probes','netsw',netlister.GND,self.probe_r))
+            nl.append(netlister.nstr_res('probed','netdw',       'netd',self.probe_r))
+        return nl
+    
+    def get_analysis_listing(self,netlister:Netlister):
+        analysis_listing=[]
+        d=self.directions[0]
+        W=self._patch.get_total_device_width()
+        for i_vg,vg in enumerate(self.vg_values,start=1):
+            analysis_listing.append(netlister.astr_altervdc('G',vg))
+            analysis_listing.append(netlister.astr_sweepidc('D',name=f'vdid_vgnum{i_vg}',
+                start=self.idow_range[(vg,d)][0]*W,step=self.idow_range[(vg,d)][1]*W,stop=self.idow_range[(vg,d)][2]*W))
+        return analysis_listing
+    
+    def parse_return(self,result):
+        parsed_result={}
+        for i_vg,vg in enumerate(self.vg_values,start=1):
+            for key in result:
+                if key==f'vdid_vgnum{i_vg}':
+                    df=result[key].copy()
+                    sgn=-1 if self.pol=='p' else 1
+                    sgnstr="-" if self.pol=='p' else ''
+                    df[f'{sgnstr}ID/W [uA/um]']=-sgn*df['vd#p']/\
+                            self._patch.get_total_device_width()
+                    df[f'{sgnstr}IG/W [uA/um]']=-sgn*df['vg#p']/\
+                            self._patch.get_total_device_width()
+                    parsed_result[(vg,'f')]=df.rename(columns=\
+                                {'netd':'VD','netg':'VG'})\
+                            [['VD','VG',f'{sgnstr}ID/W [uA/um]',f'{sgnstr}IG/W [uA/um]']]
+                    # DC sim doesn't distinguish f/r
+                    if 'r' in self.directions:
+                        parsed_result[(vg,'r')]=parsed_result[(vg,'f')]
+        return parsed_result
+
 class IdealPulsedIdVdTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args,temp=27,

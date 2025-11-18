@@ -1,7 +1,7 @@
 import numpy as np
 from io import StringIO
 
-from compyct.paramsets import ParamPlace, ParamPatch
+from compyct.paramsets import ParamPlace, ParamPatch, ParamSet, SimplifierParamSet
 import textwrap
 
 def wrap_scs(paragraph,indent):
@@ -24,7 +24,7 @@ def n2scs(num):
             return f'{num:g}'
 
 
-def simplifier_patch_to_scs(self:ParamPatch, pdk_model_name, netmap, use_spectre_builtin=False, inner_name=None, print_inner=True):
+def simplifier_patch_to_scs(self:ParamPatch[SimplifierParamSet], pdk_model_name, netmap, use_spectre_builtin=False, inner_name=None, print_inner=True):
     #print(f"In p_to_scs: {pdk_model_name} with {use_spectre_builtin}")
     ps=self.param_set
     f=StringIO()

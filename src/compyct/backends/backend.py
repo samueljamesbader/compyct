@@ -28,6 +28,10 @@ class Netlister():
     @staticmethod
     def nstr_VDC(name,netp,netm,dc):
         raise NotImplementedError
+    
+    @staticmethod
+    def nstr_IDC(name,netp,netm,dc):
+        raise NotImplementedError
         
     @staticmethod
     def nstr_VAC(name,netp,netm,dc,ac=1):
