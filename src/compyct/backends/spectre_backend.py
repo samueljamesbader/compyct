@@ -19,7 +19,7 @@ class SpectreNetlister(Netlister):
         self.simtemp: SimTemplate=template
         self._tf = None
         self._analysiscount=0
-        self.modelcard_name=f"{self.simtemp._patch.model}_standin"
+        self.modelcard_name=f"{self.simtemp._patch.model}_standin" if self.simtemp._patch else "generic_model_standin"
         #self.additional_includes=additional_includes
         #self.override_model_subckt=override_model_subckt
 
@@ -151,45 +151,47 @@ class SpectreNetlister(Netlister):
             self._tf=NamedTemporaryFile(prefix=self.simtemp.__class__.__name__,mode='w')
             self._tf.write(f"// {self.simtemp.__class__.__name__}\n")
             self._tf.write(f"simulator lang = spectre\n")
-            patch=self.simtemp._patch
             # for i in self.additional_includes:
             #     if type(i)==str:
             #         self._tf.write(f"include \"{i}\"\n")
             #     else:
             #         self._tf.write(
             #             f"include \"{i[0]}\" {' '.join(i[1:])}\n")
-            if patch is not None:
-                for i in patch.param_set.scs_includes:
-                    if type(i)==str:
-                        self._tf.write(f"include \"{i}\"\n")
-                    else:
-                        self._tf.write(
-                            f"include \"{i[0]}\" {' '.join(i[1:])}\n")
-                for i in patch.param_set.va_includes:
-                    assert type(i)==str
-                    self._tf.write(f"ahdl_include \"{get_va_path(i)}\"\n")
-                        
-                self._tf.write(f"model {self.modelcard_name} {patch.model}\n")
-                paramlinedict={f"modparam_{k}":v for k,v in patch.filled().to_base().break_into_model_and_instance()[0].items()}
-                self._tf.write(
-                    f"parameters "+\
-                    ' '.join([f'{k}={n2scs(v)}' for k,v in paramlinedict.items()])\
-                    +"\n\n")
-                instance_params = {k: v for k, v in patch.filled().to_base().break_into_model_and_instance()[1].items()}
-                if len(instance_params):
-                    self._tf.write(f"parameters "+\
-                                       ' '.join(f'instparam_{k}={n2scs(v)}'
-                                            for k,v in instance_params.items())+\
-                                   "\n")
-            self._tf.write("\n".join(self.simtemp.get_schematic_listing(self))+"\n")
-            if patch is not None:
-                self._tf.write(
-                    f"set_modparams altergroup {{\nmodel {self.modelcard_name}"\
-                    f" {patch.model} "+\
-                    " ".join((f"{k}=modparam_{k}" for k in patch.filled().to_base().break_into_model_and_instance()[0]))\
-                    +"\n}\n\n")
-            self._tf.write("\n".join(self.simtemp.get_analysis_listing(self))+"\n")
-            self._tf.flush()
+            for i in self.simtemp.scs_includes:
+                if type(i)==str: self._tf.write(f"include \"{i}\"\n")
+                else: self._tf.write(f"include \"{i[0]}\" {' '.join(i[1:])}\n")
+            for i in self.simtemp.va_includes:
+                assert type(i)==str; self._tf.write(f"ahdl_include \"{get_va_path(i)}\"\n")
+
+
+            if hasattr(self.simtemp,'get_netlist'):
+                self._tf.write(self.simtemp.get_netlist(self))
+                self._tf.flush()
+            else:
+                patch=self.simtemp._patch
+                if patch is not None:
+                            
+                    self._tf.write(f"model {self.modelcard_name} {patch.model}\n")
+                    paramlinedict={f"modparam_{k}":v for k,v in patch.filled().to_base().break_into_model_and_instance()[0].items()}
+                    self._tf.write(
+                        f"parameters "+\
+                        ' '.join([f'{k}={n2scs(v)}' for k,v in paramlinedict.items()])\
+                        +"\n\n")
+                    instance_params = {k: v for k, v in patch.filled().to_base().break_into_model_and_instance()[1].items()}
+                    if len(instance_params):
+                        self._tf.write(f"parameters "+\
+                                           ' '.join(f'instparam_{k}={n2scs(v)}'
+                                                for k,v in instance_params.items())+\
+                                       "\n")
+                self._tf.write("\n".join(self.simtemp.get_schematic_listing(self))+"\n")
+                if patch is not None:
+                    self._tf.write(
+                        f"set_modparams altergroup {{\nmodel {self.modelcard_name}"\
+                        f" {patch.model} "+\
+                        " ".join((f"{k}=modparam_{k}" for k in patch.filled().to_base().break_into_model_and_instance()[0]))\
+                        +"\n}\n\n")
+                self._tf.write("\n".join(self.simtemp.get_analysis_listing(self))+"\n")
+                self._tf.flush()
         # If nothing has demanded 'psfascii', use nutbin
         if self.spectre_format is None: self.spectre_format='nutbin'
         return self._tf.name
@@ -245,8 +247,11 @@ class SpectreMultiSimSesh(MultiSimSesh):
                 assert nl.spectre_format is not None, "Spectre format not set by netlister"
                 sesh=psp.start_session(net_path=net_path, timeout=600, format=nl.spectre_format, keep_log=True) # longer timeout in-case compiling ahdl
             except Exception as myexc:
-                args=next((k for k in myexc.value.split("\n") if k.startswith("args:")))
-                print(" ".join(eval(args.split(":")[1])))
+                if hasattr(myexc,'value'):
+                    args=next((k for k in myexc.value.split("\n") if k.startswith("args:")))
+                    print(" ".join(eval(args.split(":")[1])))
+                else:
+                    print(myexc)
                 raise
             self._sessions[simname]=(nl,sesh)
         return self

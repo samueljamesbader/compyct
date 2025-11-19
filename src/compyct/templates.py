@@ -193,6 +193,13 @@ class SimTemplate(Template):
         raise NotImplementedError
     
     @property
+    def scs_includes(self) -> list[str]:
+        return self._patch.param_set.scs_includes if self._patch else []
+    @property
+    def va_includes(self) -> list[str]:
+        return self._patch.param_set.va_includes if self._patch else []
+    
+    @property
     def meas_data(self):
         if not hasattr(self,'_meas_data'): self._set_meas_data(self._raw_meas_data)
         return self._meas_data

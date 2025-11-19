@@ -95,10 +95,13 @@ saveOptions options save=allpub
 """
 
 
-def export_netlist(library, cell, view='schematic', design_variables={}, scs_includes="", additional_code="",
-                   include_typical=True):
+def export_netlist(library, cell, view='schematic', design_variables={},
+                   scs_includes:str|list[str]="", additional_code="",
+                   include_typical=True, rundir:Path|None=None):
     WARD = Path(os.environ['WARD'])
-    rundir = WARD / 'spyctre' / f"{library}__{cell}"
+    if rundir is None:
+        from compyct import CACHE_DIR
+        rundir = CACHE_DIR / 'spyctre' / f"{library}__{cell}"
     # Check if the directory exists
     if rundir.exists():
         # Remove all files and subdirectories in the directory
@@ -136,7 +139,11 @@ def export_netlist(library, cell, view='schematic', design_variables={}, scs_inc
     stderr = process.stderr
     print(stdout)
     print(stderr)
-    if ('ERRROR' in stdout) or len(stderr):
+
+    stderr_lines = stderr.splitlines()
+    ok_msgs=['System is not a supported distribution','We don\'t recognize OS','This OS does not appear to be','For more info']
+    filtered_stderr='\n'.join([l for l in stderr_lines if not any(msg in l for msg in ok_msgs)])
+    if ('ERRROR' in stdout) or len(filtered_stderr):
         raise Exception("Not sure what's wrong, but check it out")
 
     nl = ""
@@ -145,7 +152,8 @@ def export_netlist(library, cell, view='schematic', design_variables={}, scs_inc
     nl += ''.join(
         [f'include "{scsfile}"\n' if type(scsfile) is str else f'include "{scsfile[0]}" section=tttt\n' for scsfile in
          scs_includes])
-    nl += ''.join([f'parameters {k}={v}\n' for k, v in design_variables.items()])
+    print(f"################ DESIGN VARIABLES {design_variables}")
+    nl += ''.join([f'parameters {k}={v}\n' for k, v in design_variables.items() if v is not None])
     with open(rundir / "netlist", 'r') as f:
         nl += f.read()
     with open(rundir / "netlistFooter", 'r') as f:
