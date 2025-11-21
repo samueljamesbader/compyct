@@ -75,7 +75,9 @@ class Template():
             colors=dict(zip(k0s,(TolRainbow[max(len(k0s),3)] if len(k0s)>3 else Category10_10)))
             if len(parsed_result):
                 for key in self._required_keys():
-                    df=parsed_result[key]
+                    try: df=parsed_result[key]
+                    except KeyError:
+                        logger.error(f"Key {key} not found in parsed result amid {parsed_result.keys()}"); raise
                     data['x'].append(df[self.xname].to_numpy())
                     for yname in set(self.ynames):
                         data[yname].append(df[yname].to_numpy())
@@ -205,7 +207,8 @@ class SimTemplate(Template):
         return self._meas_data
     def _set_meas_data(self, raw_meas_data):
         assert not hasattr(self,'_meas_data'), "Meas data already set"
-        self._meas_data=self._validated(self.postparse_return(raw_meas_data))
+        self._meas_data=self._validated(self.postparse_return(raw_meas_data))\
+            if raw_meas_data is not None else None
     def update_sim_results(self, parsed_result):
         self.latest_results=self._validated(parsed_result)
     def update_figures(self,vizid=None)->bool:
@@ -1293,6 +1296,7 @@ class SParTemplate(MultiSweepSimTemplate):
         w=2*np.pi*df['freq']
         df['Cgd/W [fF/um]']=-im(df.Y12) / w / Wum /fF
         df['Cgs/W [fF/um]']=im(df.Y11 + df.Y12) / w / Wum /fF
+        df['Cgg/W [fF/um]']=im(df.Y11) / w / Wum /fF
         df['Cds/W [fF/um]']=im(df.Y22+df.Y12) / w / Wum /fF
         df['Rds*W [Ohm.um]']=1/re(df.Y22+df.Y12) * Wum
         df['GM/W [uS/um]']=np.abs(df.Y21-df.Y12) / Wum / uS
@@ -1300,6 +1304,7 @@ class SParTemplate(MultiSweepSimTemplate):
         df['Rd*W [Ohm.um]']=(re(df.Z22)-Rs) * Wum
         df['Rg*W [Ohm.um]']=(re(df.Z11)-Rs) * Wum
         df['GM/2πCgs [GHz]']=df['GM/W [uS/um]']/(2*np.pi*df['Cgs/W [fF/um]']) #uS/fF=GHz
+        df['GM/2πCgg [GHz]']=df['GM/W [uS/um]']/(2*np.pi*df['Cgg/W [fF/um]']) #uS/fF=GHz
 
         # S-parameters
         for ii in ['11','12','21','22']:
@@ -1335,7 +1340,7 @@ class SParVFreqTemplate(SParTemplate,VsFreqAtIrregularBias):
                          *args, **kwargs)
 
     def get_analysis_listing(self,netlister:Netlister):
-        nfunc=partial(netlister.astr_spar, internals_to_save=self.internals_to_save)
+        nfunc=partial(netlister.astr_spar)#, internals_to_save=self.internals_to_save)
         return VsFreqAtIrregularBias.get_analysis_listing_helper(self,netlister_func=nfunc,name='spar')
 
     def parse_return(self,result):
@@ -1389,7 +1394,7 @@ class SParVBiasTemplate(SParTemplate,VsIrregularBiasAtFreq):
         SParTemplate.__init__(self,*args, outer_variable=None, outer_values=vgvds, inner_variable='freq',
                               inner_range=(frequency,1,frequency), temp=temp, **kwargs)
         VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
-              vs_vg=['GM/W [uS/um]','Cgs/W [fF/um]','Cgd/W [fF/um]','GM/2πCgs [GHz]'],
+              vs_vg=['GM/W [uS/um]','Cgs/W [fF/um]','Cgd/W [fF/um]','GM/2πCgg [GHz]'],
               vs_vd=['Rds*W [Ohm.um]','Cds/W [fF/um]'],
               vs_vo=[], vs_id=[])
 
