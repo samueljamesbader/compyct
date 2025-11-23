@@ -119,6 +119,9 @@ class ParamSet():
                 for p2 in i[v]:
                     assert p2 in self._pdict, f"Specified an irrelevancy of unknown param {p2} with controller {p}"
 
+    def __eq__(self, other: ParamSet) -> bool:
+        raise NotImplementedError(f"General ParamSet equality to be implemented in subclasses, attempted {type(self)} and {type(other)}")
+
     def get_dtype(self,param) -> type:
         raise NotImplementedError
 
@@ -178,20 +181,24 @@ class ParamSet():
     def mpp_(self, **kwargs): return self.make_partial_patch(**kwargs)
 
 
-    @lru_cache
     def get_potential_irrelevancies_for(self,param):
-        return [(c,int(v)) for c, vdict in self._irrelevancies.items()
-                    for vs,irrs in vdict.items()
-                        for v in str(vs).split('+')
-                            if param in irrs]
+        if not(hasattr(self,'_potential_irrelevancies_cache')):
+            self._potential_irrelevancies_cache={}
+        if param not in self._potential_irrelevancies_cache:
+             self._potential_irrelevancies_cache[param]=\
+                [(c,int(v)) for c, vdict in self._irrelevancies.items()
+                            for vs,irrs in vdict.items()
+                                for v in str(vs).split('+')
+                                    if param in irrs]
+        return self._potential_irrelevancies_cache[param]
 
     def translate_patch(self, patch: Union[ParamPatch,dict], other_param_set: 'ParamSet', affected_only: bool = False) -> ParamPatch:
         if hasattr(patch,'param_set'):
-            assert patch.param_set is self, "Can only translate patches that belong to this ParamSet"
+            assert patch.param_set == self, "Can only translate patches that belong to this ParamSet"
         else:
             for p in patch: assert p in self._pdict,\
                 f"Supplied invalid dict to translate: contains unknown parameter {p}"
-        if other_param_set is self:
+        if other_param_set == self:
             return patch.copy()
         else:
             ret=self._sub_translate_patch(patch, other_param_set, affected_only=affected_only)
@@ -473,6 +480,9 @@ class CMCParamSet(ParamSet):
             if pdict[p]['default'] in pdict:
                 pdict[p]['default']=pdict[pdict[p]['default']]['default']
 
+    def __eq__(self, other):
+        if not isinstance(other,CMCParamSet): return False
+        return self.va_includes==other.va_includes
 
     def get_dtype(self,param) -> type:
         return {'R':float,'I':int}[self._pdict[param]['macro'][2]]
@@ -560,7 +570,7 @@ class SimplifierParamSet(ParamSet):
             for_base_psets=[x.strip() for x in for_base_psets.split(',') if len(x)]
             if len(for_base_psets)==0:
                 for i in [x.strip() for x in for_this_pset.split(',')]:
-                    print(f"Grabbing do-nothing {i}")
+                    #print(f"Grabbing do-nothing {i}")
                     if (i not in pdict) and (i not in additional_parameters):
                         pdict[i]={'hidden':True}
                         adds.append(i)
@@ -665,7 +675,7 @@ class SimplifierParamSet(ParamSet):
             pdict[p].update(**pd)
 
     def _sub_translate_patch(self, patch: Union['ParamPatch',dict], other_param_set: 'ParamSet', affected_only=False):
-        assert other_param_set is self.base, f"{self} can only translate to its underlying model {self.base}, not {other_param_set}"
+        assert other_param_set == self.base, f"{self} can only translate to its underlying model {self.base}, not {other_param_set}"
         d={}
         for for_this_pset, for_base_pset in self._translations:
             if type(for_this_pset) is str and for_this_pset in self._pdict:
@@ -730,9 +740,18 @@ class SimplifierParamSet(ParamSet):
             extra_subckt_text=yl.get('extra_subckt_text',None)
         )
         for attr,val in yl.get('attributes',{}).items():
-            print(f"Setting Attribute {attr}={val}")
+            #print(f"Setting Attribute {attr}={val}")
             setattr(psSimple,attr,val)
+        psSimple._defined_by_yaml_path=yaml_path
         return psSimple
+    
+    def __eq__(self, other: ParamSet) -> bool:
+        if not isinstance(other,SimplifierParamSet): return False
+        if hasattr(self,'_defined_by_yaml_path') and hasattr(other,'_defined_by_yaml_path'):
+            return (self._defined_by_yaml_path==other._defined_by_yaml_path) and (self.base==other.base)
+        else:
+            raise NotImplementedError("Cannot compare SimplifierParamSets not defined by YAML files")
+        
 
     @staticmethod
     def get_total_device_width_for_patch(patch):

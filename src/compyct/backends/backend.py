@@ -6,6 +6,8 @@ from compyct import logger
 if TYPE_CHECKING:
     from compyct.templates import TemplateGroup
     from compyct.paramsets import ParamPatch
+    from compyct.model_suite import ModelSuite
+    from compyct.paramsets import SimplifierParamSet
 import importlib
 from pathlib import Path
 import os
@@ -129,3 +131,34 @@ class SimulatorCommandException(Exception):
     def __init__(self, original_error):
         super().__init__(str(original_error))
         self.original_error=original_error
+
+class ModelCardWriter():
+    models_to_builtin: dict[str,str] ={}
+    backend: str 
+
+    @staticmethod
+    def get_with_backend(backend:str='spectre', **kwargs) -> 'ModelCardWriter':
+        try: backend_module=importlib.import_module('.'+backend+"_mcw",package=__package__)
+        except Exception as e:
+            backends=[f.name.split("_mcw")[0] for f in Path(__file__).parent.glob("*_mcw.py")]
+            if backend not in backends:
+                raise Exception(f"Unrecognized bundling backend {backend}, valid options are: {','.join(backends)}")
+            else: logger.critical(f"Can't load bundling backend {backend}"); raise e
+        return next(getattr(backend_module,k)(**kwargs) for k in dir(backend_module)
+             if k.lower()==(backend.lower()+"modelcardwriter")
+                 and issubclass(getattr(backend_module,k),ModelCardWriter))
+
+    def get_wrapper_modelcard_string(self, element_name:str, inner_element_name:str,
+                                     pass_parameters:dict, eat_parameters:dict,
+                                     netmap:dict[str,str]={}, extra_text:str='')->str:
+        raise NotImplementedError
+    def simplifier_patch_to_modelcard_string(self,
+                patch:ParamPatch[SimplifierParamSet], element_name:str, netmap:dict[str,str], pcell_params:list[str],
+                extra_text:str, use_builtin:bool=False, inner_name=None) -> str:
+        raise NotImplementedError
+    def simplifier_patch_group_to_modelcard_string(self, patch_group, pdk_model_name, netmap={},
+                                                   use_builtin=False, inner_name=None, print_inner=True):
+        raise NotImplementedError
+    
+    def write_modelcard_file(self, filepath:Path, header:str, model_suites:list[ModelSuite]):
+        raise NotImplementedError
