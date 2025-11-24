@@ -6,6 +6,8 @@ from compyct.backends.backend import get_va_path
 from compyct.paramsets import GuessedSubcktParamSet, ParamPatch, ParamSet
 from compyct.templates import TemplateGroup
 from compyct import OUTPUT_DIR, SAVE_DIR, logger
+import panel as pn; pn.extension()
+pn.config.theme = 'dark' # type: ignore
 if TYPE_CHECKING:
     from compyct.optimizer import SemiAutoOptimizerGui
     from compyct.backends.backend import ModelCardWriter
@@ -210,8 +212,6 @@ class FittableModelSuite(ModelSuite):
             **(self.get_opt_kwargs(starting_patch) | opt_kwargs))
         gui=SemiAutoOptimizerGui(sao, save_name=save_path.stem, **(self.default_gui_kwargs | gui_kwargs))
         gui._load_button_pressed(None)
-        import panel as pn; pn.extension()
-        pn.config.theme = 'dark' # type: ignore
         pn.serve(gui, title=f'{self.element_name} {submodel_split_name} Fit GUI', threaded=threaded)
         return gui
         

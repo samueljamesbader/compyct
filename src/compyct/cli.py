@@ -47,6 +47,8 @@ def resolve_bundle_args(pdk=None, release_name=None, file=None, do_file=True):
             pdk = pdks[0]
             print(f"Using only available PDK: {pdk}")
         else:
+            if len(pdks) == 0:
+                raise ValueError("No PDKs available.  Make sure COMPYCT_PRELOAD_MODULES is set correctly.")
             print("Available PDKs:")
             for i, p in enumerate(pdks):
                 print(f"{i+1}: {p}")
