@@ -108,7 +108,7 @@ def cli_fit(*args):
     parser.add_argument('--release_name', type=str, nargs='?', help='Release name (optional if only one)')
     parser.add_argument('--file', type=str, nargs='?', help='Modelcard file within release (optional if only one)')
     parser.add_argument('--element','-e', type=str, nargs='?', help='Element name to fit')
-    parser.add_argument('--submodel_split_name', '-ssub', type=str, nargs='?', help='Submodel split name')
+    parser.add_argument('--submodel_split_name', '-ssub', type=str, default='all', nargs='?', help='Submodel split name')
     parser.add_argument('--instance_subset_name', '-isub', type=str, nargs='?', help='Instance subset name')
     parser.add_argument('--measurement_subset_name', '-msub', type=str, nargs='?', help='Measurement subset name')
     parser.add_argument('--force_refresh_data', '-rd', action='store_true', help='Force refresh data (default: False)')
@@ -118,13 +118,24 @@ def cli_fit(*args):
 
     from compyct.model_suite import Bundle
     bundle = Bundle.get_bundle(pdk, release_name)
+    if parsed_args.element is None:
+        if len(bundle.model_suites[file]) == 1:
+            element = bundle.model_suites[file][0].element_name
+            print(f"Using only available element: {parsed_args.element}")
+        else:
+            print("Available elements:")
+            for i, ms in enumerate(bundle.model_suites[file]):
+                print(f"{i+1}: {ms.element_name}")
+            idx = int(input("Select element by number: ")) - 1
+            element = bundle.model_suites[file][idx].element_name
+    else: element = parsed_args.element
     try:
-        ms=next(ms for ms in bundle.model_suites[file] if ms.element_name == parsed_args.element)
+        ms=next(ms for ms in bundle.model_suites[file] if ms.element_name == element)
     except StopIteration:
-        raise Exception(f"Element {parsed_args.element} not found in file {file} of bundle ({pdk}, {release_name})")
+        raise Exception(f"Element {element} not found in file {file} of bundle ({pdk}, {release_name})")
     
     from compyct.model_suite import FittableModelSuite
-    assert isinstance(ms, FittableModelSuite), f"Element {parsed_args.element} in file {file} of bundle ({pdk}, {release_name}) is not a FittableModelSuite"
+    assert isinstance(ms, FittableModelSuite), f"Element {element} in file {file} of bundle ({pdk}, {release_name}) is not a FittableModelSuite"
     ms.get_fitting_gui(
         submodel_split_name=parsed_args.submodel_split_name,
         instance_subset_name=parsed_args.instance_subset_name,

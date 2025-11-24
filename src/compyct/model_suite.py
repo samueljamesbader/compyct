@@ -86,10 +86,18 @@ class ModelSuite():
                                f" {e}\n{traceback.format_exc()}\nRegenerating.")
         else: cache_path.parent.mkdir(parents=True, exist_ok=True)
         
-        instance_subset=self.instance_subset_names.get(
-            (instance_subset_name or submodel_split_name), None) 
-        measurement_subset=self.measurement_subset_names.get(
-            (measurement_subset_name or submodel_split_name), None)
+        if instance_subset_name is not None:
+            assert instance_subset_name in self.instance_subset_names, \
+                f"Instance subset name {instance_subset_name} not found in suite {self.element_name}"
+            instance_subset=self.instance_subset_names[instance_subset_name]
+        else:
+            instance_subset=self.instance_subset_names.get(submodel_split_name, None)
+        if measurement_subset_name is not None:
+            assert measurement_subset_name in self.measurement_subset_names, \
+                f"Measurement subset name {measurement_subset_name} not found in suite {self.element_name}"
+            measurement_subset=self.measurement_subset_names[measurement_subset_name]
+        else:
+            measurement_subset=self.measurement_subset_names.get(submodel_split_name, None)
 
         tg = self.get_template_group_explicit(instance_subset=instance_subset,
                                               measurement_subset=measurement_subset,
