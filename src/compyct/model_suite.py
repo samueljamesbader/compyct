@@ -133,7 +133,7 @@ class FittableModelSuite(ModelSuite):
                  submodel_split:dict[str, str|None]={'all': None},
                  instance_subset_names:dict[str, list[str]]={},
                  measurement_subset_names:dict[str, list[str]]={},
-                 measurement_specified_parameters:list[str]=[],
+                 measurement_specified_parameters:list[str]=None, # type: ignore
                  default_opt_kwargs:dict={},
                  default_gui_kwargs:dict={},
                  export_with_builtin:str|bool=False
@@ -148,6 +148,8 @@ class FittableModelSuite(ModelSuite):
                          submodel_split=submodel_split,
                          instance_subset_names=instance_subset_names,
                          measurement_subset_names=measurement_subset_names)
+        assert measurement_specified_parameters is not None, \
+            "measurement_specified_parameters must be provided, even if empty"
         self.param_set = param_set
         self.measurement_specified_parameters = measurement_specified_parameters
         self.default_opt_kwargs = default_opt_kwargs
