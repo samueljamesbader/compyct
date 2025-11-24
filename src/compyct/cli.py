@@ -1,3 +1,4 @@
+from pathlib import Path
 import sys
 import os
 import importlib
@@ -162,6 +163,7 @@ def cli_playback(*args):
     parser.add_argument('--pdk', type=str, nargs='?', help='PDK name (optional if only one)')
     parser.add_argument('--release_name', type=str, nargs='?', help='Release name (optional if only one)')
     parser.add_argument('--file', type=str, nargs='?', help='Modelcard file within release (optional if only one)')
+    parser.add_argument('--override_file_path', type=str, nargs='?', default=None, help='Override modelcard file path (optional)')
     parser.add_argument('--element_names', '-e', type=str, nargs='*', default=None, help='Element names to playback')
     parser.add_argument('--instance_subset_name', '-isub', type=str, nargs='?', default=None, help='Instance subset names')
     parser.add_argument('--measurement_subset_name', '-msub', type=str, nargs='?', default=None, help='Measurement subset names')
@@ -176,8 +178,9 @@ def cli_playback(*args):
 
     from compyct import OUTPUT_DIR
     bundle_dir=OUTPUT_DIR/"bundles"/release_name
+    actual_path=Path(parsed_args.override_file_path) if parsed_args.override_file_path is not None else bundle_dir/file
     tgs={ms.element_name:
-        ms.get_template_group(param_set=ms.playback_ps_class(model=ms.element_name,file=bundle_dir/file,section='tttt'),
+        ms.get_template_group(param_set=ms.playback_ps_class(model=ms.element_name,file=actual_path,section='tttt'),
                               instance_subset_name=parsed_args.instance_subset_name,
                               measurement_subset_name=parsed_args.measurement_subset_name,
                               force_refresh_data=parsed_args.force_refresh_data)
@@ -192,6 +195,8 @@ def cli_playback(*args):
     for elt, tg in tgs.items():
         logger.info(f"Running playback simulations for {elt}...")
         with MultiSimSesh.get_with_backend(simtemps=tg.only_simtemps(), backend='spectre') as mss:
+            from compyct.backends.spectre_backend import SpectreMultiSimSesh
+            assert isinstance(mss, SpectreMultiSimSesh)
             rerun_with_params(None, None, tg, mss)
         major_tabnames=list(dict.fromkeys(k.split("|||")[0] for k in tg))
         fig_layout_params=dict(width=200,height=250)
