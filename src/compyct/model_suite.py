@@ -7,7 +7,7 @@ from compyct.paramsets import GuessedSubcktParamSet, ParamPatch, ParamSet
 from compyct.templates import TemplateGroup
 from compyct import OUTPUT_DIR, SAVE_DIR, logger
 import panel as pn; pn.extension()
-pn.config.theme = 'dark' # type: ignore
+#pn.config.theme = 'dark' # type: ignore
 if TYPE_CHECKING:
     from compyct.optimizer import SemiAutoOptimizerGui
     from compyct.backends.backend import ModelCardWriter

@@ -213,3 +213,6 @@ def cli_list(*args):
     print("Available Bundles (pdk, release_name):")
     for pdk, release_name in Bundle.list_bundles():
         print(f" - ({pdk}, {release_name})")
+
+if __name__ == "__main__":
+    entrypoint_compyct_cli()
