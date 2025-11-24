@@ -850,7 +850,8 @@ class DCKelvinIDVDTemplate(MultiSweepSimTemplate):
 class CVTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args, temp=27, hi='g', dcs={'d':0,'s':0,'b':0}, sw='g',
-                 vg_range=(0,.03,1.8), freq:float|str='1meg', **kwargs):
+                 vg_range=(0,.03,1.8), freq:float|str='1meg',
+                 extra_caps={}, **kwargs):
         super().__init__(outer_variable=None, outer_values=[freq],
                          inner_variable=f'V{sw.upper()}', inner_range=vg_range,
                          ynames=[f'C{hi}{hi} [fF/um]'],
@@ -863,6 +864,7 @@ class CVTemplate(MultiSweepSimTemplate):
         self.hi=hi
         self.dcs=dcs
         self.sw=sw
+        self.extra_caps=extra_caps
         if hi not in dcs: dcs[hi]=0
         if sw not in dcs: dcs[hi]=0
         assert 'float_body' not in kwargs
@@ -882,7 +884,10 @@ class CVTemplate(MultiSweepSimTemplate):
             netlister.nstr_modeled_xtor("CVinst",netmap=netmap)]+\
             [netlister.nstr_VAC(k.upper(),netp=netmap[k],netm=netlister.GND,
                                 dc=self.dcs[k],ac=(1 if k==self.hi else 0))
-                for k in self.dcs]
+                for k in self.dcs]+\
+            [netlister.nstr_cap(f'C{k1}{k2}',netp=netmap[k1],netm=netmap[k2],
+                                c=c) for (k1,k2),c in self.extra_caps.items()]
+
     
     def get_analysis_listing(self,netlister:Netlister):
         return [netlister.astr_sweepvac(self.hi.upper(),

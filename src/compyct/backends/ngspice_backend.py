@@ -48,6 +48,9 @@ class NgspiceNetlister(Netlister):
     def nstr_res(self,name,netp,netm,r):
         return f"R{name} {netp} {netm} {r} noisy=0"
 
+    def nstr_cap(self,name,netp,netm,c):
+        return f"C{name} {netp} {netm} {c}"
+
     def nstr_iprobe(self,name,netp,netm):
         return f"Viprobein_{name} {netp} {netm} dc 0\n"\
                f"Hiprobeout_{name} netiprobeout_{name} 0 Viprobein_{name} 1"

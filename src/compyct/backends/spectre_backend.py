@@ -76,6 +76,9 @@ class SpectreNetlister(Netlister):
 
     def nstr_res(self,name,netp,netm,r):
         return f"R{name} ({netp} {netm}) resistor r={n2scs(r)}"
+    
+    def nstr_cap(self,name,netp,netm,c):
+        return f"C{name} ({netp} {netm}) capacitor c={n2scs(c)}"
 
     def nstr_iprobe(self,name,netp,netm):
         return f"{name} ({netp} {netm}) iprobe"
@@ -247,6 +250,13 @@ class SpectreMultiSimSesh(MultiSimSesh):
                 assert nl.spectre_format is not None, "Spectre format not set by netlister"
                 sesh=psp.start_session(net_path=net_path, timeout=600, format=nl.spectre_format, keep_log=True) # longer timeout in-case compiling ahdl
             except Exception as myexc:
+                with open(net_path,'r') as f:
+                    from compyct import CACHE_DIR
+                    of=CACHE_DIR/"fails/last_failed_spectre_netlist.scs"
+                    of.parent.mkdir(parents=True,exist_ok=True)
+                    with open(of,'w') as ff:
+                        ff.write(f.read())
+                    print(f"Failed netlist available in {of}:")
                 if hasattr(myexc,'value'):
                     args=next((k for k in myexc.value.split("\n") if k.startswith("args:")))
                     print(" ".join(eval(args.split(":")[1])))

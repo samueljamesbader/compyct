@@ -120,7 +120,10 @@ class ParamSet():
                     assert p2 in self._pdict, f"Specified an irrelevancy of unknown param {p2} with controller {p}"
 
     def __eq__(self, other: ParamSet) -> bool:
-        raise NotImplementedError(f"General ParamSet equality to be implemented in subclasses, attempted {type(self)} and {type(other)}")
+        if type(other) is not type(self):
+            return False
+        else:
+            raise NotImplementedError(f"General ParamSet equality to be implemented in subclasses, attempted {type(self)} and {type(other)}")
 
     def get_dtype(self,param) -> type:
         raise NotImplementedError

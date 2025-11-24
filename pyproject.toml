@@ -42,6 +42,7 @@ compyct = ["**/*.va"]
 
 [project.scripts]
 compyct_compile_osdi = "compyct.backends.ngspice_backend:compile_va_to_osdi"
+compyct = "compyct.cli:entrypoint_compyct_cli"
 
 [tool.setuptools.dynamic]
 version = {attr = "compyct.__version__"}
