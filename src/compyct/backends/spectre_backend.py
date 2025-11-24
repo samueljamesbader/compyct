@@ -242,6 +242,7 @@ class SpectreMultiSimSesh(MultiSimSesh):
     
     def __enter__(self):
         super().__enter__()
+        logger.debug("Entering Spectre MultiSimSesh")
         for simname,simtemp in self.simtemps.items():
             try:
                 logger.debug(f"  {simname}")

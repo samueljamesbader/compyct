@@ -114,6 +114,7 @@ def cli_fit(*args):
     parser.add_argument('--instance_subset_name', '-isub', type=str, nargs='?', help='Instance subset name')
     parser.add_argument('--measurement_subset_name', '-msub', type=str, nargs='?', help='Measurement subset name')
     parser.add_argument('--force_refresh_data', '-rd', action='store_true', help='Force refresh data (default: False)')
+    parser.add_argument('--backend', type=str, nargs='?', default='ngspice', help='Backend to use (e.g., spectre, ngspice)')
     parsed_args = parser.parse_args(args)
 
     pdk, release_name, file = resolve_bundle_args(parsed_args.pdk, parsed_args.release_name, parsed_args.file, do_file=True)
@@ -142,7 +143,8 @@ def cli_fit(*args):
         submodel_split_name=parsed_args.submodel_split_name,
         instance_subset_name=parsed_args.instance_subset_name,
         measurement_subset_name=parsed_args.measurement_subset_name,
-        force_refresh_data=parsed_args.force_refresh_data
+        force_refresh_data=parsed_args.force_refresh_data,
+        backend=parsed_args.backend
     )
 
 def cli_export(*args):
