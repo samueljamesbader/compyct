@@ -179,11 +179,11 @@ class SemiAutoOptimizerGui(CompositeWidget):
         self._should_respond_to_param_widgets=True
         self._composite[:]=[self.make_gui()]
 
-        self.start_sesh()
         #self._load()
         self._needs_rerun={stn:True for stn in self.global_template_group}
         if load_before_run:
             self._load_button_pressed(None)
+        self.start_sesh()
         self.rerun_and_update_tab(self._active_tab)
 
 

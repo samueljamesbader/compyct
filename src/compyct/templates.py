@@ -1302,9 +1302,11 @@ class SParTemplate(MultiSweepSimTemplate):
         df['Cgd/W [fF/um]']=-im(df.Y12) / w / Wum /fF
         df['Cgs/W [fF/um]']=im(df.Y11 + df.Y12) / w / Wum /fF
         df['Cgg/W [fF/um]']=im(df.Y11) / w / Wum /fF
-        df['Cds/W [fF/um]']=im(df.Y22+df.Y12) / w / Wum /fF
+        df['Cds/W [fF/um]']=im(df.Y22+df.Y21) / w / Wum /fF  # <- note: different from MONTY https://www.youtube.com/watch?v=91vIM3FqAjU , and produces (correctly) negative Cds
+        df['Cdd/W [fF/um]']=im(df.Y22) / w / Wum /fF
         df['Rds*W [Ohm.um]']=1/re(df.Y22+df.Y12) * Wum
-        df['GM/W [uS/um]']=np.abs(df.Y21-df.Y12) / Wum / uS
+        #df['GM/W [uS/um]']=np.abs(df.Y21-df.Y12) / Wum / uS
+        df['GM/W [uS/um]']=re(df.Y21) / Wum / uS
         Rs=df['Rs [Ohm.um]']=re(df.Z12) * Wum
         df['Rd*W [Ohm.um]']=(re(df.Z22)-Rs) * Wum
         df['Rg*W [Ohm.um]']=(re(df.Z11)-Rs) * Wum
@@ -1400,7 +1402,7 @@ class SParVBiasTemplate(SParTemplate,VsIrregularBiasAtFreq):
                               inner_range=(frequency,1,frequency), temp=temp, **kwargs)
         VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
               vs_vg=['GM/W [uS/um]','Cgs/W [fF/um]','Cgd/W [fF/um]','GM/2πCgg [GHz]'],
-              vs_vd=['Rds*W [Ohm.um]','Cds/W [fF/um]'],
+              vs_vd=['Rds*W [Ohm.um]','Cds/W [fF/um]','Cdd/W [fF/um]'],
               vs_vo=[], vs_id=[])
 
     def get_analysis_listing(self,netlister:Netlister):

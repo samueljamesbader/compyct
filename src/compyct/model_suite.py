@@ -212,8 +212,9 @@ class FittableModelSuite(ModelSuite):
         sao=SemiAutoOptimizer(backend=backend, output_dir=save_path.parent,
             global_template_group=tg, global_patch=starting_patch,
             **(self.get_opt_kwargs(starting_patch) | opt_kwargs))
-        gui=SemiAutoOptimizerGui(sao, save_name=save_path.stem, **(self.default_gui_kwargs | gui_kwargs))
+        gui=SemiAutoOptimizerGui(sao, save_name=save_path.stem, **(self.default_gui_kwargs | gui_kwargs),)# load_before_run=True)
         gui._load_button_pressed(None)
+        #gui._sao._mss.print_netlists(); exit()
         pn.serve(gui, title=f'{self.element_name} {submodel_split_name} Fit GUI', threaded=threaded)
         return gui
         
