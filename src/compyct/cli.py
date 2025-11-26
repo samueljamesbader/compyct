@@ -193,10 +193,14 @@ def cli_playback(*args):
     from compyct.optimizer import rerun_with_params
     import panel as pn
     for elt, tg in tgs.items():
+        save_path=OUTPUT_DIR/f"playback/{pdk}-{release_name}-{file}-{elt}.html"    
+        save_path.parent.mkdir(parents=True,exist_ok=True)
         logger.info(f"Running playback simulations for {elt}...")
         with MultiSimSesh.get_with_backend(simtemps=tg.only_simtemps(), backend='spectre') as mss:
             from compyct.backends.spectre_backend import SpectreMultiSimSesh
             assert isinstance(mss, SpectreMultiSimSesh)
+            with open(save_path.parent/"netlists.txt",'w') as f:
+                mss.print_netlists(file=f)
             rerun_with_params(None, None, tg, mss)
         major_tabnames=list(dict.fromkeys(k.split("|||")[0] for k in tg))
         fig_layout_params=dict(width=200,height=250)
@@ -207,8 +211,6 @@ def cli_playback(*args):
             )
             for majortabname in major_tabnames
         ])
-        save_path=OUTPUT_DIR/f"playback/{pdk}-{release_name}-{file}-{elt}.html"    
-        save_path.parent.mkdir(parents=True,exist_ok=True)
         logger.info(f"Saving playback html to {save_path}...")
         playback.save(save_path)
 

@@ -216,7 +216,9 @@ class FittableModelSuite(ModelSuite):
             **(self.get_opt_kwargs(starting_patch) | opt_kwargs))
         gui=SemiAutoOptimizerGui(sao, save_name=save_path.stem, **(self.default_gui_kwargs | gui_kwargs),)# load_before_run=True)
         gui._load_button_pressed(None)
-        #gui._sao._mss.print_netlists(); exit()
+        from compyct import CACHE_DIR
+        with open(CACHE_DIR/"fails/latest_fit_netlists.txt",'w') as f:
+            gui._sao._mss.print_netlists(file=f)
         pn.serve(gui, title=f'{self.element_name} {submodel_split_name} Fit GUI', threaded=threaded)
         return gui
         

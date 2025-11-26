@@ -232,12 +232,13 @@ class SpectreNetlister(Netlister):
 
 class SpectreMultiSimSesh(MultiSimSesh):
 
-    def print_netlists(self):
+    def print_netlists(self, only=None, file=None):
         for simname,simtemp in self.simtemps.items():
+            if only is not None and simname not in only: continue
             print(f"###################### {simname} #############")
             nl=SpectreNetlister(simtemp, **self._netlist_kwargs)
             with open(nl.get_netlist_file(),'r') as f:
-                print(f.read())
+                print(f.read(), file=file)
             
     
     def __enter__(self):
