@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections import OrderedDict
 from io import StringIO
 from pathlib import Path
 from textwrap import dedent
@@ -37,7 +38,7 @@ class SpectreModelCardWriter(ModelCardWriter):
     backend = 'spectre'
 
     def simplifier_patch_to_modelcard_string(self,
-                patch:ParamPatch[SimplifierParamSet], element_name:str, netmap:dict[str,str], pcell_params:list[str],
+                patch:ParamPatch[SimplifierParamSet], element_name:str, out_to_in_netmap:OrderedDict[str,str], pcell_params:list[str],
                 extra_text:str, use_builtin:bool=False, inner_name=None):
         ps=patch.param_set
         f=StringIO()
@@ -47,7 +48,7 @@ class SpectreModelCardWriter(ModelCardWriter):
                      for k,v in sorted(patch.filled().to_base().items(),key=(lambda x: x[0]))
                            if (k != 'm' and ps.base.get_place(k) == ParamPlace.MODEL)}
         by_first_n_char=2 if len(innards)>300 else 1
-        modelstr=f"model {inner_name} {use_builtin or patch.param_set.model}\n"+\
+        modelstr=f"\nmodel {inner_name} {use_builtin or patch.param_set.model}\n"+\
                  '\n'.join([f"  + "+' '.join([f"{k}={v}" for k,v in chunk.items()])
                             for chunk in chunk_keys(innards, by_first_n_char=by_first_n_char, max_in_chunk=5)])
                            #if (k!='m' and ps.base.get_place(k)==ParamPlace.MODEL and ps.base.get_default(k)!=v)])
@@ -55,12 +56,12 @@ class SpectreModelCardWriter(ModelCardWriter):
 
 
 
-        term_order=['d','g','s','b']
+        term_order=out_to_in_netmap.keys()
         inline=False
         if inline:
-            print(f"inline subckt {element_name} "+' '.join(term_order),file=f)
+            print(f"\ninline subckt {element_name} "+' '.join(term_order),file=f)
         else:
-            print(f"subckt {element_name} "+' '.join(term_order),file=f)
+            print(f"\nsubckt {element_name} "+' '.join(term_order),file=f)
         pdk_params=ps.get_defaults_patch(only_keys=pcell_params)
         print(wrap_scs(f"parameters "+" ".join([f"{k}={v}" for k,v in pdk_params.items()]),indent='\t'),file=f)
         def int_name(basename):
@@ -82,10 +83,10 @@ class SpectreModelCardWriter(ModelCardWriter):
                         if ps.base.get_place(k)==ParamPlace.INSTANCE and k not in base_params_manip]
         inst_passings=" ".join(inst_passings1+inst_passings2)
 
-        #assert self.param_set.terminals==['d','g','s','b','dt']
-        term_part=' '.join([netmap.get(t,t) for t in ps.terminals])
+        in_to_out_netmap={v:k for k,v in out_to_in_netmap.items() if v is not None}
+        term_part=' '.join([in_to_out_netmap.get(t,t+'_inner') for t in ps.terminals])
         print(wrap_scs(f"{element_name if inline else 'X0'} {term_part} {inner_name} {inst_passings}",indent='\t'),file=f)
-        if extra_text is not None:
+        if extra_text is not None and extra_text!='':
             print('\n'.join(["\t"+l for l in extra_text.split('\n') if l!='']),file=f)
         print(f"ends {element_name}",file=f)
 
@@ -94,13 +95,15 @@ class SpectreModelCardWriter(ModelCardWriter):
         return f.read()
 
     def get_wrapper_modelcard_string(self, element_name:str, inner_element_name:str,
-                                     pass_parameters:dict, eat_parameters:dict,
-                                     netmap:dict[str,str]={}, extra_text:str='')->str:
+                                     pass_parameters:dict, eat_parameters:dict, inner_term_order:list[str],
+                                     out_to_in_netmap:OrderedDict[str,str]={}, extra_text:str='')->str:
         f=StringIO()
-        print(f"subckt {element_name} d g s b",file=f)
+        term_order=out_to_in_netmap.keys()
+        print(f"\nsubckt {element_name} "+' '.join(term_order),file=f)
         print(wrap_scs(f"parameters "+" ".join([f"{k}={v}" for k,v in (pass_parameters|eat_parameters).items()]),
                        indent='\t'),file=f)
-        core_terms=' '.join([netmap.get(t,t) for t in ['d','g','s','b']])
+        in_to_out_netmap={v:k for k,v in out_to_in_netmap.items() if v is not None}
+        core_terms=' '.join([in_to_out_netmap.get(t,t+'_inner') for t in inner_term_order])
         inst_passings=' '.join([f"{k}={k}" for k in pass_parameters])
         print(wrap_scs(f"Xcore {core_terms} {inner_element_name} {inst_passings}",indent='\t'),file=f)
         if extra_text is not None:
@@ -122,8 +125,8 @@ class SpectreModelCardWriter(ModelCardWriter):
             #    "All patches in a patch_group must have the same paramset"
             f=StringIO()
 
-            term_order=['d','g','s','b']
-            print((f"inline subckt {model_suite.element_name} "+' '.join(term_order)),file=f)
+            term_order=model_suite.param_set.terminals
+            print((f"\ninline subckt {model_suite.element_name} "+' '.join(term_order)),file=f)
             pdk_params=model_suite.param_set.get_defaults_patch(only_keys=model_suite.param_set.pcell_params)
             print(wrap_scs(f"parameters "+" ".join([f"{k}={v}" for k,v in pdk_params.items()]),indent='\t'),file=f)
 

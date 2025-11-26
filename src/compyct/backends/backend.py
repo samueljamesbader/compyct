@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections import OrderedDict
 from typing import TYPE_CHECKING, Optional, Any, Callable
 
 from compyct import logger
@@ -149,11 +150,11 @@ class ModelCardWriter():
                  and issubclass(getattr(backend_module,k),ModelCardWriter))
 
     def get_wrapper_modelcard_string(self, element_name:str, inner_element_name:str,
-                                     pass_parameters:dict, eat_parameters:dict,
-                                     netmap:dict[str,str]={}, extra_text:str='')->str:
+                                     pass_parameters:dict, eat_parameters:dict, inner_term_order:list[str],
+                                     out_to_in_netmap:OrderedDict[str,str]={}, extra_text:str='')->str:
         raise NotImplementedError
     def simplifier_patch_to_modelcard_string(self,
-                patch:ParamPatch[SimplifierParamSet], element_name:str, netmap:dict[str,str], pcell_params:list[str],
+                patch:ParamPatch[SimplifierParamSet], element_name:str, out_to_in_netmap:dict[str,str], pcell_params:list[str],
                 extra_text:str, use_builtin:bool=False, inner_name=None) -> str:
         raise NotImplementedError
     def simplifier_patch_group_to_modelcard_string(self, patch_group, pdk_model_name, netmap={},

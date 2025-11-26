@@ -112,7 +112,8 @@ class Template():
         
         
 
-    def _make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params, y_axis_type='linear',x_axis_type='linear',override_line_color=None):
+    def _make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params,
+                      y_axis_type='linear',x_axis_type='linear',override_line_color=None, legend_for='mult'):
         num_ys=len(self.ynames)
         if type(y_axis_type) is str: y_axis_type=[y_axis_type]*num_ys
         if type(x_axis_type) is str: x_axis_type=[x_axis_type]*num_ys
@@ -127,6 +128,7 @@ class Template():
                                       #tooltips=TOOLTIPS,
                                       y_axis_type=y_axis_type[i],x_axis_type=x_axis_type[i],**layout_params)
             if self.title is not None: fig.title=self.title
+            from bokeh.models import Legend
             mtrans=multi_abs_transform if y_axis_type[i]=='log' else (lambda x: x)
             strans=abs_transform if y_axis_type[i]=='log' else (lambda x: x)
 
@@ -135,8 +137,11 @@ class Template():
             #fig.multi_line(xs='x',ys=self.ynames[i],source=meas_cds_l)
             #fig.multi_line(xs='x',ys=self.ynames[i],source=sim_cds,color='red')
             # technicolor
-            circ_rend=fig.scatter(x='x',y=strans(self.ynames[i]),source=meas_cds_c,legend_field='legend',name='scatter',color='color')
-            mult_rend=fig.multi_line(xs='x',ys=mtrans(self.ynames[i]),source=sim_cds,
+            cleg={'legend_field':'legend'} if legend_for=='circ' else {}
+            mleg={'legend_field':'legend'} if legend_for=='mult' else {}
+            assert 'legend' in sim_cds.data            
+            circ_rend=fig.scatter(x='x',y=strans(self.ynames[i]),source=meas_cds_c,**cleg,name='scatter',color='color')
+            mult_rend=fig.multi_line(xs='x',ys=mtrans(self.ynames[i]),source=sim_cds,**mleg,
                                  color=(override_line_color or 'color'),**({'line_width':2} if override_line_color else {}))
             # https://stackoverflow.com/a/68536069
             num=1
@@ -154,13 +159,24 @@ class Template():
                 """)
             #fig.select(type=HoverTool).renderers=[circ_rend]
             #fig.select(type=HoverTool).formatters={'@x': f}
-            # Should be able to include visible=False when I upgrade to bokeh=3.4.0
-            fig.add_tools(HoverTool(tooltips=t,renderers=[circ_rend],formatters={'@x':f}))#,visible=False))
+            fig.add_tools(HoverTool(tooltips=t,renderers=[circ_rend],formatters={'@x':f},visible=False))
 
 
             fig.yaxis.axis_label=self.ynames[i]#",".join(self.ynames)
             fig.xaxis.axis_label=self.xname
             #fig_legend_config(fig)
+            
+            #fig.legend.label_text_font_size = "2pt"      # Make the text smaller (from previous advice)
+            #fig.legend.spacing = 1                      # Reduce the gap between legend items
+            #fig.legend.padding = 2                      # Reduce padding inside the legend box
+            #fig.legend.glyph_width = 5                 # Make the color samples narrower
+            #fig.legend.glyph_height = 5                # Make the color samples shorter
+            #fig.legend.label_standoff = 2               # Reduce distance between sample and text
+            #fig.legend.margin = 1                       # Reduce margin around the entire legend box
+            ##fig.legend.orientation = "vertical"         # Ensure vertical orientation (usually default)
+            #fig.legend.border_line_width = 0            # Optional: remove the border line completely
+            #fig.legend.visible=True
+            #fig.legend.location='above'
             fig.legend.visible=False
             figs.append(fig)
         return figs
