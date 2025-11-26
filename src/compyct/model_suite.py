@@ -199,12 +199,13 @@ class FittableModelSuite(ModelSuite):
     def get_opt_kwargs(self, starting_patch:ParamPatch) -> dict:
         return self.default_opt_kwargs
     
-    def get_fitting_gui(self, submodel_split_name:str='all',
+    def get_fitting_gui(self, submodel_split_name:str|None=None,
                            instance_subset_name:Optional[str]=None,
                            measurement_subset_name:Optional[str]=None,
                            force_refresh_data:bool=False,
                            backend='ngspice', opt_kwargs={}, gui_kwargs={}, threaded=False):
         from compyct.optimizer import SemiAutoOptimizer, SemiAutoOptimizerGui
+        submodel_split_name= submodel_split_name or (self.submodel_split.keys().__iter__().__next__() if len(self.submodel_split)==1 else 'all')
         tg = self.get_template_group(submodel_split_name=submodel_split_name,
                                      instance_subset_name=instance_subset_name,
                                      measurement_subset_name=measurement_subset_name,

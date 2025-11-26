@@ -111,7 +111,7 @@ def cli_fit(*args):
     parser.add_argument('--release_name', type=str, nargs='?', help='Release name (optional if only one)')
     parser.add_argument('--file', type=str, nargs='?', help='Modelcard file within release (optional if only one)')
     parser.add_argument('--element','-e', type=str, nargs='?', help='Element name to fit')
-    parser.add_argument('--submodel_split_name', '-ssub', type=str, default='all', nargs='?', help='Submodel split name')
+    parser.add_argument('--submodel_split_name', '-ssub', type=str, default=None, nargs='?', help='Submodel split name')
     parser.add_argument('--instance_subset_name', '-isub', type=str, nargs='?', help='Instance subset name')
     parser.add_argument('--measurement_subset_name', '-msub', type=str, nargs='?', help='Measurement subset name')
     parser.add_argument('--force_refresh_data', '-rd', action='store_true', help='Force refresh data (default: False)')

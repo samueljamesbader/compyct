@@ -238,13 +238,16 @@ class ParamPatch(UserDict,Generic[PS]):
         self.param_set: PS=param_set
         super().__init__(*args,**kwargs)
         #if 'm' not in kwargs: self['m']=1
-        for k in self:
+        for k,v in self.items():
             if k=='m': continue
             try:
                 assert k in param_set._pdict, f"Unknown parameter {k}"
             except:
                 import pdb; pdb.set_trace()
                 raise
+            # Check that v is a string or a number (including numpy dtypes)
+            assert isinstance(v,(str,int,float,np.integer,np.floating)),\
+                f"Parameter {k} has invalid type {type(v)}, must be str or number"
 
     def translated_to(self, param_set: PS2, affected_only: bool = False) -> 'ParamPatch[PS2]':
         return self.param_set.translate_patch(self,param_set, affected_only=affected_only)

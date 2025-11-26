@@ -793,18 +793,19 @@ class DCIVTemplate(JointTemplate):
             self._dcidvg.parsed_results_to_vector(parsed_results['IdVg'],roi['IdVg'], meas_parsed_results['IdVg']),
             self._dcidvd.parsed_results_to_vector(parsed_results['IdVd'],roi['IdVd'], meas_parsed_results['IdVd'])])
 
-class DCKelvinIDVDTemplate(MultiSweepSimTemplate):
+class DCKelvinVdIdTemplate(MultiSweepSimTemplate):
 
-    def __init__(self, *args, pol='n', temp=27, yscale='linear', shunt=None,
+    def __init__(self, *args, pol='n', temp=27, yscale='linear', shunt=None, r_ext=None,
                  vg_values=[0,.6,1.2,1.8], idow_range=(.1e3,.1e3,1e3), **kwargs):
         self.yscale=yscale
-        super().__init__(outer_variable='VG', inner_variable=('ID/W [mA/um]' if pol=='n' else '-ID/W [mA/um]'),
-                         outer_values=vg_values, inner_range=np.array(idow_range)/1e3,
+        super().__init__(outer_variable='VG', inner_variable=('ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]'),
+                         outer_values=vg_values, inner_range=np.array(idow_range),
                          ynames=['RW [kohm.um]'],
                          *args, **kwargs)
         self.temp=temp
         self.pol=pol
         self.shunt=shunt
+        self.r_ext=r_ext
 
         num_id=(idow_range[2]-idow_range[0])/idow_range[1]
         assert abs(num_id-round(num_id))<1e-3, f"Make sure the KelvinIdVd range gives even steps {str(idow_range)}"
@@ -816,14 +817,26 @@ class DCKelvinIDVDTemplate(MultiSweepSimTemplate):
 
     def get_schematic_listing(self,netlister:Netlister):
         gnded=[t for t in self._patch.terminals if t not in ['d','g','t','dt']]
-        netmap=dict(**{'d':'netd','g':'netg'},**{k:netlister.GND for k in gnded})
-        return [
-            netlister.nstr_iabstol('1e-15'),
-            netlister.nstr_temp(temp=self.temp),
-            netlister.nstr_modeled_xtor("inst",netmap=netmap),
-            *([netlister.nstr_R("shunt",netp='netd',netm=netlister.GND,r=self.shunt)] if self.shunt else[]),
-            netlister.nstr_IDC("D",netp='netd',netm=netlister.GND,dc=0),
-            netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=0)]
+        if self.r_ext is None:
+            netmap=dict(**{'d':'netd','g':'netg'},**{k:netlister.GND for k in gnded})
+            return [
+                netlister.nstr_iabstol('1e-15'),
+                netlister.nstr_temp(temp=self.temp),
+                netlister.nstr_modeled_xtor("inst",netmap=netmap),
+                *([netlister.nstr_R("shunt",netp='netd',netm=netlister.GND,r=self.shunt)] if self.shunt else[]),
+                netlister.nstr_IDC("D",netp='netd',netm=netlister.GND,dc=0),
+                netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=0)]
+        else:
+            netmap=dict(**{'d':'netdw','g':'netgw'},**{k:f'net{k}w' for k in gnded})
+            return [
+                netlister.nstr_iabstol('1e-15'),
+                netlister.nstr_temp(temp=self.temp),
+                netlister.nstr_modeled_xtor("inst",netmap=netmap),
+                *([netlister.nstr_R("shunt",netp='netd',netm=netlister.GND,r=self.shunt)] if self.shunt else[]),
+                *([netlister.nstr_R(f"R{k}_ext",netp=f'net{k}w',netm=netlister.GND,r=self.r_ext) for k in gnded]),
+                *([netlister.nstr_R(f"R{k}_ext",netp=f'net{k}w',netm=f'net{k}',r=self.r_ext) for k in ['d','g']]),
+                netlister.nstr_IDC("D",netp='netd',netm=netlister.GND,dc=0),
+                netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=0)]
 
     def get_analysis_listing(self,netlister:Netlister):
         w=self._patch.get_total_device_width()
