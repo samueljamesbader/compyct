@@ -312,8 +312,9 @@ class NgspiceMultiSimSesh(MultiSimSesh):
 
     singleton_in_use=False
 
-    def print_netlists(self, crop_lines=False, file=None):
+    def print_netlists(self, crop_lines=False, file=None, only=None):
         for simname, simtemp in self.simtemps.items():
+            if only is not None and simname not in only: continue
             print("### getting nelist ...", file=file)
             nl=NgspiceNetlister(simtemp).get_netlist()
             print(f"###################### {simname} #############", file=file)
