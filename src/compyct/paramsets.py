@@ -30,7 +30,7 @@ def spicenum_to_float(spicenum):
         except:
             raise ValueError(f"{spicenum} doesn't make sense as a float + prefix")
         return fpart*\
-            {'f':1e-15,'p':1e-12,'n':1e-9,
+            {'a':1e-18,'f':1e-15,'p':1e-12,'n':1e-9,
              'u':1e-6,'m':1e-3,'k':1e3,'M':1e6}\
                     [spicenum[-1]]
 
