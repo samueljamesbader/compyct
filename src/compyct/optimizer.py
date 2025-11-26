@@ -279,6 +279,7 @@ class SemiAutoOptimizerGui(CompositeWidget):
         self._major_tabs=pn.Tabs(*major_tabs,height=400)
         sesh_button=self._sesh_button=pn.widgets.Button(name="Start Sesh")
         opt_button=pn.widgets.Button(name="Optimize tab")
+        netl_button=pn.widgets.Button(name="Netlist tab")
         running_ind=self.running_ind=pn.widgets.LoadingSpinner(value=False,size=25)
         save_name_input=self._save_name_input=pn.widgets.TextInput(value=self._default_save_name,width=200)
         save_button=pn.widgets.Button(name="Save")
@@ -286,13 +287,14 @@ class SemiAutoOptimizerGui(CompositeWidget):
 
         sesh_button.on_click(self._sesh_button_pressed)
         opt_button.on_click(self._opt_button_pressed)
+        netl_button.on_click(self._netlist_button_pressed)
         save_button.on_click(self._save_button_pressed)
         load_button.on_click(self._load_button_pressed)
         self._major_tabs.param.watch(self._tab_changed,['active'])
         self._log_view=pn.widgets.TextAreaInput(sizing_mode='stretch_both')
 
         self.redo_widget_visibility()
-        return pn.Column(pn.Row(sesh_button,opt_button,running_ind,pn.HSpacer(),save_name_input,save_button,load_button,sizing_mode='stretch_width'),
+        return pn.Column(pn.Row(sesh_button,opt_button,netl_button,running_ind,pn.HSpacer(),save_name_input,save_button,load_button,sizing_mode='stretch_width'),
                          self._major_tabs,self._log_view,height=550)
 
     @contextmanager
@@ -457,3 +459,13 @@ class SemiAutoOptimizerGui(CompositeWidget):
         vizid=self._tabname_to_vizid[tabname]
         for tname,t in self._tabbed_template_groups[tabname].items():
             t.update_figures(vizid=vizid)
+
+    def _netlist_button_pressed(self, event):
+        active=self._active_tab
+        templates=self._tabbed_template_groups[active]
+        simtemps=[tn for tn,t in templates.items() if isinstance(t,SimTemplate)]
+        from compyct import CACHE_DIR 
+        with open(CACHE_DIR/"fails/latest_fit_netlists.txt",'w') as f:
+            print(f"### Tab: {active} ###", file=f)
+            print(f"### Time: {datetime.now().isoformat(sep=' ')} ###", file=f)
+            self._sao._mss.print_netlists(only=simtemps,file=f)

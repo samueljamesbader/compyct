@@ -312,16 +312,16 @@ class NgspiceMultiSimSesh(MultiSimSesh):
 
     singleton_in_use=False
 
-    def print_netlists(self, crop_lines=False):
+    def print_netlists(self, crop_lines=False, file=None):
         for simname, simtemp in self.simtemps.items():
-            print("### getting nelist ...")
+            print("### getting nelist ...", file=file)
             nl=NgspiceNetlister(simtemp).get_netlist()
-            print(f"###################### {simname} #############")
+            print(f"###################### {simname} #############", file=file)
             if crop_lines:
                 maxlen=crop_lines if crop_lines!=True else 80
-                print("\n".join([l[:maxlen] + ("..." if len(l)>maxlen else "") for l in nl.split("\n")]))
+                print("\n".join([l[:maxlen] + ("..." if len(l)>maxlen else "") for l in nl.split("\n")]),file=file)
             else:
-                print(nl)
+                print(nl, file=file)
 
     def _ensure_clear_ngspice(self, if_circuits='warn'):
         # Make sure its clear of any previous circuits

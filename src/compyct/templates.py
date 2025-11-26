@@ -891,11 +891,11 @@ class CVTemplate(MultiSweepSimTemplate):
         
         self.freq=freq
         self.hi=hi
-        self.dcs=dcs
+        self.dcs=dcs.copy()
         self.sw=sw
         self.extra_caps=extra_caps
-        if hi not in dcs: dcs[hi]=0
-        if sw not in dcs: dcs[hi]=0
+        if hi not in self.dcs: self.dcs[hi]=0
+        if sw not in self.dcs: self.dcs[hi]=0
         assert 'float_body' not in kwargs
         try:
             spicenum_to_float(freq)

@@ -232,23 +232,24 @@ class SpectreNetlister(Netlister):
 
 class SpectreMultiSimSesh(MultiSimSesh):
 
-    def print_netlists(self):
+    def print_netlists(self, only=None, file=None):
         for simname,simtemp in self.simtemps.items():
+            if only is not None and simname not in only: continue
             print(f"###################### {simname} #############")
             nl=SpectreNetlister(simtemp, **self._netlist_kwargs)
             with open(nl.get_netlist_file(),'r') as f:
-                print(f.read())
+                print(f.read(), file=file)
             
     
     def __enter__(self):
         super().__enter__()
         logger.debug("Entering Spectre MultiSimSesh")
         for simname,simtemp in self.simtemps.items():
+            logger.debug(f"  {simname}")
+            nl=SpectreNetlister(simtemp, **self._netlist_kwargs)
+            net_path=nl.get_netlist_file()
+            assert nl.spectre_format is not None, "Spectre format not set by netlister"
             try:
-                logger.debug(f"  {simname}")
-                nl=SpectreNetlister(simtemp, **self._netlist_kwargs)
-                net_path=nl.get_netlist_file()
-                assert nl.spectre_format is not None, "Spectre format not set by netlister"
                 sesh=psp.start_session(net_path=net_path, timeout=600, format=nl.spectre_format, keep_log=True) # longer timeout in-case compiling ahdl
             except Exception as myexc:
                 with open(net_path,'r') as f:
