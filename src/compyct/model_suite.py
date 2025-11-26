@@ -166,8 +166,9 @@ class FittableModelSuite(ModelSuite):
     
     def get_saved_patch_for_fitting(self, submodel_split_name:str='all') -> ParamPatch:
         import yaml
-        with open(self.get_saved_params_path(submodel_split_name), 'r') as f:
-            saved=yaml.safe_load(f)
+        pth=self.get_saved_params_path(submodel_split_name)
+        logger.debug(f"Loading saved params from {pth}")
+        with open(pth, 'r') as f: saved=yaml.safe_load(f)
         gv={k:v for k,v in saved['global_values'].items() if k in self.param_set._pdict}
         return self.param_set.make_complete_patch(**gv)
     
@@ -214,7 +215,7 @@ class FittableModelSuite(ModelSuite):
             **(self.get_opt_kwargs(starting_patch) | opt_kwargs))
         gui=SemiAutoOptimizerGui(sao, save_name=save_path.stem, **(self.default_gui_kwargs | gui_kwargs),)# load_before_run=True)
         gui._load_button_pressed(None)
-        gui._sao._mss.print_netlists(); exit()
+        #gui._sao._mss.print_netlists(); exit()
         pn.serve(gui, title=f'{self.element_name} {submodel_split_name} Fit GUI', threaded=threaded)
         return gui
         
