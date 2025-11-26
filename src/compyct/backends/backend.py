@@ -154,7 +154,7 @@ class ModelCardWriter():
                                      out_to_in_netmap:OrderedDict[str,str]={}, extra_text:str='')->str:
         raise NotImplementedError
     def simplifier_patch_to_modelcard_string(self,
-                patch:ParamPatch[SimplifierParamSet], element_name:str, out_to_in_netmap:dict[str,str], pcell_params:list[str],
+                patch:ParamPatch[SimplifierParamSet], element_name:str, out_to_in_netmap:dict[str,str|None], pcell_params:list[str],
                 extra_text:str, use_builtin:bool=False, inner_name=None) -> str:
         raise NotImplementedError
     def simplifier_patch_group_to_modelcard_string(self, patch_group, pdk_model_name, netmap={},

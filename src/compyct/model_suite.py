@@ -224,6 +224,7 @@ class FittableModelSuite(ModelSuite):
         
     def get_modelcard_text(self, mcw: ModelCardWriter) -> str:
         return mcw.simplifier_patch_group_to_modelcard_string()
+    def kill_parameters(self) -> list[str]: return []
     
     def get_submodel_modelcard_text(self, submodel_split_name: str, mcw: ModelCardWriter) -> str:
         if len(self.submodel_split)==1:
@@ -233,7 +234,8 @@ class FittableModelSuite(ModelSuite):
         return mcw.simplifier_patch_to_modelcard_string(
             patch=self.get_saved_patch_for_export(submodel_split_name),
             element_name=element_name,
-            out_to_in_netmap=self.get_out_to_in_netmap(), pcell_params=self.param_set.pcell_params, # type: ignore
+            out_to_in_netmap=self.get_out_to_in_netmap(),
+            pcell_params=[k for k in self.param_set.pcell_params if k not in self.kill_parameters()], # type: ignore
             extra_text=self.get_extra_text(mcw), use_builtin=self.export_with_builtin)
     
     def get_out_to_in_netmap(self) -> OrderedDict[str,str|None]:
@@ -247,7 +249,6 @@ class WrapperModelSuite(ModelSuite):
                  submodel_split=wrapped_suite.submodel_split,
                  instance_subset_names=wrapped_suite.instance_subset_names,
                  measurement_subset_names=wrapped_suite.measurement_subset_names)
-    def get_out_to_in_netmap(self) -> dict[str,str]: return {}
     def get_modelcard_text(self, mcw: ModelCardWriter) -> str:
         inner_pcell_params=self.wrapped_suite.param_set.pcell_params
         all_params={k:v for k,v in dict(self.wrapped_suite.param_set.get_defaults_patch(only_keys=inner_pcell_params)).items()
@@ -257,8 +258,8 @@ class WrapperModelSuite(ModelSuite):
         eat_params={k: all_params[k] for k in eat if k in all_params}
         return mcw.get_wrapper_modelcard_string(element_name=self.element_name, inner_element_name=self.wrapped_suite.element_name,
                                                 pass_parameters=pass_params, eat_parameters=eat_params,
-                                                inner_term_order=list(self.wrapped_suite.param_set.terminals),
-                                                out_to_in_netmap=OrderedDict(self.get_out_to_in_netmap()),
+                                                inner_term_order=list(self.wrapped_suite.get_out_to_in_netmap().keys()),
+                                                out_to_in_netmap=self.get_out_to_in_netmap(),
                                                 extra_text=self.get_extra_text(mcw))
     def get_extra_text(self, mcw: ModelCardWriter) -> str: return ""
     def kill_parameters(self) -> list[str]: return []

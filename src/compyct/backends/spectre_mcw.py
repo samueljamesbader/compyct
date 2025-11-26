@@ -38,7 +38,7 @@ class SpectreModelCardWriter(ModelCardWriter):
     backend = 'spectre'
 
     def simplifier_patch_to_modelcard_string(self,
-                patch:ParamPatch[SimplifierParamSet], element_name:str, out_to_in_netmap:OrderedDict[str,str], pcell_params:list[str],
+                patch:ParamPatch[SimplifierParamSet], element_name:str, out_to_in_netmap:OrderedDict[str,str|None], pcell_params:list[str],
                 extra_text:str, use_builtin:bool=False, inner_name=None):
         ps=patch.param_set
         f=StringIO()
@@ -96,7 +96,7 @@ class SpectreModelCardWriter(ModelCardWriter):
 
     def get_wrapper_modelcard_string(self, element_name:str, inner_element_name:str,
                                      pass_parameters:dict, eat_parameters:dict, inner_term_order:list[str],
-                                     out_to_in_netmap:OrderedDict[str,str]={}, extra_text:str='')->str:
+                                     out_to_in_netmap:OrderedDict[str,str|None]={}, extra_text:str='')->str:
         f=StringIO()
         term_order=out_to_in_netmap.keys()
         print(f"\nsubckt {element_name} "+' '.join(term_order),file=f)
@@ -125,9 +125,10 @@ class SpectreModelCardWriter(ModelCardWriter):
             #    "All patches in a patch_group must have the same paramset"
             f=StringIO()
 
-            term_order=model_suite.param_set.terminals
+            term_order=list(model_suite.get_out_to_in_netmap().keys())
             print((f"\ninline subckt {model_suite.element_name} "+' '.join(term_order)),file=f)
-            pdk_params=model_suite.param_set.get_defaults_patch(only_keys=model_suite.param_set.pcell_params)
+            pdk_params=model_suite.param_set.get_defaults_patch(only_keys=
+                [k for k in model_suite.param_set.pcell_params if k not in model_suite.kill_parameters()])
             print(wrap_scs(f"parameters "+" ".join([f"{k}={v}" for k,v in pdk_params.items()]),indent='\t'),file=f)
 
             for patchnum,(submodel_name,patch_cond) in enumerate(model_suite.submodel_split.items()):
