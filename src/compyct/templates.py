@@ -796,7 +796,7 @@ class DCIVTemplate(JointTemplate):
 class DCKelvinVdIdTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args, pol='n', temp=27, yscale='linear', shunt=None, r_ext=None,
-                 vg_values=[0,.6,1.2,1.8], idow_range=(.1e3,.1e3,1e3), idow_ref=50, **kwargs):
+                 vg_values=[0,.6,1.2,1.8], idow_range=(.1e3,.1e3,1e3), idow_ref=20, **kwargs):
         self.yscale=yscale
         super().__init__(outer_variable='VG', inner_variable=('ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]'),
                          outer_values=vg_values, inner_range=np.array(idow_range),
