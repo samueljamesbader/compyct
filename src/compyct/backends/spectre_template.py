@@ -8,36 +8,40 @@ if TYPE_CHECKING:
 
 class SpectreSimTemplate(SimTemplate):
 
-    def __init__(self, netlist_file:str, scs_includes:list[str]=[], additional_code="", **kwargs):
+    def __init__(self, netlist_template_file:str|None, scs_includes:list[str]=[], additional_code="", **kwargs):
         super().__init__(**kwargs)
-        self._netlist_file = netlist_file
+        self._netlist_template_file = netlist_template_file
         self._scs_includes = scs_includes
         self._additional_code = additional_code
+
+    def get_netlist_template(self, netlister:SpectreNetlister, force_reexport=False) -> str:
+        if self._netlist_template_file is None:
+            self.prep_netlist(force_reexport=force_reexport)
+        assert self._netlist_template_file is not None, "Netlist template file not prepared"
+        with open(self._netlist_template_file,'r') as f:
+            return f.read()+'\n'+self.additional_code
+    def prep_netlist(self, force_reexport=False): pass
 
     @property
     def scs_includes(self) -> list[str]: return self._scs_includes
     @property
     def va_includes(self) -> list[str]: return []
     @property
-    def additional_code(self) -> str:
-        return self._additional_code
-
-    def get_netlist(self, netlister: SpectreNetlister):
-        with open(self._netlist_file,'r') as f:
-            return f.read()+'\n'+self.additional_code
-
+    def additional_code(self) -> str: return self._additional_code
 
 class CadenceSimTemplate(SpectreSimTemplate):
     
     def __init__(self, library, cell, view='schematic', design_variables={},
                  scs_includes=[], additional_code="", include_typical=True,
-                 force_reexport=False, **kwargs):
+                 **kwargs):
         self.library = library
         self.cell = cell
         self.view = view
         self.design_variables = design_variables
         self.include_typical = include_typical
+        super().__init__(netlist_template_file=None,scs_includes=scs_includes,additional_code=additional_code,**kwargs)
 
+    def prep_netlist(self, force_reexport=False):
         from compyct import CACHE_DIR
         rundir = CACHE_DIR / 'spyctre' / f"{self.library}__{self.cell}__{self.view}"
         if force_reexport or (not rundir.exists()):
@@ -56,5 +60,5 @@ class CadenceSimTemplate(SpectreSimTemplate):
             print(f"Successfully exported netlist")
         else:
             print(f"Using cached netlist for {self.library}::{self.cell}")# from {rundir}")
+        self._netlist_template_file = str(rundir/'input.scs')
             
-        super().__init__(str(rundir/'input.scs'),scs_includes=scs_includes,additional_code=additional_code,**kwargs)

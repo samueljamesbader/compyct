@@ -273,18 +273,37 @@ class WrapperModelSuite(ModelSuite):
     @property
     def va_includes(self) -> list[str]: return []
 
+class CircuitsCollection():
+    def __init__(self, collection_name:str,):
+        self.collection_name = collection_name
+    def get_template_group(self, includes:list[str], circuit_subset_name:Optional[str]=None,
+               force_refresh_circuits:bool=False,force_refresh_data:bool=False)\
+                    -> TemplateGroup:
+        assert circuit_subset_name is None, \
+            "Subsets not implemented for CircuitsCollection"
+        return self.get_template_group_explicit(includes=includes, circuit_subset=None,
+            force_refresh_circuits=force_refresh_circuits,
+            force_refresh_data=force_refresh_data)
+    def get_template_group_explicit(self, includes: list[str], circuit_subset:Optional[list[str]]=None,
+                force_refresh_circuits:bool=False, force_refresh_data:bool=False,)\
+                    -> TemplateGroup:
+        raise NotImplementedError
+
 class Bundle():
 
     _registry={}
 
     def __init__(self, pdk:str, release_name:str,
-                 model_suites_by_file:dict[str,list[ModelSuite]],
+                 model_suites_and_circuits_by_file:dict[str,list[ModelSuite|CircuitsCollection]],
                  header:str=''):
         self.pdk = pdk
         self.release_name = release_name
-        self.model_suites = model_suites_by_file
+        self.model_suites = {k: [ms for ms in maybes_ms if isinstance(ms, ModelSuite)] 
+                             for k, maybes_ms in model_suites_and_circuits_by_file.items()}
+        self.circuits = {k: [cc for cc in maybes_cc if isinstance(cc, CircuitsCollection)] 
+                             for k, maybes_cc in model_suites_and_circuits_by_file.items()}
         self.header = header
-        for file, msuites in model_suites_by_file.items():
+        for file, msuites in self.model_suites.items():
             for ms in msuites:
                 assert ms.release_name == release_name,\
                     "All ModelSuites in a Bundle must have the same release_name"

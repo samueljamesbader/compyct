@@ -167,7 +167,8 @@ class SpectreNetlister(Netlister):
                 assert type(i)==str; self._tf.write(f"ahdl_include \"{get_va_path(i)}\"\n")
 
 
-            if hasattr(self.simtemp,'get_netlist'):
+            from compyct.backends.spectre_template import SpectreSimTemplate
+            if isinstance(self.simtemp,SpectreSimTemplate):
                 self._tf.write(self.simtemp.get_netlist(self))
                 self._tf.flush()
             else:

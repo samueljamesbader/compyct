@@ -165,6 +165,7 @@ def cli_playback(*args):
     parser.add_argument('--file', type=str, nargs='?', help='Modelcard file within release (optional if only one)')
     parser.add_argument('--override_file_path', type=str, nargs='?', default=None, help='Override modelcard file path (optional)')
     parser.add_argument('--element_names', '-e', type=str, nargs='*', default=None, help='Element names to playback')
+    parser.add_argument('--circuit_names', '-c', type=str, nargs='*', default=None, help='Circuit collection names to playback')
     parser.add_argument('--instance_subset_name', '-isub', type=str, nargs='?', default=None, help='Instance subset names')
     parser.add_argument('--measurement_subset_name', '-msub', type=str, nargs='?', default=None, help='Measurement subset names')
     parser.add_argument('--force_refresh_data', '-rd', action='store_true', help='Force refresh data (default: False)')
@@ -174,20 +175,30 @@ def cli_playback(*args):
     bundle = Bundle.get_bundle(pdk, release_name)
     from compyct.model_suite import FittableModelSuite
     element_names = parsed_args.element_names
+    circuit_names = parsed_args.circuit_names
     model_suites = [ms for ms in bundle.model_suites[file] if (element_names is None or ms.element_name in element_names)]
 
     from compyct import OUTPUT_DIR
     bundle_dir=OUTPUT_DIR/"bundles"/release_name
     actual_path=Path(parsed_args.override_file_path) if parsed_args.override_file_path is not None else bundle_dir/file
-    tgs={ms.element_name:
-        ms.get_template_group(param_set=ms.playback_ps_class(model=ms.element_name,file=actual_path,section='tttt'),
-                              instance_subset_name=parsed_args.instance_subset_name,
-                              measurement_subset_name=parsed_args.measurement_subset_name,
-                              force_refresh_data=parsed_args.force_refresh_data)
-            for ms in model_suites
-                if (element_names is None or (ms.element_name in element_names))
-    }
-    
+    if not ((element_names is None) and (circuit_names is not None)):
+        tgse={ms.element_name:
+            ms.get_template_group(param_set=ms.playback_ps_class(model=ms.element_name,file=actual_path,section='tttt'),
+                                  instance_subset_name=parsed_args.instance_subset_name,
+                                  measurement_subset_name=parsed_args.measurement_subset_name,
+                                  force_refresh_data=parsed_args.force_refresh_data)
+                for ms in model_suites
+                    if (element_names is None or (ms.element_name in element_names))
+        }
+    if not ((circuit_names is None) and (element_names is not None)):
+        tgsc={cc.collection_name:
+            cc.get_template_group(includes=[(actual_path,'section=tttt')],
+                                  force_refresh_data=parsed_args.force_refresh_data)
+                for cc in bundle.circuits[file]
+                    if (circuit_names is None or (cc.collection_name in circuit_names))
+        }
+    tgs={**tgse, **tgsc}
+        
     from compyct import logger
     from compyct.backends.backend import MultiSimSesh
     from compyct.optimizer import rerun_with_params
@@ -213,6 +224,7 @@ def cli_playback(*args):
         ])
         logger.info(f"Saving playback html to {save_path}...")
         playback.save(save_path)
+        
 
 
 def cli_list(*args):
