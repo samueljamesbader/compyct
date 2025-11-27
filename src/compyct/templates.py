@@ -883,8 +883,19 @@ class DCKelvinVdIdTemplate(MultiSweepSimTemplate):
     
     def postparse_return(self, parsed_result):
         for (vg,d),df in parsed_result.items():
-            refindex=np.abs(df[f'ID/W [uA/um]']-self.idow_ref).idxmin()
-            RonWRef=df.loc[refindex,'RW [kohm.um]']
+            #refindex=np.abs(df[f'ID/W [uA/um]']-self.idow_ref).idxmin()
+            #RonWRef=df.loc[refindex,'RW [kohm.um]']
+            #from scipy.signal import savgol_filter
+            #n=len(df)
+            #if n%2==0: raise NotImplementedError("Even number points for Ron/RonRef calculation not implemented")
+            #RW=df['RW [kohm.um]'].to_numpy()
+            #RW=np.concatenate([RW[:n//2],RW[n//2+1:]])
+            #RonWRef=savgol_filter(RW,7,2)[n//2]
+
+            
+            refindexp=np.abs(df[f'ID/W [uA/um]']-self.idow_ref).idxmin()
+            refindexn=np.abs(df[f'ID/W [uA/um]']+self.idow_ref).idxmin()
+            RonWRef=.5*(df.loc[refindexp,'RW [kohm.um]']+df.loc[refindexn,'RW [kohm.um]'])
             df['Ron/RonRef']=df['RW [kohm.um]']/RonWRef
         return parsed_result
 
