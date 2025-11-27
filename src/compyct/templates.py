@@ -1536,7 +1536,7 @@ class HFNoiseVBiasTemplate(HFNoiseTemplate,VsIrregularBiasAtFreq):
         SParTemplate.__init__(self,*args, outer_variable=None, outer_values=vgvds, inner_variable='freq',
                               inner_range=(frequency,1,frequency), temp=temp, **kwargs)
         VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
-              vs_vg=['NFmin','Rn'],
+              vs_vg=[],#'NFmin','Rn'],
               vs_vd=[],
               vs_vo=[],
               vs_id=['NFmin','Rn'],)
@@ -1610,7 +1610,8 @@ class LFNoiseVFreqTemplate(LFNoiseTemplate, VsFreqAtIrregularBias):
         VsFreqAtIrregularBias.init_helper(self,fstart=fstart,fstop=fstop,pts_per_dec=pts_per_dec,fstep=fstep)
         LFNoiseTemplate.__init__(self, outer_variable=None, outer_values=[(vg, vd)], inner_variable='freq',
                                  inner_range=(fstart,pts_per_dec,fstop), temp=temp,
-                                 ynames=['sid [A^2/Hz]','sid/ID^2 [1/Hz]','svg [V^2/Hz]'],
+                                 ynames=[#'sid [A^2/Hz]',
+                                         'sid/ID^2 [1/Hz]','svg [V^2/Hz]'],
                                  *args, **kwargs)
     def get_analysis_listing(self,netlister:Netlister):
         netlister_func=lambda *args,**kwargs: netlister.astr_noise(outprobe='IPRB',vsrc='VG',*args,**kwargs)
