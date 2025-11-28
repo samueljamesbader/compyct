@@ -315,7 +315,7 @@ class Bundle():
     def export(self, backend='spectre'):
         from compyct.backends.backend import ModelCardWriter
         mcw=ModelCardWriter.get_with_backend(backend)
-        bundle_dir=OUTPUT_DIR/"bundles"/self.release_name
+        bundle_dir=OUTPUT_DIR/"bundles"/self.pdk/self.release_name
         bundle_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Exporting bundle to {bundle_dir}")
         for filename, msuites in self.model_suites.items():
@@ -327,9 +327,24 @@ class Bundle():
             
     @staticmethod
     def get_bundle(pdk:str, release_name:str) -> 'Bundle':
-        return Bundle._registry[(pdk, release_name)]
+        try:
+            return Bundle._registry[(pdk, release_name)]
+        except KeyError:
+            raise ValueError(f"Bundle with pdk {pdk} and release_name {release_name} not found. "
+                             f"Available bundles: {list(Bundle._registry.keys())}")
     @staticmethod
     def list_bundles() -> list[tuple[str,str]]:
         return list(Bundle._registry.keys())
+    def get_bundle_path(self) -> Path:
+        return OUTPUT_DIR/"bundles"/self.pdk/self.release_name
+
+class ExternalBundle(Bundle):
+    def __init__(self, pdk:str, release_name:str, bundle_path:Path, model_suites_and_circuits_by_file:dict[str,list[ModelSuite|CircuitsCollection]],):
+        super().__init__(pdk=pdk, release_name=release_name,
+                         model_suites_and_circuits_by_file=model_suites_and_circuits_by_file)
+        self.bundle_path = bundle_path
+    def get_bundle_path(self) -> Path:
+        return self.bundle_path
+
 
     

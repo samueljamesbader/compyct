@@ -51,6 +51,10 @@ class SpectreNetlister(Netlister):
     @staticmethod
     def nstr_VDC(name,netp,netm,dc):
         return f"V{name} ({netp} {netm}) vsource dc={n2scs(dc)} type=dc"
+    
+    @staticmethod
+    def nstr_IDC(name,netp,netm,dc):
+        return f"I{name} ({netp} {netm}) isource dc={n2scs(dc)} type=dc"
         
     @staticmethod
     def nstr_VAC(name,netp,netm,dc,ac=1):
@@ -94,6 +98,13 @@ class SpectreNetlister(Netlister):
             name=f"sweep{self._analysiscount}"
             self._analysiscount+=1
         return f"{name} dc dev=V{whichv} param=dc"\
+                f" start={n2scs(start)} stop={n2scs(stop)} step={n2scs(step)}"
+    
+    def astr_sweepidc(self,whichi, start, stop, step, name=None):
+        if name is None:
+            name=f"sweep{self._analysiscount}"
+            self._analysiscount+=1
+        return f"{name} dc dev=I{whichi} param=dc"\
                 f" start={n2scs(start)} stop={n2scs(stop)} step={n2scs(step)}"
         
     def astr_sweepvac(self,whichv, start, stop, step, freq, name=None):
@@ -169,7 +180,7 @@ class SpectreNetlister(Netlister):
 
             from compyct.backends.spectre_template import SpectreSimTemplate
             if isinstance(self.simtemp,SpectreSimTemplate):
-                self._tf.write(self.simtemp.get_netlist(self))
+                self._tf.write(self.simtemp.get_netlist_template(self))
                 self._tf.flush()
             else:
                 patch=self.simtemp._patch

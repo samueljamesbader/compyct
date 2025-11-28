@@ -23,3 +23,14 @@ else: SAVE_DIR=Path(SAVE_DIR)
 if (OUTPUT_DIR:=os.environ.get('COMPYCT_OUTPUT_DIR',None)) is None:
     OUTPUT_DIR=Path(user_data_dir("compyct"))/"outputs"
 else: OUTPUT_DIR=Path(OUTPUT_DIR)
+
+
+def initialize_bundles():
+    import importlib
+    dotpaths=os.environ.get("COMPYCT_PRELOAD_MODULES","").split(',')
+    for dp in dotpaths:
+        if dp.strip()!='':
+            importlib.import_module(dp)
+            preload=getattr(importlib.import_module(dp),'compyct_preload',None)
+            assert preload is not None, f"Preload module {dp} must define a compyct_preload() function"
+            preload()

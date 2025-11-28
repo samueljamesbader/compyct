@@ -824,7 +824,7 @@ class DCKelvinVdIdTemplate(MultiSweepSimTemplate):
                 netlister.nstr_iabstol('1e-15'),
                 netlister.nstr_temp(temp=self.temp),
                 netlister.nstr_modeled_xtor("inst",netmap=netmap),
-                *([netlister.nstr_R("shunt",netp='netd',netm=netlister.GND,r=self.shunt)] if self.shunt else[]),
+                *([netlister.nstr_res("shunt",netp='netd',netm=netlister.GND,r=self.shunt)] if self.shunt else[]),
                 netlister.nstr_IDC("D",netp='netd',netm=netlister.GND,dc=0),
                 netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=0)]
         else:
@@ -833,9 +833,9 @@ class DCKelvinVdIdTemplate(MultiSweepSimTemplate):
                 netlister.nstr_iabstol('1e-15'),
                 netlister.nstr_temp(temp=self.temp),
                 netlister.nstr_modeled_xtor("inst",netmap=netmap),
-                *([netlister.nstr_R("shunt",netp='netd',netm=netlister.GND,r=self.shunt)] if self.shunt else[]),
-                *([netlister.nstr_R(f"R{k}_ext",netp=f'net{k}w',netm=netlister.GND,r=self.r_ext) for k in gnded]),
-                *([netlister.nstr_R(f"R{k}_ext",netp=f'net{k}w',netm=f'net{k}',r=self.r_ext) for k in ['d','g']]),
+                *([netlister.nstr_res("shunt",netp='netd',netm=netlister.GND,r=self.shunt)] if self.shunt else[]),
+                *([netlister.nstr_res(f"R{k}_ext",netp=f'net{k}w',netm=netlister.GND,r=self.r_ext) for k in gnded]),
+                *([netlister.nstr_res(f"R{k}_ext",netp=f'net{k}w',netm=f'net{k}',r=self.r_ext) for k in ['d','g']]),
                 netlister.nstr_IDC("D",netp='netd',netm=netlister.GND,dc=0),
                 netlister.nstr_VDC("G",netp='netg',netm=netlister.GND,dc=0)]
 
@@ -859,8 +859,13 @@ class DCKelvinVdIdTemplate(MultiSweepSimTemplate):
                     # You'd think this line would be 'id#p' instead of '#p'
                     # But for some reason Ngspice or PySpice is not attaching a name to this sweeping-current branch
                     # The '#p' only comes from my backend-code that smooths over the spectre-vs-spice deltas
-                    df[f'{sgnstr}ID/W [uA/um]']=-sgn*df['#p']/ \
-                                                self._patch.get_total_device_width()
+                    try:
+                        df[f'{sgnstr}ID/W [uA/um]']=-sgn*df['#p']/ \
+                                                    self._patch.get_total_device_width()
+                    except KeyError:
+                        df[f'{sgnstr}ID/W [uA/um]']=-sgn*df['v-sweep']/ \
+                                                    self._patch.get_total_device_width()
+                        
                     df[f'{sgnstr}IG/W [uA/um]']=-sgn*df['vg#p']/ \
                                                 self._patch.get_total_device_width()
                     if self.r_ext is None:

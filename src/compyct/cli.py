@@ -1,23 +1,13 @@
 from pathlib import Path
 import sys
-import os
-import importlib
 from typing import Literal, overload
 from datavac.util.cli import CLIIndex
 from argparse import ArgumentParser
 
 
-
 def entrypoint_compyct_cli():
-
-    dotpaths=os.environ.get("COMPYCT_PRELOAD_MODULES","").split(',')
-    for dp in dotpaths:
-        if dp.strip()!='':
-            importlib.import_module(dp)
-            preload=getattr(importlib.import_module(dp),'compyct_preload',None)
-            assert preload is not None, f"Preload module {dp} must define a compyct_preload() function"
-            preload()
-
+    from compyct import initialize_bundles
+    initialize_bundles()
     CLIIndex({
         'list': cli_list,
         'fit': cli_fit,
@@ -179,7 +169,7 @@ def cli_playback(*args):
     model_suites = [ms for ms in bundle.model_suites[file] if (element_names is None or ms.element_name in element_names)]
 
     from compyct import OUTPUT_DIR
-    bundle_dir=OUTPUT_DIR/"bundles"/release_name
+    bundle_dir=bundle.get_bundle_path()
     actual_path=Path(parsed_args.override_file_path) if parsed_args.override_file_path is not None else bundle_dir/file
     if not ((element_names is None) and (circuit_names is not None)):
         tgse={ms.element_name:
@@ -190,6 +180,7 @@ def cli_playback(*args):
                 for ms in model_suites
                     if (element_names is None or (ms.element_name in element_names))
         }
+    else: tgse={}
     if not ((circuit_names is None) and (element_names is not None)):
         tgsc={cc.collection_name:
             cc.get_template_group(includes=[(actual_path,'section=tttt')],
@@ -197,6 +188,7 @@ def cli_playback(*args):
                 for cc in bundle.circuits[file]
                     if (circuit_names is None or (cc.collection_name in circuit_names))
         }
+    else: tgsc={}
     tgs={**tgse, **tgsc}
         
     from compyct import logger
@@ -231,7 +223,7 @@ def cli_list(*args):
     from compyct.model_suite import Bundle
     print("Available Bundles (pdk, release_name):")
     for pdk, release_name in Bundle.list_bundles():
-        print(f" - ({pdk}, {release_name})")
+        print(f" - ({pdk}, {release_name}): {Bundle.get_bundle(pdk, release_name).get_bundle_path()}")
 
 if __name__ == "__main__":
     entrypoint_compyct_cli()

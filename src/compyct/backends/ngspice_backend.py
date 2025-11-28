@@ -45,7 +45,8 @@ class NgspiceNetlister(Netlister):
     def nstr_temp(self, temp=27, tnom=27):
         return f".option temp={float_to_spicenum(temp)} tnom={float_to_spicenum(tnom)}"
 
-    def nstr_res(self,name,netp,netm,r):
+    @staticmethod
+    def nstr_res(name,netp,netm,r):
         return f"R{name} {netp} {netm} {r} noisy=0"
 
     def nstr_cap(self,name,netp,netm,c):
@@ -73,10 +74,6 @@ class NgspiceNetlister(Netlister):
     @staticmethod
     def nstr_VDC(name,netp,netm,dc):
         return f"V{name} {netp} {netm} dc {dc}"
-
-    @staticmethod
-    def nstr_R(name,netp,netm,r):
-        return f"R{name} {netp} {netm} {r}"
 
     @staticmethod
     def nstr_IDC(name,netp,netm,dc):
