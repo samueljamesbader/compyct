@@ -12,6 +12,7 @@ def entrypoint_compyct_cli():
         'list': cli_list,
         'fit': cli_fit,
         'export': cli_export,
+        'copy_param (cp)': cli_copy_param,
         'playback (pb)': cli_playback,
     })(*sys.argv)
 
@@ -148,7 +149,61 @@ def cli_export(*args):
     from compyct.model_suite import Bundle
     bundle = Bundle.get_bundle(pdk, release_name)
     bundle.export()
+
+def cli_copy_param(*args):
+    parser = ArgumentParser(description="Compyct Copy Parameter CLI")
+    parser.add_argument('--from_pdk','-fp', type=str, nargs='?', help='Source PDK name (optional if only one)')
+    parser.add_argument('--from_release_name','-fr', type=str, nargs='?', help='Source Release name (optional if only one)')
+    parser.add_argument('--from_file','-ff', type=str, nargs='?', help='Source Modelcard file within release (optional if only one)')
+    parser.add_argument('--from_element', '-fe', type=str, nargs='?', help='Source Element name')
+    parser.add_argument('--from_submodel_split_name', '-fs', type=str, nargs='?', default=None, help='Source Submodel split name (optional)')
+    parser.add_argument('--to_pdk','-tp', type=str, nargs='?', help='Target PDK name (optional if only one)')
+    parser.add_argument('--to_release_name','-tr', type=str, nargs='?', help='Target Release name (optional if only one)')
+    parser.add_argument('--to_file','-tf', type=str, nargs='?', help='Target Modelcard file within release (optional if only one)')
+    parser.add_argument('--to_element', '-te', type=str, nargs='?', help='Target Element name')
+    parser.add_argument('--to_submodel_split_name', '-ts', type=str, nargs='*', default=[None], help='Target Submodel split name (optional)')
+    parser.add_argument('params', type=str, nargs='+', help='Parameter names to copy')
+    parsed_args = parser.parse_args(args)
+    from compyct.model_suite import Bundle, FittableModelSuite
+
+    from_pdk, from_release_name, from_file = resolve_bundle_args(parsed_args.from_pdk, parsed_args.from_release_name, parsed_args.from_file, do_file=True)
+    from_bundle = Bundle.get_bundle(from_pdk, from_release_name)
+    try:
+        from_ms=next(ms for ms in from_bundle.model_suites[from_file] if ms.element_name == parsed_args.from_element)
+    except StopIteration:
+        raise Exception(f"Element {parsed_args.from_element} not found in file {from_file} of bundle ({from_pdk}, {from_release_name})")
+    assert isinstance(from_ms, FittableModelSuite), f"Element {parsed_args.from_element} is not a FittableModelSuite"
+    from_ssn = parsed_args.from_submodel_split_name or from_ms.default_submodel_split_name
+    assert from_ssn is not None, f"Source submodel split name must be specified for element {parsed_args.from_element}"
+    from_patch = from_ms.get_saved_patch_for_fitting(submodel_split_name=from_ssn)
+
+    to_pdk, to_release_name, to_file = resolve_bundle_args(parsed_args.to_pdk, parsed_args.to_release_name, parsed_args.to_file, do_file=True)
+    to_bundle = Bundle.get_bundle(to_pdk, to_release_name)
+    try:
+        to_ms=next(ms for ms in to_bundle.model_suites[to_file] if ms.element_name == parsed_args.to_element)
+    except StopIteration:
+        raise Exception(f"Element {parsed_args.to_element} not found in file {to_file} of bundle ({to_pdk}, {to_release_name})")
+    assert isinstance(to_ms, FittableModelSuite), f"Element {parsed_args.to_element} is not a FittableModelSuite"
+    to_ssns = [(tssn or to_ms.default_submodel_split_name) for tssn in parsed_args.to_submodel_split_name]
+    assert all(to_ssn is not None for to_ssn in to_ssns),\
+        f"Target submodel split name must be specified for element {parsed_args.to_element}"
     
+    for to_ssn in to_ssns:
+        import yaml
+        with open(to_ms.get_saved_params_path(to_ssn),'r') as f:
+            orig_yaml=yaml.safe_load(f)
+        for param in parsed_args.params:
+            print(f"Copying parameter {param}={from_patch[param]} "\
+                  f"from {parsed_args.from_element}:{from_ssn} to {parsed_args.to_element}:{to_ssn}")
+            if param not in from_patch:
+                raise Exception(f"Parameter {param} not found in source patch of element {parsed_args.from_element}")
+            orig_yaml['global_values'][param]=from_patch[param]
+        with open(to_ms.get_saved_params_path(to_ssn),'w') as f:
+            yaml.safe_dump(orig_yaml,f)
+
+    #raise NotImplementedError("cli_copy_param not yet implemented")
+
+
 def cli_playback(*args):
     parser = ArgumentParser(description="Compyct Playback CLI")
     parser.add_argument('--pdk', type=str, nargs='?', help='PDK name (optional if only one)')

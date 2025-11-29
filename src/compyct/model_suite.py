@@ -51,6 +51,12 @@ class ModelSuite():
         if len(submodel_split) > 1:
             assert 'all' not in submodel_split.keys(), "'all' is a reserved submodel split name"
     
+    @property
+    def default_submodel_split_name(self) -> Optional[str]:
+        if len(self.submodel_split) == 1:
+            return next(iter(self.submodel_split.keys()))
+        else: return 'all' if 'all' in self.submodel_split else None
+
     def get_template_group(self, param_set:ParamSet, submodel_split_name:str|None=None,
                            instance_subset_name:Optional[str]=None,
                            measurement_subset_name:Optional[str]=None,
@@ -77,11 +83,7 @@ class ModelSuite():
         cname=("native" 
             if hasattr(self,'param_set') and self.param_set == param_set # type: ignore
             else "playback")
-        submodel_split_name= submodel_split_name or\
-            (self.submodel_split.keys().__iter__().__next__() if len(self.submodel_split)==1
-                 else ('all'))# if 'all' in self.submodel_split else None))
-        #assert submodel_split_name is not None, \
-        #    "Must specify submodel_split_name if multiple splits exist (unless there is a default one named 'all')"
+        submodel_split_name= submodel_split_name or self.default_submodel_split_name or 'all'
         cache_path=CACHE_DIR/f"tg_{cname}"/\
                     f"{self.element_name}-{self.caching_name}-{submodel_split_name}"\
                     f"-{instance_subset_name}-{measurement_subset_name}.pkl"
@@ -217,9 +219,7 @@ class FittableModelSuite(ModelSuite):
                            force_refresh_data:bool=False,
                            backend='ngspice', opt_kwargs={}, gui_kwargs={}, threaded=False):
         from compyct.optimizer import SemiAutoOptimizer, SemiAutoOptimizerGui
-        submodel_split_name= submodel_split_name or\
-            (self.submodel_split.keys().__iter__().__next__() if len(self.submodel_split)==1
-                 else ('all' if 'all' in self.submodel_split else None))
+        submodel_split_name= submodel_split_name or self.default_submodel_split_name
         assert submodel_split_name is not None, \
             "Must specify submodel_split_name if multiple splits exist (unless there is a default one named 'all')"
         tg = self.get_template_group(submodel_split_name=submodel_split_name,
