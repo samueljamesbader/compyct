@@ -62,7 +62,7 @@ class SpectreNetlister(Netlister):
 
     @staticmethod
     def nstr_port(name,netp,netm,dc,portnum,z0=50,ac=0):
-        if ac!=0: print(f"Setting useless AC on port {portnum}")
+        #if ac!=0: print(f"Setting useless AC on port {portnum}")
         return f"PORT{portnum} ({netp} {netm} portdc{portnum}) port r={n2scs(z0)}\n"\
                f"VPort{portnum} (portdc{portnum} {netm}) vsource dc={n2scs(dc)} mag={n2scs(ac)}"
 

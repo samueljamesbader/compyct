@@ -51,7 +51,7 @@ class ModelSuite():
         if len(submodel_split) > 1:
             assert 'all' not in submodel_split.keys(), "'all' is a reserved submodel split name"
     
-    def get_template_group(self, param_set:ParamSet, submodel_split_name:str='all',
+    def get_template_group(self, param_set:ParamSet, submodel_split_name:str|None=None,
                            instance_subset_name:Optional[str]=None,
                            measurement_subset_name:Optional[str]=None,
                            force_refresh_data:bool=False,
@@ -77,12 +77,20 @@ class ModelSuite():
         cname=("native" 
             if hasattr(self,'param_set') and self.param_set == param_set # type: ignore
             else "playback")
+        submodel_split_name= submodel_split_name or\
+            (self.submodel_split.keys().__iter__().__next__() if len(self.submodel_split)==1
+                 else ('all'))# if 'all' in self.submodel_split else None))
+        #assert submodel_split_name is not None, \
+        #    "Must specify submodel_split_name if multiple splits exist (unless there is a default one named 'all')"
         cache_path=CACHE_DIR/f"tg_{cname}"/\
-                    f"{self.element_name}-{submodel_split_name}"\
+                    f"{self.element_name}-{self.caching_name}-{submodel_split_name}"\
                     f"-{instance_subset_name}-{measurement_subset_name}.pkl"
         if cache_path.exists() and not force_refresh_data:
             try:
-                with open(cache_path, 'rb') as f: return pickle.load(f)
+                with open(cache_path, 'rb') as f:
+                    data=pickle.load(f)
+                    logger.debug(f"Loaded cached TemplateGroup from {cache_path}")
+                    return data
             except Exception as e:
                 import traceback
                 logger.warning(f"Exception loading cached TemplateGroup:"\
@@ -127,6 +135,10 @@ class ModelSuite():
     @property
     def va_includes(self) -> list[str]:
         raise NotImplementedError
+    
+    @property
+    def caching_name(self) -> str:
+        return self.__class__.__name__
 
 
 class FittableModelSuite(ModelSuite):
@@ -184,7 +196,7 @@ class FittableModelSuite(ModelSuite):
         if self.export_with_builtin: return []
         else: return self.param_set.va_includes
     
-    def get_template_group(self, param_set:Optional[ParamSet]=None, submodel_split_name:str='all',
+    def get_template_group(self, param_set:Optional[ParamSet]=None, submodel_split_name:str|None=None,
                            instance_subset_name:Optional[str]=None,
                            measurement_subset_name:Optional[str]=None,
                            force_refresh_data:bool=False,
@@ -205,7 +217,11 @@ class FittableModelSuite(ModelSuite):
                            force_refresh_data:bool=False,
                            backend='ngspice', opt_kwargs={}, gui_kwargs={}, threaded=False):
         from compyct.optimizer import SemiAutoOptimizer, SemiAutoOptimizerGui
-        submodel_split_name= submodel_split_name or (self.submodel_split.keys().__iter__().__next__() if len(self.submodel_split)==1 else 'all')
+        submodel_split_name= submodel_split_name or\
+            (self.submodel_split.keys().__iter__().__next__() if len(self.submodel_split)==1
+                 else ('all' if 'all' in self.submodel_split else None))
+        assert submodel_split_name is not None, \
+            "Must specify submodel_split_name if multiple splits exist (unless there is a default one named 'all')"
         tg = self.get_template_group(submodel_split_name=submodel_split_name,
                                      instance_subset_name=instance_subset_name,
                                      measurement_subset_name=measurement_subset_name,
