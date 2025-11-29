@@ -17,12 +17,12 @@ def entrypoint_compyct_cli():
 
 
 @overload
-def resolve_bundle_args(pdk:str|None, release_name:str|None, file:str|None, do_file:Literal[False]) -> tuple[str,str,None]: ...
+def resolve_bundle_args(pdk:str|None, release_name:str|None, file:str|None, do_file:Literal[False], no_external=True) -> tuple[str,str,None]: ...
 @overload
-def resolve_bundle_args(pdk:str|None, release_name:str|None, file:str|None, do_file:Literal[True]) -> tuple[str,str,str]: ...
+def resolve_bundle_args(pdk:str|None, release_name:str|None, file:str|None, do_file:Literal[True], no_external=True) -> tuple[str,str,str]: ...
 
-def resolve_bundle_args(pdk=None, release_name=None, file=None, do_file=True):
-    from compyct.model_suite import Bundle
+def resolve_bundle_args(pdk=None, release_name=None, file=None, do_file=True, no_external=True):
+    from compyct.model_suite import Bundle, ExternalBundle
 
     # Get available PDKs
     pdks = sorted(set(p for p, _ in Bundle.list_bundles()))
@@ -47,7 +47,8 @@ def resolve_bundle_args(pdk=None, release_name=None, file=None, do_file=True):
             pdk = pdks[idx]
 
     # Get available releases for selected PDK
-    releases = sorted(set(r for p, r in Bundle.list_bundles() if p == pdk))
+    releases = sorted(set(r for p, r in Bundle.list_bundles() if p == pdk
+                          and ((not no_external) or (not isinstance(Bundle.get_bundle(p,r), ExternalBundle)))))
 
     # Validate or resolve release_name
     if release_name:
@@ -99,7 +100,7 @@ def cli_fit(*args):
     parser = ArgumentParser(description="Compyct Fit CLI")
     parser.add_argument('--pdk', type=str, nargs='?', help='PDK name (optional if only one)')
     parser.add_argument('--release_name', type=str, nargs='?', help='Release name (optional if only one)')
-    parser.add_argument('--file', type=str, nargs='?', help='Modelcard file within release (optional if only one)')
+    parser.add_argument('--file','-f', type=str, nargs='?', help='Modelcard file within release (optional if only one)')
     parser.add_argument('--element','-e', type=str, nargs='?', help='Element name to fit')
     parser.add_argument('--submodel_split_name', '-ssub', type=str, default=None, nargs='?', help='Submodel split name')
     parser.add_argument('--instance_subset_name', '-isub', type=str, nargs='?', help='Instance subset name')
@@ -159,8 +160,10 @@ def cli_playback(*args):
     parser.add_argument('--instance_subset_name', '-isub', type=str, nargs='?', default=None, help='Instance subset names')
     parser.add_argument('--measurement_subset_name', '-msub', type=str, nargs='?', default=None, help='Measurement subset names')
     parser.add_argument('--force_refresh_data', '-rd', action='store_true', help='Force refresh data (default: False)')
+    parser.add_argument('--allow_external', action='store_true', default=False, help='Allow external bundles (default: False)')
     parsed_args = parser.parse_args(args)
-    pdk, release_name, file = resolve_bundle_args(parsed_args.pdk, parsed_args.release_name, parsed_args.file, do_file=True)
+    pdk, release_name, file = resolve_bundle_args(parsed_args.pdk, parsed_args.release_name, parsed_args.file,
+                                                  do_file=True, no_external=(not parsed_args.allow_external))
     from compyct.model_suite import Bundle
     bundle = Bundle.get_bundle(pdk, release_name)
     from compyct.model_suite import FittableModelSuite
