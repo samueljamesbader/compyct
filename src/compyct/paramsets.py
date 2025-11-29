@@ -588,9 +588,9 @@ class SimplifierParamSet(ParamSet):
             else:
                 assert (not dont_supply), "Can't have simplifier parameters connected to -x>"
                 just_default=False
-                involved=[x.strip() for x in
-                          for_this_pset.replace("("," ").replace(")"," ").replace("*"," ") \
-                              .replace("/"," ").replace("+"," ").replace("-"," ").split()]
+                involved=list(set([x.strip() for x in
+                          for_this_pset.replace("pow("," ").replace(","," ").replace("("," ").replace(")"," ").replace("*"," ") \
+                              .replace("/"," ").replace("+"," ").replace("-"," ").split()]))
                 def is_numerical(x):
                     try: float(x)
                     except: return False
