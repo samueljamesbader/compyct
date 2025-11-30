@@ -360,18 +360,19 @@ class MultiSweepSimTemplate(SimTemplate):
 class DCIdVdTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args, pol='n', temp=27, probe_r=0,
-                 vg_values=[0,.6,1.2,1.8], vd_range=(0,.1,1.8), plot_RD=True, **kwargs):
+                 vg_values=[0,.6,1.2,1.8], vd_range=(0,.1,1.8), plot_RD=True, plot_ig=True, **kwargs):
         super().__init__(outer_variable='VG', inner_variable='VD',
                          outer_values=vg_values, inner_range=(vd_range if type(vd_range) is not dict else None),
                          ynames=[('ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]'),
                                  ('ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]'),
-                                 ('IG/W [uA/um]' if pol=='n' else '-IG/W [uA/um]'),
+                                 *(['IG/W [uA/um]' if pol=='n' else '-IG/W [uA/um]'] if plot_ig else []),
                                  *(['RD*W [Ohm*um]'] if plot_RD else [])
                                  ],
                          *args, **kwargs)
         self.temp=temp
         self.probe_r=probe_r
         self._plot_RD=plot_RD
+        self._plot_ig=plot_ig
 
         if type(vd_range) is not dict:
             vd_range={(vg,d):vd_range for vg in vg_values for d in self.directions}
@@ -426,7 +427,8 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
         return parsed_result
 
     def generate_figures(self,*args,**kwargs):
-        kwargs['y_axis_type']=kwargs.get('y_axis_type',['linear','log','log']+(['linear'] if self._plot_RD else []))
+        kwargs['y_axis_type']=kwargs.get('y_axis_type',['linear','log']\
+                                         +(['log'] if self._plot_ig else [])+(['linear'] if self._plot_RD else []))
         return super().generate_figures(*args,**kwargs)
 
     def _rescale_vector(self, arr, col, meas_arr):
@@ -436,9 +438,10 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
 class DCIdVgTemplate(MultiSweepSimTemplate):
 
     def __init__(self, *args, pol='n', temp=27,
-                 vd_values=[.05,1.8], vg_range=(0,.03,1.8), plot_gm=True, probe_r=0, **kwargs):
+                 vd_values=[.05,1.8], vg_range=(0,.03,1.8), plot_gm=True, plot_ig=False, probe_r=0, **kwargs):
         ynames=['ID/W [uA/um]' if pol=='n' else '-ID/W [uA/um]']*2
         if plot_gm: ynames+=['GM/W [uS/um]']
+        if plot_ig: ynames+=['IG/W [uA/um]' if pol=='n' else '-IG/W [uA/um]']
         super().__init__(outer_variable='VD', inner_variable='VG',
                          outer_values=vd_values, inner_range=(vg_range if type(vg_range) is not dict else None),
                          ynames=ynames,
@@ -518,7 +521,7 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
         return parsed_result
         
     def generate_figures(self,*args,**kwargs):
-        kwargs['y_axis_type']=[*kwargs.get('y_axis_type',['log','linear']),'linear']
+        kwargs['y_axis_type']=[*kwargs.get('y_axis_type',['log','linear']),'linear','log'] # this does not gracefully handle mixes of plot_gm/plot_ig
         return super().generate_figures(*args,**kwargs)
 
     def _rescale_vector(self, arr, col, meas_arr):

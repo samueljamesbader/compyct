@@ -21,6 +21,8 @@ def entrypoint_compyct_cli():
 def resolve_bundle_args(pdk:str|None, release_name:str|None, file:str|None, do_file:Literal[False], no_external=True) -> tuple[str,str,None]: ...
 @overload
 def resolve_bundle_args(pdk:str|None, release_name:str|None, file:str|None, do_file:Literal[True], no_external=True) -> tuple[str,str,str]: ...
+@overload
+def resolve_bundle_args(pdk:str|None, release_name:str|None, file:list[str]|None, do_file:Literal['list'], no_external=True) -> tuple[str,str,list[str]]: ...
 
 def resolve_bundle_args(pdk=None, release_name=None, file=None, do_file=True, no_external=True):
     from compyct.model_suite import Bundle, ExternalBundle
@@ -75,7 +77,7 @@ def resolve_bundle_args(pdk=None, release_name=None, file=None, do_file=True, no
     files = list(bundle.model_suites.keys())
 
     # Validate or resolve file
-    if do_file:
+    if do_file is True:
         if file:
             if file not in files:
                 raise ValueError(
@@ -94,6 +96,17 @@ def resolve_bundle_args(pdk=None, release_name=None, file=None, do_file=True, no
                 file = files[idx]
             else:
                 file = input("Enter modelcard file name: ")
+    elif do_file == 'list':
+        if file:
+            for f in file:
+                if f not in files:
+                    raise ValueError(
+                        f"File '{f}' not found in bundle ({pdk}, {release_name}). "
+                        f"Available files: {', '.join(files) if files else '[none]'}"
+                    )
+        else:
+            print(f"Using all available modelcard files: {files}")
+            file = files
 
     return pdk, release_name, file
 
@@ -208,7 +221,7 @@ def cli_playback(*args):
     parser = ArgumentParser(description="Compyct Playback CLI")
     parser.add_argument('--pdk', type=str, nargs='?', help='PDK name (optional if only one)')
     parser.add_argument('--release_name', type=str, nargs='?', help='Release name (optional if only one)')
-    parser.add_argument('--file', type=str, nargs='?', help='Modelcard file within release (optional if only one)')
+    parser.add_argument('--file','-f', type=str, nargs='*', default=None, help='Modelcard file within release (optional if only one)')
     parser.add_argument('--override_file_path', type=str, nargs='?', default=None, help='Override modelcard file path (optional)')
     parser.add_argument('--element_names', '-e', type=str, nargs='*', default=None, help='Element names to playback')
     parser.add_argument('--circuit_names', '-c', type=str, nargs='*', default=None, help='Circuit collection names to playback')
@@ -217,64 +230,66 @@ def cli_playback(*args):
     parser.add_argument('--force_refresh_data', '-rd', action='store_true', help='Force refresh data (default: False)')
     parser.add_argument('--allow_external', action='store_true', default=False, help='Allow external bundles (default: False)')
     parsed_args = parser.parse_args(args)
-    pdk, release_name, file = resolve_bundle_args(parsed_args.pdk, parsed_args.release_name, parsed_args.file,
-                                                  do_file=True, no_external=(not parsed_args.allow_external))
+    pdk, release_name, files = resolve_bundle_args(parsed_args.pdk, parsed_args.release_name, parsed_args.file,
+                                                  do_file='list', no_external=(not parsed_args.allow_external))
     from compyct.model_suite import Bundle
     bundle = Bundle.get_bundle(pdk, release_name)
     from compyct.model_suite import FittableModelSuite
     element_names = parsed_args.element_names
     circuit_names = parsed_args.circuit_names
-    model_suites = [ms for ms in bundle.model_suites[file] if (element_names is None or ms.element_name in element_names)]
+    for file in files:
+        print(f"Playing back bundle ({pdk}, {release_name}) for file: {file}")
+        model_suites = [ms for ms in bundle.model_suites[file] if (element_names is None or ms.element_name in element_names)]
 
-    from compyct import OUTPUT_DIR
-    bundle_dir=bundle.get_bundle_path()
-    actual_path=Path(parsed_args.override_file_path) if parsed_args.override_file_path is not None else bundle_dir/file
-    if not ((element_names is None) and (circuit_names is not None)):
-        tgse={ms.element_name:
-            ms.get_template_group(param_set=ms.playback_ps_class(model=ms.element_name,file=actual_path,section='tttt'),
-                                  instance_subset_name=parsed_args.instance_subset_name,
-                                  measurement_subset_name=parsed_args.measurement_subset_name,
-                                  force_refresh_data=parsed_args.force_refresh_data)
-                for ms in model_suites
-                    if (element_names is None or (ms.element_name in element_names))
-        }
-    else: tgse={}
-    if not ((circuit_names is None) and (element_names is not None)):
-        tgsc={cc.collection_name:
-            cc.get_template_group(includes=[(actual_path,'section=tttt')],
-                                  force_refresh_data=parsed_args.force_refresh_data)
-                for cc in bundle.circuits[file]
-                    if (circuit_names is None or (cc.collection_name in circuit_names))
-        }
-    else: tgsc={}
-    tgs={**tgse, **tgsc}
-        
-    from compyct import logger
-    from compyct.backends.backend import MultiSimSesh
-    from compyct.optimizer import rerun_with_params
-    import panel as pn
-    for elt, tg in tgs.items():
-        save_path=OUTPUT_DIR/f"playback/{pdk}-{release_name}-{file}-{elt}.html"    
-        save_path.parent.mkdir(parents=True,exist_ok=True)
-        logger.info(f"Running playback simulations for {elt}...")
-        with MultiSimSesh.get_with_backend(simtemps=tg.only_simtemps(), backend='spectre') as mss:
-            from compyct.backends.spectre_backend import SpectreMultiSimSesh
-            assert isinstance(mss, SpectreMultiSimSesh)
-            with open(save_path.parent/"netlists.txt",'w') as f:
-                mss.print_netlists(file=f)
-            rerun_with_params(None, None, tg, mss)
-        major_tabnames=list(dict.fromkeys(k.split("|||")[0] for k in tg))
-        fig_layout_params=dict(width=200,height=250)
-        playback=pn.Tabs(*[
-            (majortabname,
-                    tg.only(*[k for k in tg if k.startswith(majortabname+"|||")]).get_figure_pane(
-                        fig_layout_params=fig_layout_params,gridplot_options={'ncols':6},do_update=True)
-            )
-            for majortabname in major_tabnames
-        ])
-        logger.info(f"Saving playback html to {save_path}...")
-        playback.save(save_path)
-        
+        from compyct import OUTPUT_DIR
+        bundle_dir=bundle.get_bundle_path()
+        actual_path=Path(parsed_args.override_file_path) if parsed_args.override_file_path is not None else bundle_dir/file
+        if not ((element_names is None) and (circuit_names is not None)):
+            tgse={ms.element_name:
+                ms.get_template_group(param_set=ms.playback_ps_class(model=ms.element_name,file=actual_path,section='tttt'),
+                                      instance_subset_name=parsed_args.instance_subset_name,
+                                      measurement_subset_name=parsed_args.measurement_subset_name,
+                                      force_refresh_data=parsed_args.force_refresh_data)
+                    for ms in model_suites
+                        if (element_names is None or (ms.element_name in element_names))
+            }
+        else: tgse={}
+        if not ((circuit_names is None) and (element_names is not None)):
+            tgsc={cc.collection_name:
+                cc.get_template_group(includes=[(actual_path,'section=tttt')],
+                                      force_refresh_data=parsed_args.force_refresh_data)
+                    for cc in bundle.circuits[file]
+                        if (circuit_names is None or (cc.collection_name in circuit_names))
+            }
+        else: tgsc={}
+        tgs={**tgse, **tgsc}
+            
+        from compyct import logger
+        from compyct.backends.backend import MultiSimSesh
+        from compyct.optimizer import rerun_with_params
+        import panel as pn
+        for elt, tg in tgs.items():
+            save_path=OUTPUT_DIR/f"playback/{pdk}-{release_name}-{file}-{elt}.html"    
+            save_path.parent.mkdir(parents=True,exist_ok=True)
+            logger.info(f"Running playback simulations for {elt}...")
+            with MultiSimSesh.get_with_backend(simtemps=tg.only_simtemps(), backend='spectre') as mss:
+                from compyct.backends.spectre_backend import SpectreMultiSimSesh
+                assert isinstance(mss, SpectreMultiSimSesh)
+                with open(save_path.parent/"netlists.txt",'w') as f:
+                    mss.print_netlists(file=f)
+                rerun_with_params(None, None, tg, mss)
+            major_tabnames=list(dict.fromkeys(k.split("|||")[0] for k in tg))
+            fig_layout_params=dict(width=200,height=250)
+            playback=pn.Tabs(*[
+                (majortabname,
+                        tg.only(*[k for k in tg if k.startswith(majortabname+"|||")]).get_figure_pane(
+                            fig_layout_params=fig_layout_params,gridplot_options={'ncols':6},do_update=True)
+                )
+                for majortabname in major_tabnames
+            ])
+            logger.info(f"Saving playback html to {save_path}...")
+            playback.save(save_path)
+            
 
 
 def cli_list(*args):

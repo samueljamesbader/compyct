@@ -140,7 +140,7 @@ class ModelSuite():
     
     @property
     def caching_name(self) -> str:
-        return self.__class__.__name__
+        return self.__class__.__name__.replace("ModelSuite","")
 
 
 class FittableModelSuite(ModelSuite):
@@ -285,9 +285,18 @@ class WrapperModelSuite(ModelSuite):
     def eat_parameters(self) -> list[str]: return []
     def get_out_to_in_netmap(self) -> OrderedDict[str,str|None]:
         return OrderedDict({k:k for k in self.wrapped_suite.get_out_to_in_netmap().keys()})
+    def get_template_group_explicit(self, param_set: ParamSet, instance_subset: list[str] | None = None,
+                                    measurement_subset: list[str] | None = None) -> TemplateGroup:
+        return self.wrapped_suite.get_template_group_explicit(param_set=param_set,
+                                                              instance_subset=instance_subset,
+                                                              measurement_subset=measurement_subset)
         
     @property
     def va_includes(self) -> list[str]: return []
+
+    @property
+    def caching_name(self) -> str:
+        return self.__class__.__name__.replace("ModelSuite","")+'_wrap_'+self.wrapped_suite.caching_name
 
 class CircuitsCollection():
     def __init__(self, collection_name:str,):
