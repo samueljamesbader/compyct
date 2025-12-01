@@ -84,7 +84,7 @@ class ModelSuite():
             if hasattr(self,'param_set') and self.param_set == param_set # type: ignore
             else "playback")
         submodel_split_name= submodel_split_name or self.default_submodel_split_name or 'all'
-        cache_path=CACHE_DIR/f"tg_{cname}"/\
+        cache_path=CACHE_DIR/self.release_name/f"tg_{cname}"/\
                     f"{self.element_name}-{self.caching_name}-{submodel_split_name}"\
                     f"-{instance_subset_name}-{measurement_subset_name}.pkl"
         if cache_path.exists() and not force_refresh_data:
