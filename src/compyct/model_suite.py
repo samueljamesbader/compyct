@@ -2,7 +2,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from pathlib import Path
 import pickle
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 from compyct.backends.backend import get_va_path
 from compyct.paramsets import GuessedSubcktParamSet, ParamPatch, ParamSet
 from compyct.templates import TemplateGroup
@@ -151,7 +151,7 @@ class FittableModelSuite(ModelSuite):
                  measurement_specified_parameters:list[str]=None, # type: ignore
                  default_opt_kwargs:dict={},
                  default_gui_kwargs:dict={},
-                 export_with_builtin:str|bool=False
+                 export_with_builtin:str|Literal[False]=False
                  ):
         """
         
@@ -169,7 +169,7 @@ class FittableModelSuite(ModelSuite):
         self.measurement_specified_parameters = measurement_specified_parameters
         self.default_opt_kwargs = default_opt_kwargs
         self.default_gui_kwargs = default_gui_kwargs
-        self.export_with_builtin = export_with_builtin
+        self.export_with_builtin:str|Literal[False] = export_with_builtin
 
     def get_starting_patch(self) -> ParamPatch:
        return self.param_set.get_defaults_patch(ignore_keys=self.measurement_specified_parameters)
@@ -244,6 +244,10 @@ class FittableModelSuite(ModelSuite):
     def get_modelcard_text(self, mcw: ModelCardWriter) -> str:
         return mcw.simplifier_patch_group_to_modelcard_string()
     def kill_parameters(self) -> list[str]: return []
+    @property
+    def pcell_defaults(self) -> dict[str,Any]:
+        return dict(self.param_set.get_defaults_patch(only_keys=
+                     [k for k in self.param_set.pcell_params if k not in self.kill_parameters()]))
     
     def get_submodel_modelcard_text(self, submodel_split_name: str, mcw: ModelCardWriter) -> str:
         if len(self.submodel_split)==1:
@@ -254,7 +258,7 @@ class FittableModelSuite(ModelSuite):
             patch=self.get_saved_patch_for_export(submodel_split_name),
             element_name=element_name,
             out_to_in_netmap=self.get_out_to_in_netmap(),
-            pcell_params=[k for k in self.param_set.pcell_params if k not in self.kill_parameters()], # type: ignore
+            pcell_defaults=self.pcell_defaults, # type: ignore
             extra_text=self.get_extra_text(mcw), use_builtin=self.export_with_builtin)
     
     def get_out_to_in_netmap(self) -> OrderedDict[str,str|None]:
@@ -268,21 +272,26 @@ class WrapperModelSuite(ModelSuite):
                  submodel_split=wrapped_suite.submodel_split,
                  instance_subset_names=wrapped_suite.instance_subset_names,
                  measurement_subset_names=wrapped_suite.measurement_subset_names)
+    @property
+    def pcell_defaults(self) -> dict[str,Any]:
+        all_params={k:v for k,v in self.wrapped_suite.pcell_defaults.items() if k not in self.kill_parameters()}
+        return all_params
+
     def get_modelcard_text(self, mcw: ModelCardWriter) -> str:
-        inner_pcell_params=self.wrapped_suite.param_set.pcell_params
-        all_params={k:v for k,v in dict(self.wrapped_suite.param_set.get_defaults_patch(only_keys=inner_pcell_params)).items()
-                    if k not in self.kill_parameters()}
+        all_params=self.pcell_defaults
         eat=self.eat_parameters()
         pass_params={k: v for k, v in all_params.items() if k not in eat}
+        inject_params=self.inject_parameters()
         eat_params={k: all_params[k] for k in eat if k in all_params}
         return mcw.get_wrapper_modelcard_string(element_name=self.element_name, inner_element_name=self.wrapped_suite.element_name,
-                                                pass_parameters=pass_params, eat_parameters=eat_params,
+                                                pass_parameters=pass_params, eat_parameters=eat_params, inject_parameters=inject_params,
                                                 inner_term_order=list(self.wrapped_suite.get_out_to_in_netmap().keys()),
                                                 out_to_in_netmap=self.get_out_to_in_netmap(),
                                                 extra_text=self.get_extra_text(mcw))
     def get_extra_text(self, mcw: ModelCardWriter) -> str: return ""
     def kill_parameters(self) -> list[str]: return []
     def eat_parameters(self) -> list[str]: return []
+    def inject_parameters(self) -> dict[str,Any]: return {}
     def get_out_to_in_netmap(self) -> OrderedDict[str,str|None]:
         return OrderedDict({k:k for k in self.wrapped_suite.get_out_to_in_netmap().keys()})
     def get_template_group_explicit(self, param_set: ParamSet, instance_subset: list[str] | None = None,
