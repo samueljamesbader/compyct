@@ -175,7 +175,7 @@ def cli_copy_param(*args):
     parser.add_argument('--to_file','-tf', type=str, nargs='?', help='Target Modelcard file within release (optional if only one)')
     parser.add_argument('--to_element', '-te', type=str, nargs='?', help='Target Element name')
     parser.add_argument('--to_submodel_split_name', '-ts', type=str, nargs='*', default=[None], help='Target Submodel split name (optional)')
-    parser.add_argument('params', type=str, nargs='+', help='Parameter names to copy')
+    parser.add_argument('params', type=str, nargs='*', help='Parameter names to copy')
     parsed_args = parser.parse_args(args)
     from compyct.model_suite import Bundle, FittableModelSuite
 
@@ -203,15 +203,23 @@ def cli_copy_param(*args):
     
     for to_ssn in to_ssns:
         import yaml
-        with open(to_ms.get_saved_params_path(to_ssn),'r') as f:
-            orig_yaml=yaml.safe_load(f)
+        to_path=to_ms.get_saved_params_path(to_ssn)
+        if to_path.exists():
+            with open(to_path,'r') as f:
+                orig_yaml=yaml.safe_load(f)
+        else:
+            assert len(parsed_args.params)==0, f"Target saved params file {to_path} does not exist, cannot copy parameters to it"
+            from compyct import logger
+            logger.info(f"Target saved params file {to_path} does not exist, creating with all parameters from source")
+            with open(from_ms.get_saved_params_path(from_ssn),'r') as f:
+                orig_yaml=yaml.safe_load(f)
         for param in parsed_args.params:
             print(f"Copying parameter {param}={from_patch[param]} "\
                   f"from {parsed_args.from_element}:{from_ssn} to {parsed_args.to_element}:{to_ssn}")
             if param not in from_patch:
                 raise Exception(f"Parameter {param} not found in source patch of element {parsed_args.from_element}")
             orig_yaml['global_values'][param]=from_patch[param]
-        with open(to_ms.get_saved_params_path(to_ssn),'w') as f:
+        with open(to_path,'w') as f:
             yaml.safe_dump(orig_yaml,f)
 
     #raise NotImplementedError("cli_copy_param not yet implemented")
