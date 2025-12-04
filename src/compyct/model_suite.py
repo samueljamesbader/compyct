@@ -346,10 +346,10 @@ class Bundle():
                 f" violated in file {file} with {[ms.element_name for ms in msuites]}."
         Bundle._registry[(pdk, release_name)]=self
     
-    def export(self, backend='spectre'):
+    def export(self, backend='spectre', override_output_dir:Optional[Path]=None):
         from compyct.backends.backend import ModelCardWriter
         mcw=ModelCardWriter.get_with_backend(backend)
-        bundle_dir=OUTPUT_DIR/"bundles"/self.pdk/self.release_name
+        bundle_dir=(override_output_dir or OUTPUT_DIR)/"bundles"/self.pdk/self.release_name
         bundle_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Exporting bundle to {bundle_dir}")
         for filename, msuites in self.model_suites.items():

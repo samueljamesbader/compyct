@@ -157,11 +157,13 @@ def cli_export(*args):
     parser = ArgumentParser(description="Compyct Export CLI")
     parser.add_argument('--pdk', type=str, nargs='?', help='PDK name (optional if only one)')
     parser.add_argument('--release_name', type=str, nargs='?', help='Release name (optional if only one)')
+    parser.add_argument('--publish', action='store_true', default=False, help='Publish to COMPYCT_PUBLISH_DIR (default: False)')
     parsed_args = parser.parse_args(args)
     pdk, release_name, _ = resolve_bundle_args(parsed_args.pdk, parsed_args.release_name, file=None, do_file=False)
     from compyct.model_suite import Bundle
     bundle = Bundle.get_bundle(pdk, release_name)
-    bundle.export()
+    from compyct import PUBLISH_DIR
+    bundle.export(override_output_dir=(PUBLISH_DIR if parsed_args.publish else None))
 
 def cli_copy_param(*args):
     parser = ArgumentParser(description="Compyct Copy Parameter CLI")
@@ -237,11 +239,19 @@ def cli_playback(*args):
     parser.add_argument('--measurement_subset_name', '-msub', type=str, nargs='?', default=None, help='Measurement subset names')
     parser.add_argument('--force_refresh_data', '-rd', action='store_true', help='Force refresh data (default: False)')
     parser.add_argument('--allow_external', action='store_true', default=False, help='Allow external bundles (default: False)')
+    parser.add_argument('--reexport', action='store_true', default=False, help='Re-export bundle before playback (default: False)')
+    parser.add_argument('--publish', action='store_true', default=False, help='Publish playback results to COMPYCT_PUBLISH_DIR (default: False)')
     parsed_args = parser.parse_args(args)
     pdk, release_name, files = resolve_bundle_args(parsed_args.pdk, parsed_args.release_name, parsed_args.file,
                                                   do_file='list', no_external=(not parsed_args.allow_external))
     from compyct.model_suite import Bundle
     bundle = Bundle.get_bundle(pdk, release_name)
+    if parsed_args.reexport:
+        print(f"Re-exporting bundle ({pdk}, {release_name}) before playback...")
+        bundle.export()
+        if parsed_args.publish:
+            from compyct import PUBLISH_DIR
+            bundle.export(override_output_dir=PUBLISH_DIR)
     from compyct.model_suite import FittableModelSuite
     element_names = parsed_args.element_names
     circuit_names = parsed_args.circuit_names
@@ -261,6 +271,8 @@ def cli_playback(*args):
                     for ms in model_suites
                         if (element_names is None or (ms.element_name in element_names))
             }
+            assert all(element_name in tgse for element_name in (element_names or [])), \
+                f"Some specified element names not found in file {file} of bundle ({pdk}, {release_name})"
         else: tgse={}
         if not ((circuit_names is None) and (element_names is not None)):
             tgsc={cc.collection_name:
@@ -269,6 +281,8 @@ def cli_playback(*args):
                     for cc in bundle.circuits[file]
                         if (circuit_names is None or (cc.collection_name in circuit_names))
             }
+            assert all(circuit_name in tgsc for circuit_name in (circuit_names or [])), \
+                f"Some specified circuit names not found in file {file} of bundle ({pdk}, {release_name})"
         else: tgsc={}
         tgs={**tgse, **tgsc}
             
@@ -276,8 +290,9 @@ def cli_playback(*args):
         from compyct.backends.backend import MultiSimSesh
         from compyct.optimizer import rerun_with_params
         import panel as pn
+        from compyct import PUBLISH_DIR
         for elt, tg in tgs.items():
-            save_path=OUTPUT_DIR/f"playback/{pdk}-{release_name}-{file}-{elt}.html"    
+            save_path=(PUBLISH_DIR if parsed_args.publish else OUTPUT_DIR)/f"playback/{pdk}-{release_name}-{file}-{elt}.html"    
             save_path.parent.mkdir(parents=True,exist_ok=True)
             logger.info(f"Running playback simulations for {elt}...")
             with MultiSimSesh.get_with_backend(simtemps=tg.only_simtemps(), backend='spectre') as mss:

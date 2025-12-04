@@ -46,7 +46,7 @@ class SpectreModelCardWriter(ModelCardWriter):
         inner_name=inner_name or f"{element_name}_inner"
         innards={(k.lower() if use_builtin else k):v
                      for k,v in sorted(patch.filled().to_base().items(),key=(lambda x: x[0]))
-                           if (k != 'm' and ps.base.get_place(k) == ParamPlace.MODEL)}
+                           if (k != 'm' )}#and ps.base.get_place(k) == ParamPlace.MODEL)}
         by_first_n_char=2 if len(innards)>300 else 1
         modelstr=f"\nmodel {inner_name} {use_builtin or patch.param_set.model}\n"+\
                  '\n'.join([f"  + "+' '.join([f"{k}={v}" for k,v in chunk.items()])

@@ -23,6 +23,9 @@ else: SAVE_DIR=Path(SAVE_DIR)
 if (OUTPUT_DIR:=os.environ.get('COMPYCT_OUTPUT_DIR',None)) is None:
     OUTPUT_DIR=Path(user_data_dir("compyct"))/"outputs"
 else: OUTPUT_DIR=Path(OUTPUT_DIR)
+if (PUBLISH_DIR:=os.environ.get('COMPYCT_PUBLISH_DIR',None)) is None:
+    PUBLISH_DIR=Path(user_data_dir("compyct"))/"publish"
+else: PUBLISH_DIR=Path(PUBLISH_DIR)
 
 
 def initialize_bundles():
