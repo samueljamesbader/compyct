@@ -161,5 +161,5 @@ class ModelCardWriter():
                                                    use_builtin=False, inner_name=None, print_inner=True):
         raise NotImplementedError
     
-    def write_modelcard_file(self, filepath:Path, header:str, model_suites:list[ModelSuite]):
+    def write_modelcard_file(self, filepath:Path, header:str, model_suites:list[ModelSuite], extra_element_string:str="",):
         raise NotImplementedError

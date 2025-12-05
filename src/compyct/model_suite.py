@@ -329,7 +329,7 @@ class Bundle():
 
     def __init__(self, pdk:str, release_name:str,
                  model_suites_and_circuits_by_file:dict[str,list[ModelSuite|CircuitsCollection]],
-                 header:str=''):
+                 header:str='', extra_element_string:str=''):
         self.pdk = pdk
         self.release_name = release_name
         self.model_suites = {k: [ms for ms in maybes_ms if isinstance(ms, ModelSuite)] 
@@ -337,6 +337,7 @@ class Bundle():
         self.circuits = {k: [cc for cc in maybes_cc if isinstance(cc, CircuitsCollection)] 
                              for k, maybes_cc in model_suites_and_circuits_by_file.items()}
         self.header = header
+        self.extra_element_string = extra_element_string
         for file, msuites in self.model_suites.items():
             for ms in msuites:
                 assert ms.release_name == release_name,\
@@ -353,7 +354,7 @@ class Bundle():
         bundle_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Exporting bundle to {bundle_dir}")
         for filename, msuites in self.model_suites.items():
-            mcw.write_modelcard_file(bundle_dir/filename,
+            mcw.write_modelcard_file(bundle_dir/filename, extra_element_string=self.extra_element_string,
                                      header=self.header, model_suites=msuites,)
         va_includes=set(vai for msuites in self.model_suites.values() for ms in msuites for vai in ms.va_includes)
         for vafile in set(va_includes):    

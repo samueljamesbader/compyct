@@ -5,7 +5,7 @@ from pathlib import Path
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 
-from compyct.backends.spectre_util import wrap_scs
+from compyct.backends.spectre_util import n2scs, wrap_scs
 from myrtusfit.first_fit_study import MODELFITPATH
 #from compyct.backends.spectre_util import simplifier_patch_to_scs
 from compyct.backends.backend import ModelCardWriter, get_va_path
@@ -67,8 +67,8 @@ class SpectreModelCardWriter(ModelCardWriter):
         def int_name(basename):
             return basename+"_modelcard" if basename.lower() in ps._lowercase_homonyms else basename
         inst_reqs=[k for k in ps.minimal_completion_of_pcell() if k not in pcell_defaults]
-        for i in inst_reqs:
-            print(f"\tparameters {int_name(i)}={patch[i]}",file=f)
+        for i in sorted(inst_reqs):
+            print(f"\tparameters {int_name(i)}={n2scs(patch[i])}",file=f)
         for for_this_pset, for_base_pset in ps._translations:
             if ps.base.get_place(for_base_pset)==ParamPlace.INSTANCE:
                 if type(for_this_pset) in [str,float,int] and for_this_pset in ps._pdict:
@@ -151,10 +151,12 @@ class SpectreModelCardWriter(ModelCardWriter):
         else:
             return model_suite.get_modelcard_text(mcw=self)
     
-    def write_modelcard_file(self, filepath:Path, header:str, model_suites:list[ModelSuite]):
+    def write_modelcard_file(self, filepath:Path, header:str, model_suites:list[ModelSuite], extra_element_string:str="",):
         with open(filepath,'w') as f:
             print(header.replace("$FILENAME$",filepath.name),file=f)
             print("section tttt",file=f)
+            if extra_element_string is not None and extra_element_string.strip()!='':
+                print(extra_element_string,file=f)
             
             vafiles=[]
             for ms in model_suites: vafiles+=(ms.va_includes)
