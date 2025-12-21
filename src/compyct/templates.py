@@ -1339,6 +1339,7 @@ class SParTemplate(MultiSweepSimTemplate):
             df[f'U [dB]']=10*np.log10(
                 (np.abs(df.Y21-df.Y12)**2 /
                       (4*(re(df.Y11)*re(df.Y22)-re(df.Y12)*re(df.Y21)))))
+        df['f√U [GHz]']=df['freq']*np.sqrt(np.choose((df[f'U [dB]']>0),[np.nan,10**(df[f'U [dB]']/10)]))/1e9
 
         # https://www.microwaves101.com/encyclopedias/stability-factor
         Delta=df.S11*df.S22-df.S12*df.S21
@@ -1461,8 +1462,8 @@ class SParVBiasTemplate(SParTemplate,VsIrregularBiasAtFreq):
         SParTemplate.__init__(self,*args, outer_variable=None, outer_values=vgvds, inner_variable='freq',
                               inner_range=(frequency,1,frequency), temp=temp, **kwargs)
         VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
-              vs_vg=['GM/W [uS/um]','Cgs/W [fF/um]','Cgd/W [fF/um]','GM/2πCgg [GHz]'],
-              vs_vd=['Rds*W [Ohm.um]','Cds/W [fF/um]','Cdd/W [fF/um]'],
+              vs_vg=['GM/W [uS/um]','Cgs/W [fF/um]','Cgd/W [fF/um]','GM/2πCgg [GHz]','f√U [GHz]'],
+              vs_vd=['Rds*W [Ohm.um]','Cds/W [fF/um]','Cdd/W [fF/um]','f√U [GHz]'],
               vs_vo=[], vs_id=[])
 
     def get_analysis_listing(self,netlister:Netlister):

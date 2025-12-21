@@ -310,6 +310,12 @@ def cli_playback(*args):
                 )
                 for majortabname in major_tabnames
             ])
+            data_dump_path=save_path.with_suffix('.sim_data.pkl')
+            with open(data_dump_path,'wb') as f:
+                import pickle
+                logger.info(f"Saving playback simulation data to {data_dump_path}...")
+                pickle.dump({k:t.latest_results for k,t in tg.items()}, f)
+
             logger.info(f"Saving playback html to {save_path}...")
             playback.save(save_path)
             
