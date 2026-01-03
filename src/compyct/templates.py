@@ -1233,13 +1233,22 @@ class VsIrregularBiasAtFreq():
         return parsed_result
     
     def set_meas_data_helper(self, raw_meas_data):
-        self._meas_data=self._validated(self.postparse_return(raw_meas_data))
+        raw_meas_data=self._validated(self.postparse_return(raw_meas_data)) if raw_meas_data is not None else None
         vg_sweeps=form_multisweep(raw_meas_data,1,0,'VG',**self._sweeper_kwargs)
         vd_sweeps=form_multisweep(raw_meas_data,0,1,'VD',**self._sweeper_kwargs)
         if hasattr(self,'_vsvg'): self._vsvg._set_meas_data(vg_sweeps)
         if hasattr(self,'_vsvo'): self._vsvo._set_meas_data(vg_sweeps)
         if hasattr(self,'_vsvd'): self._vsvd._set_meas_data(vd_sweeps)
         if hasattr(self,'_vsid'): self._vsid._set_meas_data(vg_sweeps)
+
+        if raw_meas_data is None:
+            self._meas_data=None
+            return
+        md=self._meas_data={}
+        if hasattr(self,'_vsvg'): md['vsvg']=self._vsvg.meas_data
+        if hasattr(self,'_vsvo'): md['vsvo']=self._vsvo.meas_data
+        if hasattr(self,'_vsvd'): md['vsvd']=self._vsvd.meas_data
+        if hasattr(self,'_vsid'): md['vsid']=self._vsid.meas_data
     
     def generate_figures_helper(self, 
                          layout_params={}, y_axis_type='linear', x_axis_type='linear',
@@ -1884,19 +1893,19 @@ class FunctionCollationTemplate(CollationTemplate):
         return ['']
     
     @property
-    def dependencies(self) -> list['Template']: return [t for _,t in self.templates_by_x]
+    def dependencies(self) -> list['Template']: return [t for _,t in self.templates_by_x if t is not None]
 
     @property
     def meas_data(self):
         try:
-            df=pd.DataFrame([{self.xname:x}|self.func(templ,templ.meas_data,**self.func_kwargs) for x,templ in self.templates_by_x])
+            df=pd.DataFrame([{self.xname:x}|self.func(templ,templ.meas_data,**self.func_kwargs) for x,templ in self.templates_by_x if templ is not None])
         except:
-            import pdb; pdb.set_trace()
+            import pdb; pdb.set_trace(); raise
         return {'':df[[self.xname]+self.ynames]}
     
     def extract(self):
         logger.debug("recollecting latest results")
-        df=pd.DataFrame([{self.xname:x}|self.func(templ,templ.latest_results,**self.func_kwargs) for x,templ in self.templates_by_x])
+        df=pd.DataFrame([{self.xname:x}|self.func(templ,templ.latest_results,**self.func_kwargs) for x,templ in self.templates_by_x if templ is not None])
         return {'':df[[self.xname]+self.ynames]}
     
     def update_sim_results(self, new_results:dict[str,PostParsedResult]|None):
