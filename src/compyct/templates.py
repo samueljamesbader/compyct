@@ -1261,6 +1261,12 @@ class VsIrregularBiasAtFreq():
         if hasattr(self,'_vsvo'): self._vsvo.update_sim_results(vg_sweeps)
         if hasattr(self,'_vsvd'): self._vsvd.update_sim_results(vd_sweeps)
         if hasattr(self,'_vsid'): self._vsid.update_sim_results(vg_sweeps)
+    
+        lr=self.latest_results={}
+        if hasattr(self,'_vsvg'): lr['vsvg']=self._vsvg.latest_results
+        if hasattr(self,'_vsvo'): lr['vsvo']=self._vsvo.latest_results
+        if hasattr(self,'_vsvd'): lr['vsvd']=self._vsvd.latest_results
+        if hasattr(self,'_vsid'): lr['vsid']=self._vsid.latest_results
         
     def update_figures_helper(self, vizid=None):
         actually_did_update=False
@@ -1339,7 +1345,7 @@ class SParTemplate(MultiSweepSimTemplate):
             df[f'U [dB]']=10*np.log10(
                 (np.abs(df.Y21-df.Y12)**2 /
                       (4*(re(df.Y11)*re(df.Y22)-re(df.Y12)*re(df.Y21)))))
-        df['f√U [GHz]']=df['freq']*np.sqrt(np.choose((df[f'U [dB]']>0),[np.nan,10**(df[f'U [dB]']/10)]))/1e9
+        df['f√U [GHz]']=df['freq']*np.sqrt(np.choose((df[f'U [dB]']>0)&(np.real(df['Y21'])>0),[np.nan,10**(df[f'U [dB]']/10)]))/1e9
 
         # https://www.microwaves101.com/encyclopedias/stability-factor
         Delta=df.S11*df.S22-df.S12*df.S21
@@ -1366,6 +1372,7 @@ class SParTemplate(MultiSweepSimTemplate):
         df['Cds/W [fF/um]']=im(df.Y22+df.Y21) / w / Wum /fF  # <- note: different from MONTY https://www.youtube.com/watch?v=91vIM3FqAjU , and produces (correctly) negative Cds
         df['Cdd/W [fF/um]']=im(df.Y22) / w / Wum /fF
         df['Rds*W [Ohm.um]']=1/re(df.Y22+df.Y12) * Wum
+        df['Gds/W [uS/um]']=re(df.Y22+df.Y12) / Wum / uS
         #df['GM/W [uS/um]']=np.abs(df.Y21-df.Y12) / Wum / uS
         df['GM/W [uS/um]']=re(df.Y21) / Wum / uS
         Rs=df['Rs [Ohm.um]']=re(df.Z12) * Wum
@@ -1463,7 +1470,7 @@ class SParVBiasTemplate(SParTemplate,VsIrregularBiasAtFreq):
                               inner_range=(frequency,1,frequency), temp=temp, **kwargs)
         VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
               vs_vg=['GM/W [uS/um]','Cgs/W [fF/um]','Cgd/W [fF/um]','GM/2πCgg [GHz]','f√U [GHz]'],
-              vs_vd=['Rds*W [Ohm.um]','Cds/W [fF/um]','Cdd/W [fF/um]','f√U [GHz]'],
+              vs_vd=['Gds/W [uS/um]','Cds/W [fF/um]','Cdd/W [fF/um]','f√U [GHz]'],
               vs_vo=[], vs_id=[])
 
     def get_analysis_listing(self,netlister:Netlister):
@@ -1481,7 +1488,6 @@ class SParVBiasTemplate(SParTemplate,VsIrregularBiasAtFreq):
         return VsIrregularBiasAtFreq.update_sim_results_helper(self,*args, **kwargs)
     def update_figures(self, *args, **kwargs):
         return VsIrregularBiasAtFreq.update_figures_helper(self,*args, **kwargs)
-
     def to_merged_table(self,result):
         return VsIrregularBiasAtFreq.to_merged_table(self,result)
 
