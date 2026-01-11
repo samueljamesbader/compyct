@@ -167,52 +167,52 @@ class SpectreModelCardWriter(ModelCardWriter):
 
             print("endsection tttt",file=f)
 
-def make_bundle(patchgroups,version,netmaps={},builtins={},share_inner={},extra_scs=None, extra_code=None, process_suffix='',header=''):
-    from compyct import OUTPUT_DIR
-    BUNDLE_DIR=OUTPUT_DIR/'output/bundles'
-    BUNDLE_DIR.mkdir(parents=True,exist_ok=True)
-    version=version+process_suffix
-
-    # Make the bundle folder
-    if (MODELFITPATH/f"output/bundle_{version}").exists():
-        for f in (MODELFITPATH/f"output/bundle_{version}").glob("*"): f.unlink()
-        (MODELFITPATH/f"output/bundle_{version}").rmdir()
-    (MODELFITPATH/f"output/bundle_{version}").mkdir(parents=True)
-    
-    # Get all the va files
-    vafiles=[]
-    for modelname, patchgroup in patchgroups.items():
-        if modelname not in builtins:
-            for patch in patchgroup.values():
-                vafiles+=(patch.param_set.va_includes)
-    for vafile in set(vafiles):    
-        (MODELFITPATH/f"output/bundle_{version}/{vafile}").write_text(get_va_path(vafile).read_text())
-
-    # Check consistency of share inner
-    for k,ms in share_inner.items():
-        for m in ms:
-            assert dict(**patchgroups[ms[0]][None])==dict(**patchgroups[m][None])
-    
-    with open(MODELFITPATH/f"output/bundle_{version}/p1231_2.scs",'w') as f:
-        print(header.replace("$VERSION$",version),file=f)
-        if extra_scs: print(f'include "{extra_scs[0]}" section={extra_scs[1]}',file=f)
-        for vafile in set(vafiles):
-            print(f"ahdl_include \"./{vafile}\"",file=f)
-        for modelname,patchgroup in patchgroups.items():
-            inner_name=next((k for k,v in share_inner.items() if modelname in v),None)
-            scs_code=simplifier_patch_group_to_spectre_string(patchgroup, modelname,
-                                                        netmap=netmaps.get(modelname,{}),
-                                                        use_spectre_builtin=builtins.get(modelname,False),
-                                                        inner_name=inner_name,
-                                                        print_inner=(True if (not inner_name) else share_inner[inner_name][-1]==modelname))
-            print(scs_code,file=f)
-            # if len(patchgroup)>1:
-            #     pass
-            # for patchnum,(patchcond, patch) in enumerate(patchgroup.items()):
-            #     scs_code,incs=simplifier_patch_group_to_scs(patch, f'{modelname}_cond{patchnum}')
-            #     #print("".join(incs),file=f)
-            #     print(scs_code,file=f)
-            
-        if extra_code: print(extra_code+"\n",file=f)
-        print("endsection tttt",file=f)
-        
+#def make_bundle(patchgroups,version,netmaps={},builtins={},share_inner={},extra_scs=None, extra_code=None, process_suffix='',header=''):
+#    from compyct import OUTPUT_DIR
+#    BUNDLE_DIR=OUTPUT_DIR/'output/bundles'
+#    BUNDLE_DIR.mkdir(parents=True,exist_ok=True)
+#    version=version+process_suffix
+#
+#    # Make the bundle folder
+#    if (MODELFITPATH/f"output/bundle_{version}").exists():
+#        for f in (MODELFITPATH/f"output/bundle_{version}").glob("*"): f.unlink()
+#        (MODELFITPATH/f"output/bundle_{version}").rmdir()
+#    (MODELFITPATH/f"output/bundle_{version}").mkdir(parents=True)
+#    
+#    # Get all the va files
+#    vafiles=[]
+#    for modelname, patchgroup in patchgroups.items():
+#        if modelname not in builtins:
+#            for patch in patchgroup.values():
+#                vafiles+=(patch.param_set.va_includes)
+#    for vafile in set(vafiles):    
+#        (MODELFITPATH/f"output/bundle_{version}/{vafile}").write_text(get_va_path(vafile).read_text())
+#
+#    # Check consistency of share inner
+#    for k,ms in share_inner.items():
+#        for m in ms:
+#            assert dict(**patchgroups[ms[0]][None])==dict(**patchgroups[m][None])
+#    
+#    with open(MODELFITPATH/f"output/bundle_{version}/p1231_2.scs",'w') as f:
+#        print(header.replace("$VERSION$",version),file=f)
+#        if extra_scs: print(f'include "{extra_scs[0]}" section={extra_scs[1]}',file=f)
+#        for vafile in set(vafiles):
+#            print(f"ahdl_include \"./{vafile}\"",file=f)
+#        for modelname,patchgroup in patchgroups.items():
+#            inner_name=next((k for k,v in share_inner.items() if modelname in v),None)
+#            scs_code=simplifier_patch_group_to_spectre_string(patchgroup, modelname,
+#                                                        netmap=netmaps.get(modelname,{}),
+#                                                        use_spectre_builtin=builtins.get(modelname,False),
+#                                                        inner_name=inner_name,
+#                                                        print_inner=(True if (not inner_name) else share_inner[inner_name][-1]==modelname))
+#            print(scs_code,file=f)
+#            # if len(patchgroup)>1:
+#            #     pass
+#            # for patchnum,(patchcond, patch) in enumerate(patchgroup.items()):
+#            #     scs_code,incs=simplifier_patch_group_to_scs(patch, f'{modelname}_cond{patchnum}')
+#            #     #print("".join(incs),file=f)
+#            #     print(scs_code,file=f)
+#            
+#        if extra_code: print(extra_code+"\n",file=f)
+#        print("endsection tttt",file=f)
+#        

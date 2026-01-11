@@ -329,7 +329,7 @@ class Bundle():
 
     def __init__(self, pdk:str, release_name:str,
                  model_suites_and_circuits_by_file:dict[str,list[ModelSuite|CircuitsCollection]],
-                 header:str='', extra_element_string:str=''):
+                 header:str='', extra_element_string:str='', extra_files:list[Path]=[]):
         self.pdk = pdk
         self.release_name = release_name
         self.model_suites = {k: [ms for ms in maybes_ms if isinstance(ms, ModelSuite)] 
@@ -338,6 +338,7 @@ class Bundle():
                              for k, maybes_cc in model_suites_and_circuits_by_file.items()}
         self.header = header
         self.extra_element_string = extra_element_string
+        self.extra_files = [Path(p) for p in extra_files]
         for file, msuites in self.model_suites.items():
             for ms in msuites:
                 assert ms.release_name == release_name,\
@@ -359,6 +360,10 @@ class Bundle():
         va_includes=set(vai for msuites in self.model_suites.values() for ms in msuites for vai in ms.va_includes)
         for vafile in set(va_includes):    
             (bundle_dir/vafile).write_text(get_va_path(vafile).read_text())
+        for extra_file in self.extra_files:
+            dest=bundle_dir/extra_file.name
+            logger.info(f"Copying extra file {extra_file} to {dest}")
+            dest.write_text(extra_file.read_text())
             
     @staticmethod
     def get_bundle(pdk:str, release_name:str) -> 'Bundle':
