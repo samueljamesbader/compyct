@@ -47,7 +47,7 @@ class SpectreModelCardWriter(ModelCardWriter):
         #import pdb; pdb.set_trace()
         innards={(k.lower() if use_builtin else k):v
                      for k,v in sorted(patch.with_updates({k:v for k,v in pcell_defaults.items() if k in patch.param_set._pdict}).filled().to_base().items(),key=(lambda x: x[0]))
-                           if (k != 'm' )}#and ps.base.get_place(k) == ParamPlace.MODEL)}
+                           if (k != 'm'  and ps.base.get_place(k) == ParamPlace.MODEL)}
         by_first_n_char=2 if len(innards)>300 else 1
         modelstr=f"\nmodel {inner_name} {use_builtin or patch.param_set.model}\n"+\
                  '\n'.join([f"  + "+' '.join([f"{k}={v}" for k,v in chunk.items()])
@@ -80,7 +80,7 @@ class SpectreModelCardWriter(ModelCardWriter):
         base_params_manip=ps.get_defaults_patch(only_keys=ps.minimal_completion_of_pcell()).to_base(affected_only=True)
         base_params_all=ps.get_defaults_patch(only_keys=ps.minimal_completion_of_pcell()).to_base(affected_only=False)
         inst_passings1=[f"{k.lower() if use_builtin else k}={int_name(k)}" for k in base_params_manip]
-        inst_passings2=[f'{k.lower() if use_builtin else k}={v}' for k,v in base_params_all.items()
+        inst_passings2=[f'{k.lower() if use_builtin else k}={v}' for k,v in sorted(base_params_all.filled().items(),key=(lambda x: x[0]))
                         if ps.base.get_place(k)==ParamPlace.INSTANCE and k not in base_params_manip]
         inst_passings=" ".join(inst_passings1+inst_passings2)
 
