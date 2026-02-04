@@ -39,14 +39,20 @@ class SpectreModelCardWriter(ModelCardWriter):
 
     def simplifier_patch_to_modelcard_string(self,
                 patch:ParamPatch[SimplifierParamSet], element_name:str, out_to_in_netmap:OrderedDict[str,str|None], pcell_defaults:dict[str,Any],
-                extra_text:str, use_builtin:bool=False, inner_name=None):
+                extra_text:str, use_builtin:bool=False, inner_name=None, omit_model_parameters:list[str]=[])->str:
         ps=patch.param_set
         f=StringIO()
 
         inner_name=inner_name or f"{element_name}_inner"
         #import pdb; pdb.set_trace()
+        base_out=patch.with_updates({k:v for k,v in pcell_defaults.items() if k in patch.param_set._pdict}).filled().to_base()
+        for op in omit_model_parameters:
+            if op in base_out:
+                assert base_out[op]==ps.base.get_default(op), \
+                    f"Cannot omit model parameter {op} since it was changed from default value {ps.base.get_default(op)} to {base_out[op]}"
+                del base_out[op]
         innards={(k.lower() if use_builtin else k):v
-                     for k,v in sorted(patch.with_updates({k:v for k,v in pcell_defaults.items() if k in patch.param_set._pdict}).filled().to_base().items(),key=(lambda x: x[0]))
+                     for k,v in sorted(base_out.items(),key=(lambda x: x[0]))
                            if (k != 'm'  and ps.base.get_place(k) == ParamPlace.MODEL)}
         by_first_n_char=2 if len(innards)>300 else 1
         modelstr=f"\nmodel {inner_name} {use_builtin or patch.param_set.model}\n"+\
@@ -78,9 +84,14 @@ class SpectreModelCardWriter(ModelCardWriter):
                 elif type(for_this_pset) is tuple:
                     print(f"\tparameters {int_name(for_base_pset)}={for_this_pset[2]}",file=f)
         base_params_manip=ps.get_defaults_patch(only_keys=ps.minimal_completion_of_pcell()).to_base(affected_only=True)
-        base_params_all=ps.get_defaults_patch(only_keys=ps.minimal_completion_of_pcell()).to_base(affected_only=False)
+        base_params_all=ps.get_defaults_patch(only_keys=ps.minimal_completion_of_pcell()).to_base(affected_only=False).filled()
+        for op in omit_model_parameters:
+            if op in base_params_all:
+                assert base_params_all[op]==ps.base.get_default(op), \
+                    f"Cannot omit instance parameter {op} since it was changed from default value {ps.base.get_default(op)} to {base_params_all[op]}"
+                del base_params_all[op]
         inst_passings1=[f"{k.lower() if use_builtin else k}={int_name(k)}" for k in base_params_manip]
-        inst_passings2=[f'{k.lower() if use_builtin else k}={v}' for k,v in sorted(base_params_all.filled().items(),key=(lambda x: x[0]))
+        inst_passings2=[f'{k.lower() if use_builtin else k}={v}' for k,v in sorted(base_params_all.items(),key=(lambda x: x[0]))
                         if ps.base.get_place(k)==ParamPlace.INSTANCE and k not in base_params_manip]
         inst_passings=" ".join(inst_passings1+inst_passings2)
 

@@ -259,11 +259,14 @@ class FittableModelSuite(ModelSuite):
             element_name=element_name,
             out_to_in_netmap=self.get_out_to_in_netmap(),
             pcell_defaults=self.pcell_defaults, # type: ignore
-            extra_text=self.get_extra_text(mcw), use_builtin=self.export_with_builtin)
+            extra_text=self.get_extra_text(mcw),
+            omit_model_parameters=self.omit_model_parameters(),
+            use_builtin=self.export_with_builtin)
     
     def get_out_to_in_netmap(self) -> OrderedDict[str,str|None]:
         return OrderedDict({k:k for k in self.param_set.terminals})
     def get_extra_text(self, mcw: ModelCardWriter) -> str: return ""
+    def omit_model_parameters(self) -> list[str]: return []
 
 class WrapperModelSuite(ModelSuite):
     def __init__(self, element_name:str, wrapped_suite:FittableModelSuite):
@@ -375,8 +378,8 @@ class Bundle():
     @staticmethod
     def list_bundles() -> list[tuple[str,str]]:
         return list(Bundle._registry.keys())
-    def get_bundle_path(self) -> Path:
-        return OUTPUT_DIR/"bundles"/self.pdk/self.release_name
+    def get_bundle_path(self,override_output_dir=None) -> Path:
+        return (override_output_dir or OUTPUT_DIR)/"bundles"/self.pdk/self.release_name
 
 class ExternalBundle(Bundle):
     def __init__(self, pdk:str, release_name:str, bundle_path:Path, model_suites_and_circuits_by_file:dict[str,list[ModelSuite|CircuitsCollection]],):
