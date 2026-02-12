@@ -1354,7 +1354,9 @@ class SParTemplate(MultiSweepSimTemplate):
             df[f'U [dB]']=10*np.log10(
                 (np.abs(df.Y21-df.Y12)**2 /
                       (4*(re(df.Y11)*re(df.Y22)-re(df.Y12)*re(df.Y21)))))
-        df['f√U [GHz]']=df['freq']*np.sqrt(np.choose((df[f'U [dB]']>0)&(np.real(df['Y21'])>0),[np.nan,10**(df[f'U [dB]']/10)]))/1e9
+        # Proxy for fMax
+        #df['f√U [GHz]']=df['freq']*np.sqrt(np.choose((df[f'U [dB]']>0)&(np.real(df['Y21'])>0),[np.nan,10**(df[f'U [dB]']/10)]))/1e9
+        df['f√U [GHz]']=df['freq']*np.sqrt(np.choose(True,[np.nan,10**(df[f'U [dB]']/10)]))/1e9
 
         # https://www.microwaves101.com/encyclopedias/stability-factor
         Delta=df.S11*df.S22-df.S12*df.S21
@@ -1389,6 +1391,7 @@ class SParTemplate(MultiSweepSimTemplate):
         df['Rg*W [Ohm.um]']=(re(df.Z11)-Rs) * Wum
         df['GM/2πCgs [GHz]']=df['GM/W [uS/um]']/(2*np.pi*df['Cgs/W [fF/um]']) #uS/fF=GHz
         df['GM/2πCgg [GHz]']=df['GM/W [uS/um]']/(2*np.pi*df['Cgg/W [fF/um]']) #uS/fF=GHz
+        df['AngY21 [deg]']=np.angle(df.Y21,deg=True)
 
         # S-parameters
         for ii in ['11','12','21','22']:
@@ -1478,7 +1481,7 @@ class SParVBiasTemplate(SParTemplate,VsIrregularBiasAtFreq):
         SParTemplate.__init__(self,*args, outer_variable=None, outer_values=vgvds, inner_variable='freq',
                               inner_range=(frequency,1,frequency), temp=temp, **kwargs)
         VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
-              vs_vg=['GM/W [uS/um]','Cgs/W [fF/um]','Cgd/W [fF/um]','GM/2πCgg [GHz]','f√U [GHz]'],
+              vs_vg=['GM/W [uS/um]','Cgs/W [fF/um]','Cgd/W [fF/um]','GM/2πCgg [GHz]','f√U [GHz]'],#,'AngY21 [deg]'],
               vs_vd=['Gds/W [uS/um]','Cds/W [fF/um]','Cdd/W [fF/um]','f√U [GHz]'],
               vs_vo=[], vs_id=[])
 
