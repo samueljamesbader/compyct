@@ -93,7 +93,7 @@ class SpectreModelCardWriter(ModelCardWriter):
         inst_passings1=[f"{k.lower() if use_builtin else k}={int_name(k)}" for k in base_params_manip]
         inst_passings2=[f'{k.lower() if use_builtin else k}={v}' for k,v in sorted(base_params_all.items(),key=(lambda x: x[0]))
                         if ps.base.get_place(k)==ParamPlace.INSTANCE and k not in base_params_manip]
-        inst_passings=" ".join(inst_passings1+inst_passings2)
+        inst_passings=" ".join(sorted(inst_passings1+inst_passings2))
 
         in_to_out_netmap={v:k for k,v in out_to_in_netmap.items() if v is not None}
         term_part=' '.join([in_to_out_netmap.get(t,t+'_inner') for t in ps.terminals])
@@ -116,7 +116,7 @@ class SpectreModelCardWriter(ModelCardWriter):
                        indent='\t'),file=f)
         in_to_out_netmap={v:k for k,v in out_to_in_netmap.items() if v is not None}
         core_terms=' '.join([in_to_out_netmap.get(t,t+'_inner') for t in inner_term_order])
-        inst_passings=' '.join([f"{k}={k}" for k in pass_parameters]+[f"{k}={v}" for k,v in inject_parameters.items()])
+        inst_passings=' '.join(sorted([f"{k}={k}" for k in pass_parameters]+[f"{k}={v}" for k,v in inject_parameters.items()]))
         print(wrap_scs(f"Xcore {core_terms} {inner_element_name} {inst_passings}",indent='\t'),file=f)
         if extra_text is not None:
             print('\n'.join(["\t"+l for l in extra_text.split('\n') if l!='']),file=f)

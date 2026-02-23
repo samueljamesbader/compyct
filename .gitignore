@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 scratch/
+changes.patch
 
 # C extensions
 *.so
