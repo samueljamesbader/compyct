@@ -5,6 +5,7 @@ from datavac.util.cli import CLIIndex
 from argparse import ArgumentParser
 
 
+
 def entrypoint_compyct_cli():
     from compyct import initialize_bundles
     initialize_bundles()
@@ -14,6 +15,7 @@ def entrypoint_compyct_cli():
         'export': cli_export,
         'copy_param (cp)': cli_copy_param,
         'playback (pb)': cli_playback,
+        'compare (comp)': cli_compare,
     })(*sys.argv)
 
 
@@ -319,6 +321,107 @@ def cli_playback(*args):
             logger.info(f"Saving playback html to {save_path}...")
             playback.save(save_path)
             
+def cli_compare(*args):
+    parser = ArgumentParser(description="Compyct Compare CLI")
+    parser.add_argument('--pdk', type=str, nargs='?', help='PDK name (optional if only one)')
+    parser.add_argument('--release_name1', type=str, nargs='?', help='Release name 1')
+    parser.add_argument('--release_name2', type=str, nargs='?', help='Release name 2')
+    parser.add_argument('--file','-f', type=str, nargs='*', default=None, help='Modelcard file within release (optional if only one)')
+    parser.add_argument('--override_file_path', type=str, nargs='?', default=None, help='Override modelcard file path (optional)')
+    parser.add_argument('--element_names', '-e', type=str, nargs='*', default=None, help='Element names to playback')
+    parser.add_argument('--circuit_names', '-c', type=str, nargs='*', default=None, help='Circuit collection names to playback')
+    parser.add_argument('--instance_subset_name', '-isub', type=str, nargs='?', default=None, help='Instance subset names')
+    parser.add_argument('--measurement_subset_name', '-msub', type=str, nargs='?', default=None, help='Measurement subset names')
+    parser.add_argument('--force_refresh_data', '-rd', action='store_true', help='Force refresh data (default: False)')
+    parser.add_argument('--allow_external', action='store_true', default=False, help='Allow external bundles (default: False)')
+    parser.add_argument('--reexport', action='store_true', default=False, help='Re-export bundle before playback (default: False)')
+    parser.add_argument('--publish', action='store_true', default=False, help='Publish playback results to COMPYCT_PUBLISH_DIR (default: False)')
+    parsed_args = parser.parse_args(args)
+    pdk, release_name1, files = resolve_bundle_args(parsed_args.pdk, parsed_args.release_name1, parsed_args.file,
+                                                    do_file='list', no_external=(not parsed_args.allow_external))
+    pdk, release_name2, files = resolve_bundle_args(parsed_args.pdk, parsed_args.release_name2, parsed_args.file,
+                                                    do_file='list', no_external=(not parsed_args.allow_external))
+    from compyct.model_suite import Bundle
+    bundle1 = Bundle.get_bundle(pdk, release_name1)
+    bundle2 = Bundle.get_bundle(pdk, release_name2)
+    if parsed_args.reexport:
+        for release_name, bundle in [(release_name1, bundle1), (release_name2, bundle2)]:
+            print(f"Re-exporting bundle ({pdk}, {release_name}) before playback...")
+            bundle.export()
+            if parsed_args.publish:
+                from compyct import PUBLISH_DIR
+                bundle.export(override_output_dir=PUBLISH_DIR)
+        del release_name, bundle
+    from compyct.model_suite import FittableModelSuite
+    element_names = parsed_args.element_names
+    circuit_names = parsed_args.circuit_names
+    for file in files:
+        print(f"Reading back bundle ({pdk}, {release_name1}) for file: {file}")
+        model_suites = [ms for ms in bundle1.model_suites[file] if (element_names is None or ms.element_name in element_names)]
+
+        from compyct import OUTPUT_DIR
+        bundle_dir=bundle1.get_bundle_path()
+        actual_path=Path(parsed_args.override_file_path) if parsed_args.override_file_path is not None else bundle_dir/file
+        if not ((element_names is None) and (circuit_names is not None)):
+            tgse={ms.element_name:
+                ms.get_template_group(param_set=ms.playback_ps_class(model=ms.element_name,file=actual_path,section='tttt'),
+                                      instance_subset_name=parsed_args.instance_subset_name,
+                                      measurement_subset_name=parsed_args.measurement_subset_name,
+                                      force_refresh_data=parsed_args.force_refresh_data)
+                    for ms in model_suites
+                        if (element_names is None or (ms.element_name in element_names))
+            }
+            assert all(element_name in tgse for element_name in (element_names or [])), \
+                f"Some specified element names not found in file {file} of bundle ({pdk}, {release_name1})"
+        else: tgse={}
+        if not ((circuit_names is None) and (element_names is not None)):
+            tgsc={cc.collection_name:
+                cc.get_template_group(includes=[(actual_path,'section=tttt')],
+                                      force_refresh_data=parsed_args.force_refresh_data)
+                    for cc in bundle1.circuits[file]
+                        if (circuit_names is None or (cc.collection_name in circuit_names))
+            }
+            assert all(circuit_name in tgsc for circuit_name in (circuit_names or [])), \
+                f"Some specified circuit names not found in file {file} of bundle ({pdk}, {release_name1})"
+        else: tgsc={}
+        tgs={**tgse, **tgsc}
+            
+        from compyct import logger
+        from compyct.backends.backend import MultiSimSesh
+        from compyct.optimizer import rerun_with_params
+        import panel as pn
+        from compyct import PUBLISH_DIR
+        from compyct.templates import SimTemplate
+        for elt, tg in tgs.items():
+            pull_path1=(PUBLISH_DIR if parsed_args.publish else OUTPUT_DIR)/f"playback/{pdk}-{release_name1}-{file}-{elt}.html"    
+            data_dump_path=pull_path1.with_suffix('.sim_data.pkl')
+            with open(data_dump_path,'rb') as f:
+                import pickle
+                logger.info(f"Saving playback simulation data to {data_dump_path}...")
+                latest_results=pickle.load(f)
+                for k,t in tg.items():
+                    if isinstance(t, SimTemplate):
+                        import pdb; pdb.set_trace()
+                        t.update_sim_results(latest_results.get(k, None))
+                for k,t in tg.items():
+                    if not isinstance(t, SimTemplate):
+                        t.extract()
+
+            major_tabnames=list(dict.fromkeys(k.split("|||")[0] for k in tg))
+            fig_layout_params=dict(width=200,height=250)
+            playback=pn.Tabs(*[
+                (majortabname,
+                        tg.only(*[k for k in tg if k.startswith(majortabname+"|||")]).get_figure_pane(
+                            fig_layout_params=fig_layout_params,gridplot_options={'ncols':6},do_update=True)
+                )
+                for majortabname in major_tabnames
+            ])
+
+            save_path=OUTPUT_DIR/f"comp--{pdk}--{release_name1}--{release_name2}"/f"playback/{file}-{elt}.html"    
+            logger.info(f"Saving playback html to {save_path}...")
+            playback.save(save_path)
+            
+
 
 
 def cli_list(*args):

@@ -93,6 +93,7 @@ class Template():
     
     def generate_figures(self, 
                          layout_params={}, y_axis_type='linear', x_axis_type='linear', override_line_color=None,
+                         show_legend=False,
                          vizid=None):
     
         self._sources[vizid]\
@@ -108,12 +109,12 @@ class Template():
 
         return self._make_figures(meas_cds_c=meas_cds_c, meas_cds_l=meas_cds_l, sim_cds=sim_cds,
                                   layout_params=layout_params, override_line_color=override_line_color,
-                                  y_axis_type=y_axis_type, x_axis_type=x_axis_type)
+                                  y_axis_type=y_axis_type, x_axis_type=x_axis_type, show_legend=show_legend)
         
         
 
     def _make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params,
-                      y_axis_type='linear',x_axis_type='linear',override_line_color=None, legend_for='mult'):
+                      y_axis_type='linear',x_axis_type='linear',override_line_color=None, show_legend=False, legend_for='mult'):
         num_ys=len(self.ynames)
         if type(y_axis_type) is str: y_axis_type=[y_axis_type]*num_ys
         if type(x_axis_type) is str: x_axis_type=[x_axis_type]*num_ys
@@ -166,18 +167,19 @@ class Template():
             fig.xaxis.axis_label=self.xname
             #fig_legend_config(fig)
             
-            #fig.legend.label_text_font_size = "2pt"      # Make the text smaller (from previous advice)
-            #fig.legend.spacing = 1                      # Reduce the gap between legend items
-            #fig.legend.padding = 2                      # Reduce padding inside the legend box
-            #fig.legend.glyph_width = 5                 # Make the color samples narrower
-            #fig.legend.glyph_height = 5                # Make the color samples shorter
-            #fig.legend.label_standoff = 2               # Reduce distance between sample and text
-            #fig.legend.margin = 1                       # Reduce margin around the entire legend box
-            ##fig.legend.orientation = "vertical"         # Ensure vertical orientation (usually default)
-            #fig.legend.border_line_width = 0            # Optional: remove the border line completely
-            #fig.legend.visible=True
-            #fig.legend.location='above'
-            fig.legend.visible=False
+            if show_legend:
+                fig.legend.label_text_font_size = "7pt"      # Make the text smaller (from previous advice)
+                fig.legend.spacing = 1                      # Reduce the gap between legend items
+                fig.legend.padding = 1                      # Reduce padding inside the legend box
+                fig.legend.glyph_width = 8                 # Make the color samples narrower
+                fig.legend.glyph_height = 6                # Make the color samples shorter
+                fig.legend.label_standoff = 2               # Reduce distance between sample and text
+                fig.legend.margin = 1                       # Reduce margin around the entire legend box
+                #fig.legend.orientation = "vertical"         # Ensure vertical orientation (usually default)
+                #fig.legend.border_line_width = 0            # Optional: remove the border line completely
+                #fig.legend.visible=True
+                #fig.legend.location='above'
+            fig.legend.visible=show_legend
             figs.append(fig)
         return figs
 
@@ -222,7 +224,8 @@ class SimTemplate(Template):
         if not hasattr(self,'_meas_data'): self._set_meas_data(self._raw_meas_data)
         return self._meas_data
     def _set_meas_data(self, raw_meas_data):
-        assert not hasattr(self,'_meas_data'), "Meas data already set"
+        if raw_meas_data is not None:
+            assert not hasattr(self,'_meas_data'), "Meas data already set"
         self._meas_data=self._validated(self.postparse_return(raw_meas_data))\
             if raw_meas_data is not None else None
     def update_sim_results(self, parsed_result):
@@ -1438,7 +1441,7 @@ class SParVFreqTemplate(SParTemplate,VsFreqAtIrregularBias):
         kwargs['x_axis_type']=kwargs.get('x_axis_type','log')
         return super().generate_figures(*args,**kwargs)
 
-    def _make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params, y_axis_type='log',x_axis_type='log', override_line_color=None):
+    def _make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params, y_axis_type='log',x_axis_type='log', override_line_color=None, show_legend=True):
         assert y_axis_type=='log'
         assert x_axis_type=='log'
         assert override_line_color is None
@@ -1776,7 +1779,7 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
     def to_merged_table(self,result):
         return VsIrregularBiasAtFreq.to_merged_table(self,result)
 
-class TemplateGroup(UserDict[str,SimTemplate]):
+class TemplateGroup(UserDict[str,Template]):
     def __init__(self,**templates):
         super().__init__(**templates)
         self._panes={}
@@ -1802,7 +1805,7 @@ class TemplateGroup(UserDict[str,SimTemplate]):
     def get_figure_pane(self, fig_layout_params={},vizid=None,gridplot_options={},do_update=False):
         figs=sum([t.generate_figures(
                             layout_params=fig_layout_params, vizid=vizid)
-                       for stname,t in self.items()],[])
+                       for stname,t in self.items() if 'HIDDEN' not in stname],[])
         if do_update:
             self.update_figures(vizid=vizid)
         # If ncols is specified, use that, else make a single row
@@ -1863,10 +1866,11 @@ class CollationTemplate(Template):
 class FunctionCollationTemplate(CollationTemplate):
     def __init__(self,
                  func: Callable[[SimTemplate,PostParsedResult],dict[str,float]],
-                 x_name:str, y_names:list[str], 
+                 x_name:str, y_names:list[str], outer_variable=None,
                  templates_by_x:list[tuple[Any,SimTemplate]]|None=None,
                  templates:list[SimTemplate]|None=None,
                  x_patch_attribute:str|None=None,
+                 outer_patch_attribute:str|None=None,
                  func_kwargs:dict={},
                  yscales=None,
                  **kwargs):
@@ -1874,26 +1878,39 @@ class FunctionCollationTemplate(CollationTemplate):
         if templates_by_x is not None:
             assert templates is None, "Provide either templates_by_x or templates, not both"
             assert x_patch_attribute is None, "x_patch_attribute not needed when providing templates_by_x"
-            self.templates_by_x=templates_by_x
+            assert outer_patch_attribute is None, "outer_patch_attribute not needed when providing templates_by_x"
+            self.templates_by_x=[((x,),t) for x,t in templates_by_x]
         else:
             assert templates is not None, "Must provide either templates_by_x or templates"
             assert x_patch_attribute is not None, "Must provide x_patch_attribute when providing templates"
             if '[' in x_patch_attribute:
-                disp_units=x_patch_attribute.split('[')[1].split(']')[0].strip()
+                disp_units_x=x_patch_attribute.split('[')[1].split(']')[0].strip()
                 x_patch_attribute=x_patch_attribute.split('[')[0].strip()
-            else: disp_units=None
-            self.templates_by_x=[(t._patch.get_as_float(x_patch_attribute,units=disp_units),t) for t in templates]
+            else: disp_units_x=None
+            if outer_variable is not None:
+                assert outer_patch_attribute is not None, "Must provide outer_patch_attribute when providing outer_variable"
+                if '[' in outer_patch_attribute:
+                    disp_units_o=outer_patch_attribute.split('[')[1].split(']')[0].strip()
+                    outer_patch_attribute=outer_patch_attribute.split('[')[0].strip()
+                else: disp_units_o=None
+                self.templates_by_x=[((t._patch.get_as_float(x_patch_attribute,units=disp_units_x),
+                                       '{:g}'.format(t._patch.get_as_float(outer_patch_attribute,units=disp_units_o))),t) for t in templates]
+            else:
+                self.templates_by_x=[((t._patch.get_as_float(x_patch_attribute,units=disp_units_x),),t) for t in templates]
 
         self.func=func
         self.func_kwargs=func_kwargs
         self.xname=x_name
         self.ynames=y_names
         self.yscales=yscales
-        self.outer_variable=None
+        self.outer_variable=outer_variable
         self.latest_results=None
 
     def _required_keys(self) -> list:
-        return ['']
+        if self.outer_variable is None:
+            return ['']
+        else:
+            return list(set((x[1],) for x,_ in self.templates_by_x))
     
     @property
     def dependencies(self) -> list['Template']: return [t for _,t in self.templates_by_x if t is not None]
@@ -1901,15 +1918,23 @@ class FunctionCollationTemplate(CollationTemplate):
     @property
     def meas_data(self):
         try:
-            df=pd.DataFrame([{self.xname:x}|self.func(templ,templ.meas_data,**self.func_kwargs) for x,templ in self.templates_by_x if templ is not None])
+            if self.outer_variable is None:
+                df=pd.DataFrame([{self.xname:x[0]}|self.func(templ,templ.meas_data,**self.func_kwargs) for x,templ in self.templates_by_x if templ is not None])
+                return {'':df[[self.xname]+self.ynames]}
+            else:
+                df=pd.DataFrame([{self.xname:x[0],self.outer_variable:x[1]}|self.func(templ,templ.meas_data,**self.func_kwargs) for x,templ in self.templates_by_x if templ is not None])
+                return {(k,):v for k,v in df[[self.xname,self.outer_variable]+self.ynames].groupby(self.outer_variable)}
         except:
             import pdb; pdb.set_trace(); raise
-        return {'':df[[self.xname]+self.ynames]}
     
     def extract(self):
         logger.debug("recollecting latest results")
-        df=pd.DataFrame([{self.xname:x}|self.func(templ,templ.latest_results,**self.func_kwargs) for x,templ in self.templates_by_x if templ is not None])
-        return {'':df[[self.xname]+self.ynames]}
+        if self.outer_variable is None:
+            df=pd.DataFrame([{self.xname:x[0]}|self.func(templ,templ.latest_results,**self.func_kwargs) for x,templ in self.templates_by_x if templ is not None])
+            return {'':df[[self.xname]+self.ynames]}
+        else:
+            df=pd.DataFrame([{self.xname:x[0],self.outer_variable:x[1]}|self.func(templ,templ.latest_results,**self.func_kwargs) for x,templ in self.templates_by_x if templ is not None])
+            return {(k,):v for k,v in df[[self.xname,self.outer_variable]+self.ynames].groupby(self.outer_variable)}
     
     def update_sim_results(self, new_results:dict[str,PostParsedResult]|None):
         self.latest_results=new_results
@@ -1919,4 +1944,6 @@ class FunctionCollationTemplate(CollationTemplate):
     def generate_figures(self, *args, **kwargs):
         if 'y_axis_type' not in kwargs and self.yscales is not None:
             kwargs['y_axis_type']=self.yscales
+        if 'show_legend' not in kwargs:
+            kwargs['show_legend']=True
         return super().generate_figures(*args, **kwargs)
