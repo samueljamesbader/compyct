@@ -308,7 +308,9 @@ class SpectreMultiSimSesh(MultiSimSesh):
                                              for k,v in deltas.items()})
                     logger.debug(f"Done param changes")
             #print('running', time.time())
-            results[simname]=simtemp.postparse_return(simtemp.parse_return(nl.preparse_return(psp.run_all(sesh))))
+            if 'HIDDEN' in simname:
+                1+1
+            results[simname]=simtemp.parse_return(nl.preparse_return(psp.run_all(sesh)))
             #print('done', time.time())
         return results
         

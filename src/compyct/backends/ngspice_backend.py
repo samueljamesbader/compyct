@@ -420,7 +420,7 @@ class NgspiceMultiSimSesh(MultiSimSesh):
                 #print(f"Ran analysis {name}",time.time())
             #print("About to parse: ",time.time())
             #results[simname]=simtemp.parse_return(nl.preparse_return(unparsed_result))
-            results[simname]=simtemp.postparse_return(simtemp.parse_return(unparsed_result))
+            results[simname]=simtemp.parse_return(unparsed_result)
 
             #print("Done: ",time.time())
         return results            

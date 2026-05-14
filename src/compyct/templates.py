@@ -224,12 +224,16 @@ class SimTemplate(Template):
         if not hasattr(self,'_meas_data'): self._set_meas_data(self._raw_meas_data)
         return self._meas_data
     def _set_meas_data(self, raw_meas_data):
+        from copy import deepcopy
         if raw_meas_data is not None:
-            assert not hasattr(self,'_meas_data'), "Meas data already set"
+            assert (not hasattr(self,'_meas_data') or self._meas_data is None), "Meas data already set"
+        self._meas_data_state=deepcopy(raw_meas_data)
         self._meas_data=self._validated(self.postparse_return(raw_meas_data))\
             if raw_meas_data is not None else None
     def update_sim_results(self, parsed_result):
-        self.latest_results=self._validated(parsed_result)
+        from copy import deepcopy
+        self.latest_results_state=deepcopy(parsed_result)
+        self.latest_results=self._validated(self.postparse_return(parsed_result))
     def update_figures(self,vizid=None)->bool:
         parsed_result=self.latest_results
         #logger.debug(f"Updating figure {self.__class__.__name__}")
@@ -422,6 +426,7 @@ class DCIdVdTemplate(MultiSweepSimTemplate):
         return parsed_result
 
     def postparse_return(self, parsed_result):
+        if parsed_result is None: return None
         sgn = -1 if self.pol == 'p' else 1
         sgnstr = "-" if self.pol == 'p' else ''
         for (vg,d), df in parsed_result.items():
@@ -517,6 +522,7 @@ class DCIdVgTemplate(MultiSweepSimTemplate):
         return parsed_result
 
     def postparse_return(self,parsed_result):
+        if parsed_result is None: return parsed_result
         sgn=-1 if self.pol=='p' else 1
         sgnstr="-" if self.pol=='p' else ''
         for (vd,d),df in parsed_result.items():
@@ -739,6 +745,7 @@ class JointTemplate(SimTemplate):
         return {k:t._validated(parsed_result[k]) for k,t in self.subtemplates.items()}
     
     def update_sim_results(self, parsed_result):
+        self.latest_results_state=parsed_result
         for k,t in self.subtemplates.items():
             t.update_sim_results((parsed_result[k] if parsed_result else None))
     def latest_results(self):
@@ -1267,6 +1274,9 @@ class VsIrregularBiasAtFreq():
                                           y_axis_type=y_axis_type, x_axis_type=x_axis_type) if hasattr(self,'_vsid') else []),]
 
     def update_sim_results_helper(self, parsed_result):
+        from copy import deepcopy
+        self.latest_results_state=deepcopy(parsed_result)
+        parsed_result=self.postparse_return(parsed_result)
         vg_sweeps=form_multisweep(parsed_result,1,0,'VG',**self._sweeper_kwargs)
         vd_sweeps=form_multisweep(parsed_result,0,1,'VD',**self._sweeper_kwargs)
         if hasattr(self,'_vsvg'): self._vsvg.update_sim_results(vg_sweeps)
@@ -1404,6 +1414,7 @@ class SParTemplate(MultiSweepSimTemplate):
         return df
 
     def postparse_return(self, parsed_result):
+        if parsed_result is None: return None
         W = self._patch.get_total_device_width()
         for df in parsed_result.values():
             self.rf_param_helper(df,width=W)
@@ -1509,6 +1520,7 @@ class SParVBiasTemplate(SParTemplate,VsIrregularBiasAtFreq):
 class HFNoiseTemplate(SParTemplate):
 
     def postparse_return(self,parsed_result):
+        if parsed_result is None: return None
 
         from scipy.constants import k as kb
         Ts=290 # to match IEEE definition, source temperature is 290K
@@ -1621,6 +1633,7 @@ class LFNoiseTemplate(MultiSweepSimTemplate):
         return self.outer_values
 
     def postparse_return(self,parsed_result):
+        if parsed_result is None: return None
         for k,v in parsed_result.items():
             v['sid [A^2/Hz]']=v['onoise [A/sqrt(Hz)]']**2
             v['sid/W^2 [A^2/Hz/um^2]']=v['sid [A^2/Hz]']/(self._patch.get_total_device_width()*1e6)**2
@@ -1760,6 +1773,7 @@ class LFNoiseVBiasTemplate(LFNoiseTemplate, VsIrregularBiasAtFreq):
         return result
 
     def postparse_return(self,parsed_result):
+        if parsed_result is None: return None
         parsed_result=super().postparse_return(parsed_result)
         res={}
         for k,df in parsed_result.items():
@@ -1936,7 +1950,8 @@ class FunctionCollationTemplate(CollationTemplate):
             df=pd.DataFrame([{self.xname:x[0],self.outer_variable:x[1]}|self.func(templ,templ.latest_results,**self.func_kwargs) for x,templ in self.templates_by_x if templ is not None])
             return {(k,):v for k,v in df[[self.xname,self.outer_variable]+self.ynames].groupby(self.outer_variable)}
     
-    def update_sim_results(self, new_results:dict[str,PostParsedResult]|None):
+    def update_sim_results(self, new_results:dict[str,ParsedResult]|None):
+        self.latest_results_state=new_results
         self.latest_results=new_results
     def update_figures(self, vizid=None) -> bool:
         return SimTemplate.update_figures(self, vizid=vizid)

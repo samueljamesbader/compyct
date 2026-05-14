@@ -312,11 +312,14 @@ def cli_playback(*args):
                 )
                 for majortabname in major_tabnames
             ])
+            import pickle
             data_dump_path=save_path.with_suffix('.sim_data.pkl')
+            logger.info(f"Saving playback simulation data to {data_dump_path}...")
             with open(data_dump_path,'wb') as f:
-                import pickle
-                logger.info(f"Saving playback simulation data to {data_dump_path}...")
                 pickle.dump({k:t.latest_results for k,t in tg.items()}, f)
+            data_dump_path=save_path.with_suffix('.sim_data_state.pkl')
+            with open(data_dump_path,'wb') as f:
+                pickle.dump({k:t.latest_results_state for k,t in tg.items()}, f)
 
             logger.info(f"Saving playback html to {save_path}...")
             playback.save(save_path)
@@ -394,18 +397,27 @@ def cli_compare(*args):
         from compyct.templates import SimTemplate
         for elt, tg in tgs.items():
             pull_path1=(PUBLISH_DIR if parsed_args.publish else OUTPUT_DIR)/f"playback/{pdk}-{release_name1}-{file}-{elt}.html"    
-            data_dump_path=pull_path1.with_suffix('.sim_data.pkl')
+            data_dump_path=pull_path1.with_suffix('.sim_data_state.pkl')
             with open(data_dump_path,'rb') as f:
                 import pickle
-                logger.info(f"Saving playback simulation data to {data_dump_path}...")
+                logger.info(f"Reading playback simulation data from {data_dump_path}...")
                 latest_results=pickle.load(f)
                 for k,t in tg.items():
                     if isinstance(t, SimTemplate):
-                        import pdb; pdb.set_trace()
                         t.update_sim_results(latest_results.get(k, None))
                 for k,t in tg.items():
                     if not isinstance(t, SimTemplate):
-                        t.extract()
+                        t.update_sim_results(t.extract())
+            pull_path2=(PUBLISH_DIR if parsed_args.publish else OUTPUT_DIR)/f"playback/{pdk}-{release_name2}-{file}-{elt}.html"    
+            data_dump_path=pull_path2.with_suffix('.sim_data_state.pkl')
+            with open(data_dump_path,'rb') as f:
+                import pickle
+                logger.info(f"Reading playback simulation data from {data_dump_path}...")
+                latest_results=pickle.load(f)
+                for k,t in tg.items():
+                    if isinstance(t, SimTemplate):
+                        t._set_meas_data(None)
+                        t._set_meas_data(latest_results.get(k, None))
 
             major_tabnames=list(dict.fromkeys(k.split("|||")[0] for k in tg))
             fig_layout_params=dict(width=200,height=250)
@@ -418,6 +430,7 @@ def cli_compare(*args):
             ])
 
             save_path=OUTPUT_DIR/f"comp--{pdk}--{release_name1}--{release_name2}"/f"playback/{file}-{elt}.html"    
+            save_path.parent.mkdir(parents=True,exist_ok=True)
             logger.info(f"Saving playback html to {save_path}...")
             playback.save(save_path)
             
