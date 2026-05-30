@@ -1437,7 +1437,7 @@ class SParVFreqTemplate(SParTemplate,VsFreqAtIrregularBias):
         VsFreqAtIrregularBias.init_helper(self,fstart=fstart,fstop=fstop,pts_per_dec=pts_per_dec,fstep=fstep)
         SParTemplate.__init__(self,outer_variable=None, outer_values=[(vg,vd)], inner_variable='freq',
                          inner_range=(fstart,pts_per_dec,fstop), temp=temp,
-                         ynames=['|h21| [dB]','U [dB]','MAG-MSG [dB]','ReS11','ImS11','ReS22','ImS22','ReS12','ImS12'],
+                         ynames=['|h21| [dB]','U [dB]','MAG-MSG [dB]','K','ReS11','ImS11','ReS22','ImS22','ReS12','ImS12'],
                          *args, **kwargs)
 
     def get_analysis_listing(self,netlister:Netlister):
@@ -1475,6 +1475,16 @@ class SParVFreqTemplate(SParTemplate,VsFreqAtIrregularBias):
         figpow.legend.location='top_right'
         figpow.title=str(self.outer_values)
 
+        figk=bokeh.plotting.figure(tools=get_tools(),x_axis_type='log',**layout_params,tooltips=[('','$snap_x Hz'),('','$name = $snap_y')])
+        figk.scatter(x='x',y='K',source=meas_cds_c,color='blue',legend_label='K',name='K meas')
+        figk.multi_line(xs='x',ys='K',source=meas_cds_l,color='blue',legend_label='K',name='K meas')
+        figk.multi_line(xs='x',ys='K',source=sim_cds,color='red',legend_label='K',name='K sim')
+        figk.yaxis.axis_label='Stability Factor K'
+        figk.xaxis.axis_label='Frequency [Hz]'
+        fig_legend_config(figk)
+        figk.legend.location='top_right'
+        figk.title=str(self.outer_values)
+
         figsmi=smith_chart(**layout_params)
         figsmi.scatter(x='ReS11',y='ImS11',source=meas_cds_c,color='blue',legend_label='S11',line_width=2)
         figsmi.scatter(x='ReS22',y='ImS22',source=meas_cds_c,color='green',legend_label='S22',line_width=2)
@@ -1485,7 +1495,7 @@ class SParVFreqTemplate(SParTemplate,VsFreqAtIrregularBias):
         fig_legend_config(figsmi)
         figsmi.legend.location='top_right'
 
-        return [figpow,figsmi]
+        return [figpow,figk,figsmi]
 
     def to_merged_table(self,result):
         return VsFreqAtIrregularBias.to_merged_table(self,result)
@@ -1495,8 +1505,8 @@ class SParVBiasTemplate(SParTemplate,VsIrregularBiasAtFreq):
         SParTemplate.__init__(self,*args, outer_variable=None, outer_values=vgvds, inner_variable='freq',
                               inner_range=(frequency,1,frequency), temp=temp, **kwargs)
         VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
-              vs_vg=['GM/W [uS/um]','Cgs/W [fF/um]','Cgd/W [fF/um]','GM/2πCgg [GHz]','f√U [GHz]'],#,'AngY21 [deg]'],
-              vs_vd=['Gds/W [uS/um]','Cds/W [fF/um]','Cdd/W [fF/um]','f√U [GHz]'],
+              vs_vg=['GM/W [uS/um]','Cgs/W [fF/um]','Cgd/W [fF/um]','GM/2πCgg [GHz]','f√U [GHz]','K'],#,'AngY21 [deg]'],
+              vs_vd=['Gds/W [uS/um]','Cds/W [fF/um]','Cdd/W [fF/um]','f√U [GHz]','K'],
               vs_vo=[], vs_id=[])
 
     def get_analysis_listing(self,netlister:Netlister):
