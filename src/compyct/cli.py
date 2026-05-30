@@ -327,8 +327,8 @@ def cli_playback(*args):
 def cli_compare(*args):
     parser = ArgumentParser(description="Compyct Compare CLI")
     parser.add_argument('--pdk', type=str, nargs='?', help='PDK name (optional if only one)')
-    parser.add_argument('--release_name1', type=str, nargs='?', help='Release name 1')
-    parser.add_argument('--release_name2', type=str, nargs='?', help='Release name 2')
+    parser.add_argument('--release_name1', type=str, nargs='?', help='Release name 1 (sim-style)')
+    parser.add_argument('--release_name2', type=str, nargs='?', help='Release name 2 (meas-style)')
     parser.add_argument('--file','-f', type=str, nargs='*', default=None, help='Modelcard file within release (optional if only one)')
     parser.add_argument('--override_file_path', type=str, nargs='?', default=None, help='Override modelcard file path (optional)')
     parser.add_argument('--element_names', '-e', type=str, nargs='*', default=None, help='Element names to playback')
