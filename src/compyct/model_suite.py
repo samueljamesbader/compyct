@@ -362,7 +362,6 @@ class Bundle():
             filepath = bundle_dir / filename
             mcw.write_modelcard_file(filepath, extra_element_string=self.extra_element_string,
                                      header=self.header, model_suites=msuites,)
-            # Create a symlink without '-scs{release_name}.scs' in the name
             symlink_path = filepath.with_name(filepath.name.removesuffix('.scs') + f"-{self.release_name}.scs")
             try:
                 if symlink_path.exists() or symlink_path.is_symlink(): symlink_path.unlink()
