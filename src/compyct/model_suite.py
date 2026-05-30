@@ -101,7 +101,7 @@ class ModelSuite():
         
         if instance_subset_name is not None:
             assert instance_subset_name in self.instance_subset_names, \
-                f"Instance subset name {instance_subset_name} not found in suite {self.element_name}"
+                f"Instance subset name {instance_subset_name} not found in suite {self.element_name}: options include {list(self.instance_subset_names.keys())}"
             instance_subset=self.instance_subset_names[instance_subset_name]
         else:
             instance_subset=self.instance_subset_names.get(submodel_split_name, None)
@@ -353,13 +353,22 @@ class Bundle():
     
     def export(self, backend='spectre', override_output_dir:Optional[Path]=None):
         from compyct.backends.backend import ModelCardWriter
+        import os
         mcw=ModelCardWriter.get_with_backend(backend)
         bundle_dir=(override_output_dir or OUTPUT_DIR)/"bundles"/self.pdk/self.release_name
         bundle_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Exporting bundle to {bundle_dir}")
         for filename, msuites in self.model_suites.items():
-            mcw.write_modelcard_file(bundle_dir/filename, extra_element_string=self.extra_element_string,
+            filepath = bundle_dir / filename
+            mcw.write_modelcard_file(filepath, extra_element_string=self.extra_element_string,
                                      header=self.header, model_suites=msuites,)
+            # Create a symlink without '-scs{release_name}.scs' in the name
+            symlink_path = filepath.with_name(filepath.name.removesuffix('.scs') + f"-{self.release_name}.scs")
+            try:
+                if symlink_path.exists() or symlink_path.is_symlink(): symlink_path.unlink()
+                os.symlink(filepath.name, symlink_path)
+            except Exception as e:
+                logger.warning(f"Could not create symlink {symlink_path} -> {filepath.name}: {e}")
         va_includes=set(vai for msuites in self.model_suites.values() for ms in msuites for vai in ms.va_includes)
         for vafile in set(va_includes):    
             (bundle_dir/vafile).write_text(get_va_path(vafile).read_text())
