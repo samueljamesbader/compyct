@@ -351,7 +351,7 @@ class Bundle():
                 f" violated in file {file} with {[ms.element_name for ms in msuites]}."
         Bundle._registry[(pdk, release_name)]=self
     
-    def export(self, backend='spectre', override_output_dir:Optional[Path]=None):
+    def export(self, backend='spectre', override_output_dir:Optional[Path]=None, include_simlinks:bool=True):
         from compyct.backends.backend import ModelCardWriter
         import os
         mcw=ModelCardWriter.get_with_backend(backend)
@@ -362,12 +362,15 @@ class Bundle():
             filepath = bundle_dir / filename
             mcw.write_modelcard_file(filepath, extra_element_string=self.extra_element_string,
                                      header=self.header, model_suites=msuites,)
-            symlink_path = filepath.with_name(filepath.name.removesuffix('.scs') + f"-{self.release_name}.scs")
-            try:
-                if symlink_path.exists() or symlink_path.is_symlink(): symlink_path.unlink()
-                os.symlink(filepath.name, symlink_path)
-            except Exception as e:
-                logger.warning(f"Could not create symlink {symlink_path} -> {filepath.name}: {e}")
+            if include_simlinks:
+                symlink_path = filepath.with_name(filepath.name.removesuffix('.scs') + f"-{self.release_name}.scs")
+                try:
+                    if symlink_path.exists() or symlink_path.is_symlink(): symlink_path.unlink()
+                    os.symlink(filepath.name, symlink_path)
+                except Exception as e:
+                    logger.warning(f"Could not create symlink {symlink_path} -> {filepath.name}: {e}")
+            else:
+                logger.info(f"Not creating symlink for {filepath} since include_simlinks is False")
         va_includes=set(vai for msuites in self.model_suites.values() for ms in msuites for vai in ms.va_includes)
         for vafile in set(va_includes):    
             (bundle_dir/vafile).write_text(get_va_path(vafile).read_text())

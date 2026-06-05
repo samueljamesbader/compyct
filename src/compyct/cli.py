@@ -165,7 +165,7 @@ def cli_export(*args):
     from compyct.model_suite import Bundle
     bundle = Bundle.get_bundle(pdk, release_name)
     from compyct import PUBLISH_DIR
-    bundle.export(override_output_dir=(PUBLISH_DIR if parsed_args.publish else None))
+    bundle.export(override_output_dir=(PUBLISH_DIR if parsed_args.publish else None),include_simlinks=(not parsed_args.publish))
 
 def cli_copy_param(*args):
     parser = ArgumentParser(description="Compyct Copy Parameter CLI")
