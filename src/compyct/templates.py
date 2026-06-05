@@ -1263,6 +1263,10 @@ class VsIrregularBiasAtFreq():
     def generate_figures_helper(self, 
                          layout_params={}, y_axis_type='linear', x_axis_type='linear',
                          vizid=None):
+        if hasattr(self,'_vsvg') and hasattr(self,'title'): self._vsvg.title=self.title
+        if hasattr(self,'_vsvo') and hasattr(self,'title'): self._vsvo.title=self.title
+        if hasattr(self,'_vsvd') and hasattr(self,'title'): self._vsvd.title=self.title
+        if hasattr(self,'_vsid') and hasattr(self,'title'): self._vsid.title=self.title
         return [
             *(self._vsvg.generate_figures(layout_params=layout_params,vizid=vizid,
                                           y_axis_type=y_axis_type) if hasattr(self,'_vsvg') else []),

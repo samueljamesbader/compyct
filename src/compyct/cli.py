@@ -421,13 +421,13 @@ def cli_compare(*args):
 
             major_tabnames=list(dict.fromkeys(k.split("|||")[0] for k in tg))
             fig_layout_params=dict(width=200,height=250)
-            playback=pn.Tabs(*[
+            playback=pn.Column(pn.pane.Markdown(f"Solid lines: {release_name1}, Dots: {release_name2}"),pn.Tabs(*[
                 (majortabname,
                         tg.only(*[k for k in tg if k.startswith(majortabname+"|||")]).get_figure_pane(
                             fig_layout_params=fig_layout_params,gridplot_options={'ncols':6},do_update=True)
                 )
                 for majortabname in major_tabnames
-            ])
+            ]))
 
             save_path=OUTPUT_DIR/f"comp--{pdk}--{release_name1}--{release_name2}"/f"playback/{file}-{elt}.html"    
             save_path.parent.mkdir(parents=True,exist_ok=True)
