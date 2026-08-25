@@ -65,6 +65,19 @@ class SpectreNetlister(Netlister):
         #if ac!=0: print(f"Setting useless AC on port {portnum}")
         return f"PORT{portnum} ({netp} {netm} portdc{portnum}) port r={n2scs(z0)}\n"\
                f"VPort{portnum} (portdc{portnum} {netm}) vsource dc={n2scs(dc)} mag={n2scs(ac)}"
+    
+    @staticmethod
+    def nstr_port_with_idc(name,netp,netm,vdc,idc,portnum,z0=50,ac=0):
+        #if ac!=0: print(f"Setting useless AC on port {portnum}")
+        return f"PORT{portnum} ({netp} {netm} portdc{portnum}) port r={n2scs(z0)}\n"\
+               f"VPort{portnum} (portdc{portnum} {netm}) vsource dc={n2scs(vdc)} mag={n2scs(ac)}\n"\
+               f"IPort{portnum} ({netm} portdc{portnum}) isource dc={n2scs(idc)}\n"
+    
+    @staticmethod
+    def nstr_port_with_cccs(name,netp,netm,probe_portnum,portnum,gain,z0=50,ac=0):
+        #if ac!=0: print(f"Setting useless AC on port {portnum}")
+        return f"PORT{portnum} ({netp} {netm} portdc{portnum}) port r={n2scs(z0)}\n"\
+               f"CCCSPort{portnum} ({netm} portdc{portnum}) cccs probe=VPort{probe_portnum} gain={n2scs(gain)}"
 
     def astr_altervportdc(self, whichv, tovalue, portnum, name=None):
         if name is None:

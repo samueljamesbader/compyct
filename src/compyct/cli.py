@@ -60,7 +60,8 @@ def resolve_bundle_args(pdk=None, release_name=None, file=None, do_file=True, no
         if release_name not in releases:
             raise ValueError(
                 f"Release '{release_name}' not found for PDK '{pdk}'. "
-                f"Available releases: {', '.join(releases)}"
+                f"Available releases: {', '.join(releases)}"\
+                + ("  note: externals not included" if no_external else "")
             )
     else:
         if len(releases) == 1:

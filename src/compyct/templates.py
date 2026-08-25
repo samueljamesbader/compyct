@@ -80,7 +80,10 @@ class Template():
                         logger.error(f"Key {key} not found in parsed result amid {parsed_result.keys()}"); raise
                     data['x'].append(df[self.xname].to_numpy())
                     for yname in set(self.ynames):
-                        data[yname].append(df[yname].to_numpy())
+                        try:
+                            data[yname].append(df[yname].to_numpy())
+                        except KeyError:
+                            logger.error(f"Yname {yname} not found in parsed result for key {key} amid {df.columns}"); raise
                     data['legend'].append(' '.join(str(ki) for ki in key))
                     data['outervariable'].append(subkey_for_labelling_func(key))
                     data['additionalinfo'].append(subkey_for_addinfo_func(key))
@@ -924,7 +927,7 @@ class CVTemplate(MultiSweepSimTemplate):
                  extra_caps={}, **kwargs):
         super().__init__(outer_variable=None, outer_values=[freq],
                          inner_variable=f'V{sw.upper()}', inner_range=vg_range,
-                         ynames=[f'C{hi}{hi} [fF/um]'],
+                         ynames=[f'C{hi}{hi} [fF/um]',f'RSer{hi}{hi}*W [Ohm.um]'],
                          *args, **kwargs)
         self.temp=temp
         num_vg=(vg_range[2]-vg_range[0])/vg_range[1]+1
@@ -971,8 +974,10 @@ class CVTemplate(MultiSweepSimTemplate):
         freq=spicenum_to_float(self.freq)
         df=list(result.values())[0]
         I=-df[f'v{self.hi}#p']
-        df[f'C{self.hi}{self.hi} [fF/um]']=np.imag(I)/(2*np.pi*freq) /1e-15 /\
-            (self._patch.get_total_device_width()/1e-6)
+        C=np.imag(I)/(2*np.pi*freq)
+        W=self._patch.get_total_device_width()
+        df[f'C{self.hi}{self.hi} [fF/um]']=C/1e-15 / (W/1e-6)
+        df[f'RSer{self.hi}{self.hi}*W [Ohm.um]']=np.real(I)/(2*np.pi*freq*C)**2 * (W/1e-6)
         df[f'V{self.sw.upper()}']=np.real(df['v-sweep'])
         parsed_result={(self.freq,'f'):df,(self.freq,'r'):df}
         return parsed_result
@@ -1405,7 +1410,7 @@ class SParTemplate(MultiSweepSimTemplate):
         df['GM/W [uS/um]']=re(df.Y21) / Wum / uS
         Rs=df['Rs [Ohm.um]']=re(df.Z12) * Wum
         df['Rd*W [Ohm.um]']=(re(df.Z22)-Rs) * Wum
-        df['Rg*W [Ohm.um]']=(re(df.Z11)-Rs) * Wum
+        df['RSergg*W [Ohm.um]']=re(df.Y11)/im(df.Y11)**2 * Wum
         df['GM/2πCgs [GHz]']=df['GM/W [uS/um]']/(2*np.pi*df['Cgs/W [fF/um]']) #uS/fF=GHz
         df['GM/2πCgg [GHz]']=df['GM/W [uS/um]']/(2*np.pi*df['Cgg/W [fF/um]']) #uS/fF=GHz
         df['AngY21 [deg]']=np.angle(df.Y21,deg=True)
@@ -1434,6 +1439,62 @@ class SParTemplate(MultiSweepSimTemplate):
         # Overriding because this does freq num points instead of freq delta
         # TODO: implement this
         return parsed_result
+
+
+class SParTemplateIDriveVFreqTemplate(SParTemplate,VsFreqAtIrregularBias):
+
+    def __init__(self, *args,
+                 id, vd, fstart, fstop, temp=27, pts_per_dec=None, fstep=None, **kwargs):
+        VsFreqAtIrregularBias.init_helper(self,fstart=fstart,fstop=fstop,pts_per_dec=pts_per_dec,fstep=fstep)
+        SParTemplate.__init__(self,outer_variable=None, outer_values=[(id,vd)], inner_variable='freq',
+                         inner_range=(fstart,pts_per_dec,fstop), temp=temp,
+                         #ynames=['ReS11','ImS11','ReS22','ImS22','ReS12','ImS12'],
+                         ynames=['|h21| [dB]','U [dB]','MAG-MSG [dB]','K','ReS11','ImS11','ReS22','ImS22','ReS12','ImS12'],
+                         *args, **kwargs)
+
+    def get_schematic_listing(self,netlister:Netlister):
+        #netlister.nstr_param(params={'vg':0,'vd':0})+\
+        id,vd=self.outer_values[0]
+        gnded=[t for t in self._patch.terminals if t not in ['d','g','t','dt']]
+        netmap=dict(**{'d':'netd','g':'netg'},**{k:netlister.GND for k in gnded})
+
+        return [
+            netlister.nstr_iabstol('1e-15'),
+            netlister.nstr_temp(temp=self.temp),
+            netlister.nstr_modeled_xtor("inst",netmap=netmap, internals_to_save=self.internals_to_save),
+            netlister.nstr_port_with_idc ("D",netp='netd',netm=netlister.GND, vdc=vd,idc=id, portnum=2,ac=0),
+            netlister.nstr_port_with_cccs("G",netp='netg',netm=netlister.GND,probe_portnum=2,portnum=1,ac=1, gain=0.001)]
+    def parse_return_helper(self,result,name):
+        assert len(self.outer_values)==1
+        id,vd=self.outer_values[0]
+        if f'dc_{name}' in result:
+            print("Options included:",result[f'dc_{name}'].keys())
+            #for x in ['vd#p','vport2#p']:
+            #    if x in result[f'dc_{name}']:
+            #        result[name]['I [A]']=-result[f'dc_{name}'][x].iloc[0]
+        parsed_result={(id,vd): result[name]}
+        return parsed_result
+    def get_analysis_listing(self,netlister:Netlister):
+        nfunc=partial(netlister.astr_spar)#, internals_to_save=self.internals_to_save)
+        return VsFreqAtIrregularBias.get_analysis_listing_helper(self,netlister_func=nfunc,name='spar')
+
+    def parse_return(self,result):
+        return VsFreqAtIrregularBias.parse_return_helper(self,result,name='spar')
+
+    def generate_figures(self,*args,**kwargs):
+        kwargs['y_axis_type']=kwargs.get('y_axis_type','log')
+        kwargs['x_axis_type']=kwargs.get('x_axis_type','log')
+        return super().generate_figures(*args,**kwargs)
+    
+    def _make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params, y_axis_type='log',x_axis_type='log', override_line_color=None, show_legend=True):
+        fig_smi= SParVFreqTemplate._make_figures(self, #type:ignore
+                    meas_cds_c, meas_cds_l, sim_cds, layout_params,
+                    y_axis_type=y_axis_type,x_axis_type=x_axis_type, override_line_color=override_line_color, show_legend=show_legend)[2]
+        fig_smi.title=str(f'ID={self.outer_values[0][0]/self._patch.get_total_device_width():4.0f} mA/mm, VD={self.outer_values[0][1]:3.1g} V')
+        return [fig_smi]
+
+    def to_merged_table(self,result):
+        return VsFreqAtIrregularBias.to_merged_table(self,result)
 
 class SParVFreqTemplate(SParTemplate,VsFreqAtIrregularBias):
     def __init__(self, *args,
@@ -1509,7 +1570,7 @@ class SParVBiasTemplate(SParTemplate,VsIrregularBiasAtFreq):
         SParTemplate.__init__(self,*args, outer_variable=None, outer_values=vgvds, inner_variable='freq',
                               inner_range=(frequency,1,frequency), temp=temp, **kwargs)
         VsIrregularBiasAtFreq.init_helper(self,vgvds=vgvds,frequency=frequency,
-              vs_vg=['GM/W [uS/um]','Cgs/W [fF/um]','Cgd/W [fF/um]','GM/2πCgg [GHz]','f√U [GHz]','K'],#,'AngY21 [deg]'],
+              vs_vg=['GM/W [uS/um]','Cgs/W [fF/um]','Cgd/W [fF/um]','GM/2πCgg [GHz]','f√U [GHz]','K','RSergg*W [Ohm.um]'],#,'AngY21 [deg]'],
               vs_vd=['Gds/W [uS/um]','Cds/W [fF/um]','Cdd/W [fF/um]','f√U [GHz]','K'],
               vs_vo=[], vs_id=[])
 
