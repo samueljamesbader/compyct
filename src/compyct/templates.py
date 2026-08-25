@@ -1551,12 +1551,30 @@ class SParVFreqTemplate(SParTemplate,VsFreqAtIrregularBias):
         figk.title=str(self.outer_values)
 
         figsmi=smith_chart(**layout_params)
-        figsmi.scatter(x='ReS11',y='ImS11',source=meas_cds_c,color='blue',legend_label='S11',line_width=2)
-        figsmi.scatter(x='ReS22',y='ImS22',source=meas_cds_c,color='green',legend_label='S22',line_width=2)
-        figsmi.scatter(x='ReS12',y='ImS12',source=meas_cds_c,color='lightblue',legend_label='S12',line_width=2)
-        figsmi.multi_line(xs='ReS11',ys='ImS11',source=sim_cds,color='red',legend_label='S11',line_width=2)
-        figsmi.multi_line(xs='ReS22',ys='ImS22',source=sim_cds,color='orange',legend_label='S22',line_width=2)
-        figsmi.multi_line(xs='ReS12',ys='ImS12',source=sim_cds,color='burlywood',legend_label='S12',line_width=2)
+        r_s11_meas=figsmi.scatter(x='ReS11',y='ImS11',source=meas_cds_c,color='blue',legend_label='S11',line_width=2,name='S11 meas')
+        r_s22_meas=figsmi.scatter(x='ReS22',y='ImS22',source=meas_cds_c,color='green',legend_label='S22',line_width=2,name='S22 meas')
+        r_s12_meas=figsmi.scatter(x='ReS12',y='ImS12',source=meas_cds_c,color='lightblue',legend_label='S12',line_width=2,name='S12 meas')
+        figsmi.multi_line(xs='ReS11',ys='ImS11',source=sim_cds,color='red',legend_label='S11',line_width=2,name='S11 sim')
+        figsmi.multi_line(xs='ReS22',ys='ImS22',source=sim_cds,color='orange',legend_label='S22',line_width=2,name='S22 sim')
+        figsmi.multi_line(xs='ReS12',ys='ImS12',source=sim_cds,color='burlywood',legend_label='S12',line_width=2,name='S12 sim')
+        for r, label, re_col, im_col in [(r_s11_meas,'S11 meas','ReS11','ImS11'),
+                                          (r_s22_meas,'S22 meas','ReS22','ImS22'),
+                                          (r_s12_meas,'S12 meas','ReS12','ImS12')]:
+            filter_fmt=CustomJSHover(code="""
+                special_vars.indices = special_vars.indices.slice(0,1)
+                return special_vars.indices.includes(special_vars.index) ? ' ' : ' hidden '
+            """)
+            freq_ghz_fmt=CustomJSHover(code="return (value/1e9).toFixed(3)+' GHz'")
+            t=f"""
+                <div @K{{custom}}>
+                    <b>{label}</b><br/>
+                    Freq: @x{{custom}}<br/>
+                    Re: @{re_col}{{0.000}}<br/>
+                    Im: @{im_col}{{0.000}}
+                </div>"""
+            figsmi.add_tools(HoverTool(renderers=[r],tooltips=t,
+                formatters={'@K':filter_fmt,'@x':freq_ghz_fmt},
+                point_policy='snap_to_data'))
         fig_legend_config(figsmi)
         figsmi.legend.location='top_right'
 
