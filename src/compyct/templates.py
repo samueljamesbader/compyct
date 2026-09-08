@@ -19,7 +19,7 @@ from scipy.interpolate import interp1d
 
 from bokeh_transform_utils.transforms import MultiAbsTransform, multi_abs_transform, abs_transform
 
-from bokeh_smith import smith_chart
+from bokeh_smith import smith_chart, smith_chart_y
 from compyct import logger
 from compyct.backends.backend import Netlister
 from compyct.gui import fig_legend_config, get_tools
@@ -117,8 +117,11 @@ class Template():
         
 
     def _make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params,
-                      y_axis_type='linear',x_axis_type='linear',override_line_color=None, show_legend=False, legend_for='mult'):
-        num_ys=len(self.ynames)
+                      y_axis_type='linear',x_axis_type='linear',override_line_color=None,
+                      only_ynames=None, inner_variable_plot_units=None, inner_variable_base_units=None,
+                      show_legend=False, legend_for='mult'):
+        ynames=self.ynames if only_ynames is None else only_ynames
+        num_ys=len(ynames)
         if type(y_axis_type) is str: y_axis_type=[y_axis_type]*num_ys
         if type(x_axis_type) is str: x_axis_type=[x_axis_type]*num_ys
         figs=[]
@@ -126,7 +129,7 @@ class Template():
             TOOLTIPS=[
                 (f"{self.xname}",f"@x"),
                 #(f"{self.outer_variable}",f"@{self.outer_variable}"),
-                (f"{self.ynames[i]}",f"@{{{self.ynames[i]}}}"),
+                (f"{ynames[i]}",f"@{{{ynames[i]}}}"),
             ]
             fig=bokeh.plotting.figure(tools=get_tools(),#x_range=self.vg_range,y_range=(1e-8,1),
                                       #tooltips=TOOLTIPS,
@@ -144,8 +147,8 @@ class Template():
             cleg={'legend_field':'legend'} if legend_for=='circ' else {}
             mleg={'legend_field':'legend'} if legend_for=='mult' else {}
             assert 'legend' in sim_cds.data            
-            circ_rend=fig.scatter(x='x',y=strans(self.ynames[i]),source=meas_cds_c,**cleg,name='scatter',color='color')
-            mult_rend=fig.multi_line(xs='x',ys=mtrans(self.ynames[i]),source=sim_cds,**mleg,
+            circ_rend=fig.scatter(x='x',y=strans(ynames[i]),source=meas_cds_c,**cleg,name='scatter',color='color')
+            mult_rend=fig.multi_line(xs='x',ys=mtrans(ynames[i]),source=sim_cds,**mleg,
                                  color=(override_line_color or 'color'),**({'line_width':2} if override_line_color else {}))
             # https://stackoverflow.com/a/68536069
             num=1
@@ -153,7 +156,7 @@ class Template():
                 <div @x{{custom}}>
                     <b>{self.xname}: </b> @x <br/>
                     <b>{self.outer_variable}: </b> @outervariable <br/>
-                    <b>{self.ynames[i]}: </b> @{{{self.ynames[i]}}} <br/>
+                    <b>{ynames[i]}: </b> @{{{ynames[i]}}} <br/>
                     <b>Details: </b> @additionalinfo
                 </div>
                 """
@@ -166,7 +169,7 @@ class Template():
             fig.add_tools(HoverTool(tooltips=t,renderers=[circ_rend],formatters={'@x':f},visible=False))
 
 
-            fig.yaxis.axis_label=self.ynames[i]#",".join(self.ynames)
+            fig.yaxis.axis_label=ynames[i]#",".join(self.ynames)
             fig.xaxis.axis_label=self.xname
             #fig_legend_config(fig)
             
@@ -1441,7 +1444,7 @@ class SParTemplate(MultiSweepSimTemplate):
         return parsed_result
 
 
-class SParTemplateIDriveVFreqTemplate(SParTemplate,VsFreqAtIrregularBias):
+class SParIDriveVFreqTemplate(SParTemplate,VsFreqAtIrregularBias):
 
     def __init__(self, *args,
                  id, vd, fstart, fstop, temp=27, pts_per_dec=None, fstep=None, **kwargs):
@@ -1627,7 +1630,6 @@ class HFNoiseTemplate(SParTemplate):
             Gc=np.real(Yc)
             Bc=np.imag(Yc)
 
-            tmp=(Yc-df.Y11)/df.Y21
             Gu=np.real(df.cy11-np.abs(df.cy12)**2/df.cy22)/(4*kb*Ts)
 
             Gopt=np.sqrt(Gc**2+Gu/Rn)
@@ -1640,7 +1642,43 @@ class HFNoiseTemplate(SParTemplate):
             df['Gopt']=Gopt
             df['Bopt']=Bopt
             df['Rn']=Rn
+            Z0=50
+            YOptNorm=Z0*(Gopt+1j*Bopt)
+            GammaOpt=(1-YOptNorm)/(1+YOptNorm)
+            df['ReGammaOpt']=np.real(GammaOpt)
+            df['ImGammaOpt']=np.imag(GammaOpt)
+
+            df['freq [GHz]']=df['freq']/1e9
         return parsed_result
+
+    def _make_gamma_smith_figure(self, meas_cds_c, meas_cds_l, sim_cds, layout_params):
+        figgam=smith_chart_y(**layout_params)
+        r_gamma_meas=figgam.scatter(x='ReGammaOpt',y='ImGammaOpt',source=meas_cds_c,
+                                    color='blue',legend_label='GammaOpt meas',line_width=2,name='GammaOpt meas')
+        figgam.multi_line(xs='ReGammaOpt',ys='ImGammaOpt',source=meas_cds_l,
+                          color='blue',legend_label='GammaOpt meas',name='GammaOpt meas')
+        figgam.multi_line(xs='ReGammaOpt',ys='ImGammaOpt',source=sim_cds,
+                          color='red',legend_label='GammaOpt sim',line_width=2,name='GammaOpt sim')
+
+        filter_fmt=CustomJSHover(code="""
+            special_vars.indices = special_vars.indices.slice(0,1)
+            return special_vars.indices.includes(special_vars.index) ? ' ' : ' hidden '
+        """)
+        freq_ghz_fmt=CustomJSHover(code="return (value/1e9).toFixed(3)+' GHz'")
+        t="""
+            <div @NFmin{custom}>
+                <b>GammaOpt meas</b><br/>
+                Freq: @x{custom}<br/>
+                Re: @ReGammaOpt{0.000}<br/>
+                Im: @ImGammaOpt{0.000}
+            </div>"""
+        figgam.add_tools(HoverTool(renderers=[r_gamma_meas],tooltips=t,
+            formatters={'@NFmin':filter_fmt,'@x':freq_ghz_fmt},
+            point_policy='snap_to_data'))
+        fig_legend_config(figgam)
+        figgam.legend.location='top_right'
+        figgam.title=str(self.outer_values) if not self.title else self.title
+        return figgam
 
 class HFNoiseVFreqTemplate(HFNoiseTemplate,VsFreqAtIrregularBias):
     def __init__(self, *args,
@@ -1648,7 +1686,7 @@ class HFNoiseVFreqTemplate(HFNoiseTemplate,VsFreqAtIrregularBias):
         VsFreqAtIrregularBias.init_helper(self,fstart=fstart,fstop=fstop,pts_per_dec=pts_per_dec,fstep=fstep)
         HFNoiseTemplate.__init__(self,outer_variable=None, outer_values=[(vg,vd)], inner_variable='freq',
                          inner_range=(fstart,pts_per_dec,fstop), temp=temp,
-                         ynames=['NFmin','Rn'],
+                         ynames=['NFmin','Rn','ReGammaOpt','ImGammaOpt'],
                          *args, **kwargs)
 
     def get_analysis_listing(self,netlister:Netlister):
@@ -1661,6 +1699,60 @@ class HFNoiseVFreqTemplate(HFNoiseTemplate,VsFreqAtIrregularBias):
         #kwargs['y_axis_type']=kwargs.get('y_axis_type','log')
         kwargs['x_axis_type']=kwargs.get('x_axis_type','log')
         return super().generate_figures(*args,**kwargs)
+
+    def _make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params,
+                      y_axis_type='linear',x_axis_type='log',override_line_color=None, show_legend=False, legend_for='mult'):
+        figs=super()._make_figures(meas_cds_c, meas_cds_l, sim_cds, layout_params,
+                                   y_axis_type=y_axis_type,x_axis_type=x_axis_type,
+                                   override_line_color=override_line_color,
+                                   show_legend=show_legend,legend_for=legend_for)
+        figs.append(self._make_gamma_smith_figure(meas_cds_c, meas_cds_l, sim_cds, layout_params))
+        return figs
+
+    def to_merged_table(self,result):
+        return VsFreqAtIrregularBias.to_merged_table(self,result)
+
+class HFNoiseIDriveVFreqTemplate(HFNoiseTemplate,VsFreqAtIrregularBias):
+    def __init__(self, *args,
+                 id, vd, fstart, fstop, temp=27, pts_per_dec=None, fstep=None, **kwargs):
+        VsFreqAtIrregularBias.init_helper(self,fstart=fstart,fstop=fstop,pts_per_dec=pts_per_dec,fstep=fstep)
+        HFNoiseTemplate.__init__(self,outer_variable=None, outer_values=[(id,vd)], inner_variable='freq',
+                         inner_range=(fstart,pts_per_dec,fstop), temp=temp,
+                         ynames=['NFmin','Rn','ReGammaOpt','ImGammaOpt'],
+                         *args, **kwargs)
+        self._xname='freq [GHz]'
+
+    def get_schematic_listing(self,netlister:Netlister):
+        id,vd=self.outer_values[0]
+        gnded=[t for t in self._patch.terminals if t not in ['d','g','t','dt']]
+        netmap=dict(**{'d':'netd','g':'netg'},**{k:netlister.GND for k in gnded})
+
+        return [
+            netlister.nstr_iabstol('1e-15'),
+            netlister.nstr_temp(temp=self.temp),
+            netlister.nstr_modeled_xtor("inst",netmap=netmap, internals_to_save=self.internals_to_save),
+            netlister.nstr_port_with_idc ("D",netp='netd',netm=netlister.GND, vdc=vd,idc=id, portnum=2,ac=0),
+            netlister.nstr_port_with_cccs("G",netp='netg',netm=netlister.GND,probe_portnum=2,portnum=1,ac=1, gain=0.001)]
+
+    def get_analysis_listing(self,netlister:Netlister):
+        return VsFreqAtIrregularBias.get_analysis_listing_helper(self,netlister_func=netlister.astr_sparnoise,name='sparnoise')
+
+    def parse_return(self,result):
+        return VsFreqAtIrregularBias.parse_return_helper(self,result,name='sparnoise')
+
+    def generate_figures(self,*args,**kwargs):
+        #kwargs['x_axis_type']=kwargs.get('x_axis_type','log')
+        return super().generate_figures(*args,**kwargs)
+
+    def _make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params,
+                      y_axis_type='linear',x_axis_type='linear',override_line_color=None, show_legend=False, legend_for='mult'):
+        figs=super()._make_figures(meas_cds_c, meas_cds_l, sim_cds, layout_params,
+                                   y_axis_type=y_axis_type,x_axis_type=x_axis_type,
+                                   override_line_color=override_line_color,
+                                   inner_variable_base_units='Hz', inner_variable_plot_units='GHz',
+                                   show_legend=show_legend,legend_for=legend_for, only_ynames=['NFmin','Rn'])
+        figs.append(self._make_gamma_smith_figure(meas_cds_c, meas_cds_l, sim_cds, layout_params))
+        return figs
 
     def to_merged_table(self,result):
         return VsFreqAtIrregularBias.to_merged_table(self,result)
