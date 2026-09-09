@@ -359,6 +359,10 @@ class NgspiceMultiSimSesh(MultiSimSesh):
                 continue
             if "Unsupported Ngspice version 45" in w:
                 continue
+            if "Unsupported Ngspice version 46" in w:
+                continue
+            if "Warning: can't find the initialization file spinit." in w:
+                continue
             raise Exception("New error while trying to load Ngspice... "+w+"\n\n"+"\n".join('>>>'+w for w in ngs_warnings))
 
         self._ensure_clear_ngspice()
