@@ -166,7 +166,8 @@ class Template():
                 """)
             #fig.select(type=HoverTool).renderers=[circ_rend]
             #fig.select(type=HoverTool).formatters={'@x': f}
-            fig.add_tools(HoverTool(tooltips=t,renderers=[circ_rend],formatters={'@x':f},visible=False))
+            fig.add_tools(HoverTool(tooltips=t,renderers=[circ_rend],formatters={'@x':f},visible=False,
+                point_policy='snap_to_data'))
 
 
             fig.yaxis.axis_label=ynames[i]#",".join(self.ynames)
@@ -906,6 +907,7 @@ class DCKelvinVdIdTemplate(MultiSweepSimTemplate):
         return arr
     
     def postparse_return(self, parsed_result):
+        if parsed_result is None: return None
         for (vg,d),df in parsed_result.items():
             #refindex=np.abs(df[f'ID/W [uA/um]']-self.idow_ref).idxmin()
             #RonWRef=df.loc[refindex,'RW [kohm.um]']
@@ -930,7 +932,7 @@ class CVTemplate(MultiSweepSimTemplate):
                  extra_caps={}, **kwargs):
         super().__init__(outer_variable=None, outer_values=[freq],
                          inner_variable=f'V{sw.upper()}', inner_range=vg_range,
-                         ynames=[f'C{hi}{hi} [fF/um]',f'RSer{hi}{hi}*W [Ohm.um]'],
+                         ynames=[f'C{hi}{hi} [fF/um]'],#,f'RSer{hi}{hi}*W [Ohm.um]'],
                          *args, **kwargs)
         self.temp=temp
         num_vg=(vg_range[2]-vg_range[0])/vg_range[1]+1
@@ -980,7 +982,7 @@ class CVTemplate(MultiSweepSimTemplate):
         C=np.imag(I)/(2*np.pi*freq)
         W=self._patch.get_total_device_width()
         df[f'C{self.hi}{self.hi} [fF/um]']=C/1e-15 / (W/1e-6)
-        df[f'RSer{self.hi}{self.hi}*W [Ohm.um]']=np.real(I)/(2*np.pi*freq*C)**2 * (W/1e-6)
+        #df[f'RSer{self.hi}{self.hi}*W [Ohm.um]']=np.real(I)/(2*np.pi*freq*C)**2 * (W/1e-6)
         df[f'V{self.sw.upper()}']=np.real(df['v-sweep'])
         parsed_result={(self.freq,'f'):df,(self.freq,'r'):df}
         return parsed_result
@@ -1489,10 +1491,12 @@ class SParIDriveVFreqTemplate(SParTemplate,VsFreqAtIrregularBias):
         kwargs['x_axis_type']=kwargs.get('x_axis_type','log')
         return super().generate_figures(*args,**kwargs)
     
-    def _make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params, y_axis_type='log',x_axis_type='log', override_line_color=None, show_legend=True):
-        fig_smi= SParVFreqTemplate._make_figures(self, #type:ignore
+    def _make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params, y_axis_type='log',x_axis_type='log',
+                      override_line_color=None, show_legend=True, only_smith=False):
+        figs= SParVFreqTemplate._make_figures(self, #type:ignore
                     meas_cds_c, meas_cds_l, sim_cds, layout_params,
-                    y_axis_type=y_axis_type,x_axis_type=x_axis_type, override_line_color=override_line_color, show_legend=show_legend)[2]
+                    y_axis_type=y_axis_type,x_axis_type=x_axis_type, override_line_color=override_line_color, show_legend=show_legend, only_smith=only_smith)
+        fig_smi=figs[-1]
         fig_smi.title=str(f'ID={self.outer_values[0][0]/self._patch.get_total_device_width():4.0f} mA/mm, VD={self.outer_values[0][1]:3.1g} V')
         return [fig_smi]
 
@@ -1520,38 +1524,39 @@ class SParVFreqTemplate(SParTemplate,VsFreqAtIrregularBias):
         kwargs['x_axis_type']=kwargs.get('x_axis_type','log')
         return super().generate_figures(*args,**kwargs)
 
-    def _make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params, y_axis_type='log',x_axis_type='log', override_line_color=None, show_legend=True):
-        assert y_axis_type=='log'
-        assert x_axis_type=='log'
-        assert override_line_color is None
-        figpow=bokeh.plotting.figure(tools=get_tools(),x_axis_type='log',**layout_params,tooltips=[('','$snap_x Hz'),('','$name = $snap_y')])
-        figpow.scatter(x='x',y='|h21| [dB]',source=meas_cds_c,color='blue',legend_label='h21',name='|h21| meas')
-        figpow.multi_line(xs='x',ys='|h21| [dB]',source=meas_cds_l,color='blue',legend_label='h21',name='|h21| meas')
-        figpow.multi_line(xs='x',ys='|h21| [dB]',source=sim_cds,color='red',legend_label='h21',name='|h21| sim')
+    def _make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params, y_axis_type='log',x_axis_type='log', override_line_color=None, show_legend=True, only_smith=False):
+        if not only_smith:
+            assert y_axis_type=='log'
+            assert x_axis_type=='log'
+            assert override_line_color is None
+            figpow=bokeh.plotting.figure(tools=get_tools(),x_axis_type='log',**layout_params,tooltips=[('','$snap_x Hz'),('','$name = $snap_y')])
+            figpow.scatter(x='x',y='|h21| [dB]',source=meas_cds_c,color='blue',legend_label='h21',name='|h21| meas')
+            figpow.multi_line(xs='x',ys='|h21| [dB]',source=meas_cds_l,color='blue',legend_label='h21',name='|h21| meas')
+            figpow.multi_line(xs='x',ys='|h21| [dB]',source=sim_cds,color='red',legend_label='h21',name='|h21| sim')
 
-        figpow.scatter(x='x',y='U [dB]',source=meas_cds_c,color='green',legend_label='U',name='U meas')
-        figpow.multi_line(xs='x',ys='U [dB]',source=meas_cds_l,color='green',legend_label='U',name='U meas')
-        figpow.multi_line(xs='x',ys='U [dB]',source=sim_cds,color='orange',legend_label='U',name='U sim')
+            figpow.scatter(x='x',y='U [dB]',source=meas_cds_c,color='green',legend_label='U',name='U meas')
+            figpow.multi_line(xs='x',ys='U [dB]',source=meas_cds_l,color='green',legend_label='U',name='U meas')
+            figpow.multi_line(xs='x',ys='U [dB]',source=sim_cds,color='orange',legend_label='U',name='U sim')
 
-        figpow.scatter(x='x',y='MAG-MSG [dB]',source=meas_cds_c,color='lightblue',legend_label='MAG/MSG',name='MAG/MSG meas')
-        figpow.multi_line(xs='x',ys='MAG-MSG [dB]',source=meas_cds_l,color='lightblue',legend_label='MAG/MSG',name='MAG/MSG meas')
-        figpow.multi_line(xs='x',ys='MAG-MSG [dB]',source=sim_cds,color='burlywood',legend_label='MAG/MSG',name='MAG/MSG sim')
+            figpow.scatter(x='x',y='MAG-MSG [dB]',source=meas_cds_c,color='lightblue',legend_label='MAG/MSG',name='MAG/MSG meas')
+            figpow.multi_line(xs='x',ys='MAG-MSG [dB]',source=meas_cds_l,color='lightblue',legend_label='MAG/MSG',name='MAG/MSG meas')
+            figpow.multi_line(xs='x',ys='MAG-MSG [dB]',source=sim_cds,color='burlywood',legend_label='MAG/MSG',name='MAG/MSG sim')
 
-        figpow.yaxis.axis_label='Power Gain [dB]'
-        figpow.xaxis.axis_label='Frequency [Hz]'
-        fig_legend_config(figpow)
-        figpow.legend.location='top_right'
-        figpow.title=str(self.outer_values)
+            figpow.yaxis.axis_label='Power Gain [dB]'
+            figpow.xaxis.axis_label='Frequency [Hz]'
+            fig_legend_config(figpow)
+            figpow.legend.location='top_right'
+            figpow.title=str(self.outer_values)
 
-        figk=bokeh.plotting.figure(tools=get_tools(),x_axis_type='log',**layout_params,tooltips=[('','$snap_x Hz'),('','$name = $snap_y')])
-        figk.scatter(x='x',y='K',source=meas_cds_c,color='blue',legend_label='K',name='K meas')
-        figk.multi_line(xs='x',ys='K',source=meas_cds_l,color='blue',legend_label='K',name='K meas')
-        figk.multi_line(xs='x',ys='K',source=sim_cds,color='red',legend_label='K',name='K sim')
-        figk.yaxis.axis_label='Stability Factor K'
-        figk.xaxis.axis_label='Frequency [Hz]'
-        fig_legend_config(figk)
-        figk.legend.location='top_right'
-        figk.title=str(self.outer_values)
+            figk=bokeh.plotting.figure(tools=get_tools(),x_axis_type='log',**layout_params,tooltips=[('','$snap_x Hz'),('','$name = $snap_y')])
+            figk.scatter(x='x',y='K',source=meas_cds_c,color='blue',legend_label='K',name='K meas')
+            figk.multi_line(xs='x',ys='K',source=meas_cds_l,color='blue',legend_label='K',name='K meas')
+            figk.multi_line(xs='x',ys='K',source=sim_cds,color='red',legend_label='K',name='K sim')
+            figk.yaxis.axis_label='Stability Factor K'
+            figk.xaxis.axis_label='Frequency [Hz]'
+            fig_legend_config(figk)
+            figk.legend.location='top_right'
+            figk.title=str(self.outer_values)
 
         figsmi=smith_chart(**layout_params)
         r_s11_meas=figsmi.scatter(x='ReS11',y='ImS11',source=meas_cds_c,color='blue',legend_label='S11',line_width=2,name='S11 meas')
@@ -1581,7 +1586,10 @@ class SParVFreqTemplate(SParTemplate,VsFreqAtIrregularBias):
         fig_legend_config(figsmi)
         figsmi.legend.location='top_right'
 
-        return [figpow,figk,figsmi]
+        if not only_smith:
+            return [figpow,figk,figsmi]
+        else:
+            return [figsmi]
 
     def to_merged_table(self,result):
         return VsFreqAtIrregularBias.to_merged_table(self,result)
@@ -1618,6 +1626,11 @@ class HFNoiseTemplate(SParTemplate):
     def postparse_return(self,parsed_result):
         if parsed_result is None: return None
 
+        W = self._patch.get_total_device_width()
+        for df in parsed_result.values():
+            self.rf_param_helper(df,width=W)
+
+
         from scipy.constants import k as kb
         Ts=290 # to match IEEE definition, source temperature is 290K
         #import pdb; pdb.set_trace()
@@ -1647,8 +1660,16 @@ class HFNoiseTemplate(SParTemplate):
             GammaOpt=(1-YOptNorm)/(1+YOptNorm)
             df['ReGammaOpt']=np.real(GammaOpt)
             df['ImGammaOpt']=np.imag(GammaOpt)
-
             df['freq [GHz]']=df['freq']/1e9
+
+            # temp
+            df['ReY11/ω^2']=np.real(df.Y11)/(2*np.pi*df['freq'])**2
+            df['ImY11/ω']=np.imag(df.Y11)/(2*np.pi*df['freq'])
+            df['ReYOpt/ω']=np.real(YOptNorm)/Z0/(2*np.pi*df['freq'])
+            df['ImYOpt/ω']=np.imag(YOptNorm)/Z0/(2*np.pi*df['freq'])
+            df['ReY22']=np.real(df.Y22)
+            df['MagY21']=np.abs(df.Y21)
+
         return parsed_result
 
     def _make_gamma_smith_figure(self, meas_cds_c, meas_cds_l, sim_cds, layout_params):
@@ -1718,7 +1739,8 @@ class HFNoiseIDriveVFreqTemplate(HFNoiseTemplate,VsFreqAtIrregularBias):
         VsFreqAtIrregularBias.init_helper(self,fstart=fstart,fstop=fstop,pts_per_dec=pts_per_dec,fstep=fstep)
         HFNoiseTemplate.__init__(self,outer_variable=None, outer_values=[(id,vd)], inner_variable='freq',
                          inner_range=(fstart,pts_per_dec,fstop), temp=temp,
-                         ynames=['NFmin','Rn','ReGammaOpt','ImGammaOpt'],
+                         ynames=['NFmin','Rn','ReGammaOpt','ImGammaOpt','ReS11','ImS11','ReS22','ImS22','ReS12','ImS12',
+                                 'ReY11/ω^2','ImY11/ω','ReYOpt/ω','ImYOpt/ω','ReY22','MagY21'],
                          *args, **kwargs)
         self._xname='freq [GHz]'
 
@@ -1750,8 +1772,12 @@ class HFNoiseIDriveVFreqTemplate(HFNoiseTemplate,VsFreqAtIrregularBias):
                                    y_axis_type=y_axis_type,x_axis_type=x_axis_type,
                                    override_line_color=override_line_color,
                                    inner_variable_base_units='Hz', inner_variable_plot_units='GHz',
-                                   show_legend=show_legend,legend_for=legend_for, only_ynames=['NFmin','Rn'])
+                                   show_legend=show_legend,legend_for=legend_for,
+                                   only_ynames=['NFmin','Rn'])#,'ReY11/ω^2','ImY11/ω','ReYOpt/ω','ImYOpt/ω','ReY22','MagY21'])
         figs.append(self._make_gamma_smith_figure(meas_cds_c, meas_cds_l, sim_cds, layout_params))
+        figs.append(SParIDriveVFreqTemplate._make_figures(self, meas_cds_c, meas_cds_l, sim_cds, layout_params,
+                                   y_axis_type=y_axis_type,x_axis_type=x_axis_type, only_smith=True,
+                                   override_line_color=override_line_color)[0])
         return figs
 
     def to_merged_table(self,result):

@@ -44,7 +44,7 @@ class CadenceSimTemplate(SpectreSimTemplate):
     def prep_netlist(self, force_reexport=False):
         from compyct import CACHE_DIR
         rundir = CACHE_DIR / 'spyctre' / f"{self.library}__{self.cell}__{self.view}"
-        if force_reexport or (not rundir.exists()):
+        if force_reexport or (not (rundir/"input.scs").exists()):
             print(f"Exporting netlist for {self.library}::{self.cell} to {rundir}")
             rundir=export_netlist(
                 self.library,

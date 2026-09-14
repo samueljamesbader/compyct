@@ -285,7 +285,7 @@ def cli_playback(*args):
                         if (circuit_names is None or (cc.collection_name in circuit_names))
             }
             assert all(circuit_name in tgsc for circuit_name in (circuit_names or [])), \
-                f"Some specified circuit names not found in file {file} of bundle ({pdk}, {release_name})"
+                f"Some specified circuit names from {circuit_names} not found in file {file} of bundle ({pdk}, {release_name}).  Options include {list(bundle.circuits[file])}"
         else: tgsc={}
         tgs={**tgse, **tgsc}
             
@@ -338,7 +338,7 @@ def cli_compare(*args):
     parser.add_argument('--measurement_subset_name', '-msub', type=str, nargs='?', default=None, help='Measurement subset names')
     parser.add_argument('--force_refresh_data', '-rd', action='store_true', help='Force refresh data (default: False)')
     parser.add_argument('--allow_external', action='store_true', default=False, help='Allow external bundles (default: False)')
-    parser.add_argument('--reexport', action='store_true', default=False, help='Re-export bundle before playback (default: False)')
+    #parser.add_argument('--reexport', action='store_true', default=False, help='Re-export bundle before playback (default: False)')
     parser.add_argument('--publish', action='store_true', default=False, help='Publish playback results to COMPYCT_PUBLISH_DIR (default: False)')
     parsed_args = parser.parse_args(args)
     pdk, release_name1, files = resolve_bundle_args(parsed_args.pdk, parsed_args.release_name1, parsed_args.file,
@@ -348,14 +348,14 @@ def cli_compare(*args):
     from compyct.model_suite import Bundle
     bundle1 = Bundle.get_bundle(pdk, release_name1)
     bundle2 = Bundle.get_bundle(pdk, release_name2)
-    if parsed_args.reexport:
-        for release_name, bundle in [(release_name1, bundle1), (release_name2, bundle2)]:
-            print(f"Re-exporting bundle ({pdk}, {release_name}) before playback...")
-            bundle.export()
-            if parsed_args.publish:
-                from compyct import PUBLISH_DIR
-                bundle.export(override_output_dir=PUBLISH_DIR)
-        del release_name, bundle
+    #if parsed_args.reexport:
+    #    for release_name, bundle in [(release_name1, bundle1), (release_name2, bundle2)]:
+    #        print(f"Re-exporting bundle ({pdk}, {release_name}) before playback...")
+    #        bundle.export()
+    #        if parsed_args.publish:
+    #            from compyct import PUBLISH_DIR
+    #            bundle.export(override_output_dir=PUBLISH_DIR)
+    #    del release_name, bundle
     from compyct.model_suite import FittableModelSuite
     element_names = parsed_args.element_names
     circuit_names = parsed_args.circuit_names
@@ -391,8 +391,8 @@ def cli_compare(*args):
         tgs={**tgse, **tgsc}
             
         from compyct import logger
-        from compyct.backends.backend import MultiSimSesh
-        from compyct.optimizer import rerun_with_params
+        #from compyct.backends.backend import MultiSimSesh
+        #from compyct.optimizer import rerun_with_params
         import panel as pn
         from compyct import PUBLISH_DIR
         from compyct.templates import SimTemplate

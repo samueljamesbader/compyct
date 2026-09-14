@@ -250,6 +250,7 @@ class SpectreNetlister(Netlister):
             for c in ['cy11','cy12','cy21','cy22']:
                 if c in df.columns:
                     df[c]=df[c]*(4*kb*290)
+            df.to_csv("debug_noise.csv")
             return df
         return {standardize_swname(sweepname):standardize_norms(sweepdata.rename(columns=partial(standardize_col,sweepname=sweepname)))
                     for sweepname,sweepdata in result.items()} 
@@ -270,12 +271,13 @@ class SpectreMultiSimSesh(MultiSimSesh):
         super().__enter__()
         logger.debug("Entering Spectre MultiSimSesh")
         for simname,simtemp in self.simtemps.items():
-            logger.debug(f"  {simname}")
+            if not isinstance(simtemp,SimTemplate): continue
+            logger.debug(f"  {simname} {simtemp.__class__.__name__}")
             nl=SpectreNetlister(simtemp, **self._netlist_kwargs)
             net_path=nl.get_netlist_file()
             assert nl.spectre_format is not None, "Spectre format not set by netlister"
             try:
-                sesh=psp.start_session(net_path=net_path, timeout=600, format=nl.spectre_format, keep_log=True) # longer timeout in-case compiling ahdl
+                sesh=psp.start_session(net_path=net_path, timeout=600, format=nl.spectre_format, keep_log=False) # longer timeout in-case compiling ahdl
             except Exception as myexc:
                 with open(net_path,'r') as f:
                     from compyct import CACHE_DIR
