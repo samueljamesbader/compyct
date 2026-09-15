@@ -9,6 +9,9 @@ from compyct.paramsets import ParamPlace
 from ..util import logger
 from .spectre_util import n2scs
 
+import os
+spectre_cwd=os.environ.get("COMPYCT_LOG_DIR",None)
+if spectre_cwd is not None: spectre_cwd=os.path.join(spectre_cwd,"scllogs")
 
 class SpectreNetlister(Netlister):
     GND='0'
@@ -288,7 +291,7 @@ class SpectreMultiSimSesh(MultiSimSesh):
             net_path=nl.get_netlist_file()
             assert nl.spectre_format is not None, "Spectre format not set by netlister"
             try:
-                sesh=psp.start_session(net_path=net_path, timeout=600, format=nl.spectre_format, keep_log=False) # longer timeout in-case compiling ahdl
+                sesh=psp.start_session(net_path=net_path, timeout=600, format=nl.spectre_format, keep_log=False, spectre_cwd=spectre_cwd) # longer timeout in-case compiling ahdl
             except Exception as myexc:
                 with open(net_path,'r') as f:
                     from compyct import CACHE_DIR
