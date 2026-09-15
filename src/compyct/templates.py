@@ -1188,7 +1188,7 @@ class VsFreqAtIrregularBias():
         if f'dc_{name}' in result:
             # TODO: 'VD#p' is a magic string
             #print("Options included:",result[f'dc_{name}'].keys())
-            for x in ['vd#p','vport2#p']:
+            for x in ['vd#p','vport2#p',"iprb#in"]:
                 if x in result[f'dc_{name}']:
                     result[name]['I [A]']=-result[f'dc_{name}'][x].iloc[0]
         parsed_result={(vg,vd): result[name]}
@@ -1873,6 +1873,50 @@ class LFNoiseVFreqTemplate(LFNoiseTemplate, VsFreqAtIrregularBias):
 
     def parse_return(self,result):
         result=VsFreqAtIrregularBias.parse_return_helper(self,result,name='noise')
+        # TODO: REMOVE
+        # Only necessary because don't support getting I in spectre yet
+        for k,sw in result.items():
+            if 'I [A]' not in sw:
+                sw['I [A]'] = sw['freq'] * np.nan
+        return result
+
+    def generate_figures(self,*args,**kwargs):
+        kwargs['y_axis_type']=kwargs.get('y_axis_type','log')
+        kwargs['x_axis_type']=kwargs.get('x_axis_type','log')
+        return super().generate_figures(*args,**kwargs,override_line_color='red')
+
+    def to_merged_table(self,result):
+        return VsFreqAtIrregularBias.to_merged_table(self,result)
+
+class LFNoiseIDriveVFreqTemplate(LFNoiseTemplate, VsFreqAtIrregularBias):
+    def __init__(self,
+                 id, vd, fstart, fstop, temp=27, pts_per_dec=None, fstep=None, *args, **kwargs):
+        VsFreqAtIrregularBias.init_helper(self,fstart=fstart,fstop=fstop,pts_per_dec=pts_per_dec,fstep=fstep)
+        LFNoiseTemplate.__init__(self, outer_variable=None, outer_values=[(id, vd)], inner_variable='freq',
+                                 inner_range=(fstart,pts_per_dec,fstop), temp=temp,
+                                 ynames=[
+                                     'sid/ID^2 [1/Hz]','svg [V^2/Hz]'],
+                                 *args, **kwargs)
+
+    def get_schematic_listing(self,netlister:Netlister):
+        id,vd=self.outer_values[0]
+        gnded=[t for t in self._patch.terminals if t not in ['d','g','t','dt']]
+        netmap=dict(**{'d':'netd','g':'netg'},**{k:netlister.GND for k in gnded})
+        return [
+            netlister.nstr_iabstol('1e-15'),
+            netlister.nstr_temp(temp=self.temp),
+            netlister.nstr_modeled_xtor("inst",netmap=netmap,
+                                        internals_to_save=self.internals_to_save),
+            netlister.nstr_iprobe_with_idc("IPRB",netp='netd',netm=netlister.GND, idc=id, vdc=vd, portnum=2,ac=0),
+            netlister.nstr_VAC_with_cccs("G",netp='netg',netm=netlister.GND,probe_portnum=2,gain=.001,portnum=1,ac=1)]
+
+    def get_analysis_listing(self,netlister:Netlister):
+        netlister_func=lambda *args,**kwargs: netlister.astr_noise(outprobe='IPRB',vsrc='VG',*args,**kwargs)
+        return VsFreqAtIrregularBias.get_analysis_listing_helper(self,netlister_func=netlister_func,name='noise')
+
+    def parse_return(self,result):
+        result=VsFreqAtIrregularBias.parse_return_helper(self,result,name='noise')
+        # ^ note: if sid/ID^2 is huge when trying in ngspice, make sure the ID is captured from iprobe not the VDC!!!
         # TODO: REMOVE
         # Only necessary because don't support getting I in spectre yet
         for k,sw in result.items():

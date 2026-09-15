@@ -100,6 +100,17 @@ class SpectreNetlister(Netlister):
     def nstr_iprobe(self,name,netp,netm):
         return f"{name} ({netp} {netm}) iprobe"
 
+    def nstr_iprobe_with_idc(self,name,netp,netm,vdc,idc,portnum,ac=0):
+        return f"{name} (port{portnum} {netp}) iprobe\n"\
+               f"VPort{portnum} (port{portnum} {netm}) vsource dc={n2scs(vdc)} mag={n2scs(ac)}\n"\
+               f"IPort{portnum} ({netm} port{portnum}) isource dc={n2scs(idc)}\n"
+    def nstr_VAC_with_cccs(self,name,netp,netm,probe_portnum,gain,portnum,ac=0):
+        return f"V{name} (portacin{portnum} {netm}) vsource mag={n2scs(ac)}\n"\
+                f"dcsourceblock{portnum} ({netp} portacin{portnum}) dcblock\n"\
+                f"dcfeed{portnum} (portdcin{portnum} {netp}) dcfeed\n"\
+                f"CCVSPort{portnum} ({netm} portdcin{portnum}) cccs probe=VPort{probe_portnum} gain={n2scs(gain)}\n"\
+                f"dcdriveblock{portnum} (portdcin{portnum} {netm}) dcblock\n"
+
     def astr_altervdc(self,whichv, tovalue, name=None):
         if name is None:
             name=f"alter{self._analysiscount}"
