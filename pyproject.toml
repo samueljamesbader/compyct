@@ -1,0 +1,34 @@
+[project]
+name = "compyct"
+version = "0.0.2"
+description = "Open-source semiconductor compact modelling"
+readme = "README.md"
+authors = [
+    { name = "Samuel James Bader", email = "samuel.james.bader@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "inspice[vacask]>=1.7.0.7",
+]
+
+[project.scripts]
+compyct = "compyct:main"
+
+[build-system]
+requires = ["uv_build>=0.13.6,<0.14.0"]
+build-backend = "uv_build"
+
+[project.optional-dependencies]
+dev = [
+    "inspice[dev]",
+    "furo>=2025.12.19,<2026",
+    "myst-parser>=5.1.0",
+    "rust-just>=1.59.0",
+    "sphinx>=9.2.0",
+]
+
+[tool.uv.workspace]
+members = ["packages/InSpice"]
+
+[tool.uv.sources]
+inspice = { workspace = true }
