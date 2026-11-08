@@ -27,6 +27,10 @@ dev = [
     "sphinx>=9.2.0",
 ]
 
+[tool.uv]
+# Path-based .pth for the editable InSpice install so Pylance can resolve it
+config-settings-package = { inspice = { editable_mode = "compat" } }
+
 [tool.uv.workspace]
 members = ["packages/InSpice"]
 

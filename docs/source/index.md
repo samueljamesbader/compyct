@@ -17,5 +17,6 @@ environment and building these docs.
 :maxdepth: 2
 :caption: Contents
 
+concepts
 developers
 ```
