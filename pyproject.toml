@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "Samuel James Bader", email = "samuel.james.bader@gmail.com" }
 ]
-requires-python = ">=3.14"
+requires-python = ">=3.14,<3.15"
 dependencies = [
     #"inspice[vacask]>=1.7.0.7",
     "inspice>=1.7.0.7",
@@ -44,3 +44,8 @@ members = [
 [tool.uv.sources]
 inspice = { workspace = true }
 vacask = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]

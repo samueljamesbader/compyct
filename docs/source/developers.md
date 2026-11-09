@@ -3,7 +3,7 @@
 ## Set up the environment
 
 Compyct uses [uv](https://docs.astral.sh/uv/) for project and dependency
-management. The setup scripts in `dev/` install uv if it is not already on your
+management with Python 3.14. The setup scripts in `dev/` install uv if it is not already on your
 `PATH`, clone [InSpice](https://github.com/samueljamesbader/InSpice) into
 `packages/InSpice` if it is not already there, then synchronize the project
 environment. InSpice is a uv workspace member, so it is installed in editable
@@ -25,7 +25,8 @@ If you already have uv and have cloned InSpice, you can instead run this from
 the repository root:
 
 ```console
-uv sync --extra dev
+uv python install 3.14
+uv sync --python 3.14 --extra dev
 ```
 
 Either way, this installs the project and its development dependencies,

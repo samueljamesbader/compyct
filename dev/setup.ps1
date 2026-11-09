@@ -10,6 +10,7 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 
 Push-Location (Join-Path $PSScriptRoot "..")
 try {
+    uv python install 3.14
     if (-not (Test-Path packages/InSpice)) {
         git clone https://github.com/samueljamesbader/InSpice packages/InSpice
         if ($LASTEXITCODE -ne 0) { throw "git clone failed" }
@@ -33,7 +34,7 @@ try {
     }
     $env:SKBUILD_CMAKE_DEFINE = "OPENVAF_DIR=$($openvafDir -replace '\\', '/')"
 
-    uv sync --extra dev
+    uv sync --python 3.14 --extra dev
 } finally {
     Pop-Location
 }

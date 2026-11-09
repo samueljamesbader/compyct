@@ -18,6 +18,8 @@ fi
 
 cd "$(dirname "$0")/.."
 
+uv python install 3.14
+
 if [ ! -d packages/InSpice ]; then
     git clone https://github.com/samueljamesbader/InSpice packages/InSpice
 fi
@@ -54,4 +56,4 @@ if [ ! -f "$OPENVAF_BIN" ]; then
 fi
 export SKBUILD_CMAKE_DEFINE="OPENVAF_DIR=$OPENVAF_DIR"
 
-uv sync --extra dev
+uv sync --python 3.14 --extra dev
