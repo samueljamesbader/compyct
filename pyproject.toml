@@ -8,7 +8,9 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
-    "inspice[vacask]>=1.7.0.7",
+    #"inspice[vacask]>=1.7.0.7",
+    "inspice>=1.7.0.7",
+    "vacask"
 ]
 
 [project.scripts]
@@ -29,10 +31,16 @@ dev = [
 
 [tool.uv]
 # Path-based .pth for the editable InSpice install so Pylance can resolve it
-config-settings-package = { inspice = { editable_mode = "compat" } }
+config-settings-package = {
+    inspice = { editable_mode = "compat" },
+}
 
 [tool.uv.workspace]
-members = ["packages/InSpice"]
+members = [
+    "packages/InSpice",
+    "packages/VACASK",
+]
 
 [tool.uv.sources]
 inspice = { workspace = true }
+vacask = { workspace = true }

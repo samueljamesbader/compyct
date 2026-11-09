@@ -41,13 +41,16 @@ class DCIdVg(TestBench):
 
         self.embedding.add_to_circuit(circuit, netmap, dut, model)
 
-        simulation = Simulator.factory(simulator='vacask').simulation(circuit)
-        for sweep in self._sweep_plan.iter_sweeps():
-            if isinstance(sweep, SingleUniformSweep):
-                simulation.dc(vgate=sweep.to_slice(), run=False)
-            break   # JUST FOR TESTING REMOVE REMOVE
+        simulation = Simulator.factory(simulator='ngspice').simulation(circuit)
         return simulation
 
+    def get_analyses(self,simulation):
+        analyses = []
+        for sweep in self._sweep_plan.iter_sweeps():
+            if not isinstance(sweep, SingleUniformSweep):
+                raise NotImplementedError("DCIdVg only supports uniform sweeps for now.")
+            analyses.append(simulation.dc(vgate=sweep.to_slice()))
+        return analyses
 
 if __name__ == '__main__':
     from compyct.definitions.sweep import RectangularSweepPlan
@@ -57,7 +60,7 @@ if __name__ == '__main__':
             circuit.R('shortgd', netmap['g'], netmap['d'], iparams['Rgd'])
             circuit.R('shortds', netmap['d'], netmap['s'], 5)
     dciv=DCIdVg('DCIdVg',
-           RectangularSweepPlan._('VG', VG_start=0, VG_stop=1, VG_step=0.1, VD_vals=[.05,1]),
+           RectangularSweepPlan._('VG', VG_start=0, VG_stop=1, VG_step=0.00001, VD_vals=[.05,1]),
            biases={'g':'gate','d':'drain','s':'gnd','b':-.5})                
     import time
     
@@ -70,17 +73,17 @@ if __name__ == '__main__':
     #print(simulation)
     print("Running DCIdVg simulation...")
     start_time = time.time()
-    analysis = simulation.simulator.run(simulation)
+    analysis = dciv.get_analyses(simulation)[0]
     print(f"Simulation completed in {time.time()-start_time:.6f} seconds.")
 
-    print("Creating DCIdVg netlist...")
-    start_time = time.time()
-    simulation=dciv.get_simulation(PDUT({'Rgd':20}),Short())
-    print(f"Netlist created in {time.time()-start_time:.6f} seconds.")    
+    #print("Creating DCIdVg netlist...")
+    #start_time = time.time()
+    #simulation=dciv.get_simulation(PDUT({'Rgd':20}),Short())
+    #print(f"Netlist created in {time.time()-start_time:.6f} seconds.")    
     #print(simulation)
     print("Running DCIdVg simulation...")
     start_time = time.time()
-    analysis = simulation.simulator.run(simulation)
+    analysis = dciv.get_analyses(simulation)[0]
     print(f"Simulation completed in {time.time()-start_time:.6f} seconds.")
 
 

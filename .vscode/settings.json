@@ -1,0 +1,3 @@
+{
+    "python.analysis.extraPaths": ["packages/VACASK/python/src"]
+}

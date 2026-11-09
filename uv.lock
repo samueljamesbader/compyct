@@ -6,6 +6,7 @@ requires-python = ">=3.14"
 members = [
     "compyct",
     "inspice",
+    "vacask",
 ]
 
 [[package]]
@@ -270,7 +271,8 @@ name = "compyct"
 version = "0.0.2"
 source = { editable = "." }
 dependencies = [
-    { name = "inspice", extra = ["vacask"] },
+    { name = "inspice" },
+    { name = "vacask" },
 ]
 
 [package.optional-dependencies]
@@ -285,11 +287,12 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "furo", marker = "extra == 'dev'", specifier = ">=2025.12.19,<2026" },
+    { name = "inspice", editable = "packages/InSpice" },
     { name = "inspice", extras = ["dev"], marker = "extra == 'dev'", editable = "packages/InSpice" },
-    { name = "inspice", extras = ["vacask"], editable = "packages/InSpice" },
     { name = "myst-parser", marker = "extra == 'dev'", specifier = ">=5.1.0" },
     { name = "rust-just", marker = "extra == 'dev'", specifier = ">=1.59.0" },
     { name = "sphinx", marker = "extra == 'dev'", specifier = ">=9.2.0" },
+    { name = "vacask", editable = "packages/VACASK" },
 ]
 provides-extras = ["dev"]
 
@@ -1728,6 +1731,25 @@ sdist = { url = "https://files.pythonhosted.org/packages/e3/05/b17359e1cefb4f909
 wheels = [
     { url = "https://files.pythonhosted.org/packages/92/9d/c4e665119135114480843e7ab388fa94d8480650450e6f8e26b70d323a4c/urllib3-2.8.0-py3-none-any.whl", hash = "sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3", size = 135717, upload-time = "2026-09-15T19:29:34.577Z" },
 ]
+
+[[package]]
+name = "vacask"
+source = { editable = "packages/VACASK" }
+
+[package.optional-dependencies]
+dev = [
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "matplotlib", marker = "extra == 'dev'" },
+    { name = "numpy", marker = "extra == 'dev'" },
+    { name = "pytest", marker = "extra == 'dev'" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "vacask-bin"

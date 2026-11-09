@@ -1,6 +1,7 @@
 # Project-specific ignores
 scratch/
 packages/
+.tools/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
