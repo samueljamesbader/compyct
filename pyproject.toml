@@ -38,12 +38,18 @@ config-settings-package = {
 [tool.uv.workspace]
 members = [
     "packages/InSpice",
-    "packages/VACASK",
 ]
 
 [tool.uv.sources]
 inspice = { workspace = true }
-vacask = { workspace = true }
+# Prebuilt VACASK wheels (all platforms), placed in wheelhouse/repaired/
+vacask = { index = "vacask-wheels" }
+
+[[tool.uv.index]]
+name = "vacask-wheels"
+url = "./wheelhouse/repaired"
+format = "flat"
+explicit = true
 
 [dependency-groups]
 dev = [

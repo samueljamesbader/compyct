@@ -1,12 +1,15 @@
 version = 1
 revision = 5
 requires-python = "==3.14.*"
+resolution-markers = [
+    "sys_platform == 'linux'",
+    "sys_platform != 'linux'",
+]
 
 [manifest]
 members = [
     "compyct",
     "inspice",
-    "vacask",
 ]
 
 [[package]]
@@ -61,9 +64,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/04/da/1ec2e9b4f500693e56e6391f128dd0d304d6d2b7f0d5090e80a802b722f1/brotli-1.2.1-cp314-cp314-win32.whl", hash = "sha256:0a30e5df5ba985b67f85e13dfd7e5a68e186d8d9b5cff7d9a8904832bb413e81", size = 338208, upload-time = "2026-10-22T13:58:40.927Z" },
     { url = "https://files.pythonhosted.org/packages/24/5e/80cd38322263da5e92ea4935423f1d3cfa2509201673dce77b772c47b997/brotli-1.2.1-cp314-cp314-win_amd64.whl", hash = "sha256:972a2e19dbaab47d0aa77c1d07f71c930bdc53538f2b33decc905e92a4be5cbd", size = 376707, upload-time = "2026-10-22T13:58:42.025Z" },
     { url = "https://files.pythonhosted.org/packages/c5/35/cb35c489fcd0a813bbb7500465af5a7bac3bee7d996f6a211bac9096ef2c/brotli-1.2.1-cp314-cp314-win_arm64.whl", hash = "sha256:a3dea7e1ac49e29306500a8627fa3eacabcc9e238d22495eea2d8e61de77065b", size = 390280, upload-time = "2026-10-22T13:58:43.256Z" },
-    { url = "https://files.pythonhosted.org/packages/a9/53/35042a907c309af8defb423e58692bdc5e3e1fd3d03388892b7614270626/brotli-1.2.1-cp315-cp315-win32.whl", hash = "sha256:1880db6241276e191d3e34a6e4eea708c6629103c396f0ea21e75b0ce63a9a2c", size = 338212, upload-time = "2026-10-22T13:58:57.189Z" },
-    { url = "https://files.pythonhosted.org/packages/38/6c/883a32c23603e278ae93d8df31f0573b67382de827e6e05a6e9ee0b51896/brotli-1.2.1-cp315-cp315-win_amd64.whl", hash = "sha256:09a2f112a638aca15a88f298571788795fc45d62f2bca7f3870c1152153ef399", size = 376707, upload-time = "2026-10-22T13:58:58.292Z" },
-    { url = "https://files.pythonhosted.org/packages/9f/d5/2c574da9faf130a59c4c685ba1378f2f470b57fb9fa5d3b0f8b4e90579a0/brotli-1.2.1-cp315-cp315-win_arm64.whl", hash = "sha256:91097d66ebb8ca8d23372081a33405a44e2239445614888e38929bd7f5879dae", size = 390278, upload-time = "2026-10-22T13:58:59.512Z" },
 ]
 
 [[package]]
@@ -86,7 +86,7 @@ name = "build"
 version = "1.6.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "os_name == 'nt'" },
+    { name = "colorama", marker = "os_name == 'nt' and sys_platform != 'linux'" },
     { name = "packaging" },
     { name = "pyproject-hooks" },
 ]
@@ -241,7 +241,7 @@ requires-dist = [
     { name = "myst-parser", marker = "extra == 'dev'", specifier = ">=5.1.0" },
     { name = "rust-just", marker = "extra == 'dev'", specifier = ">=1.59.0" },
     { name = "sphinx", marker = "extra == 'dev'", specifier = ">=9.2.0" },
-    { name = "vacask", editable = "packages/VACASK" },
+    { name = "vacask", index = "file:///home/coding/Compyct_linux/wheelhouse/repaired" },
 ]
 provides-extras = ["dev"]
 
@@ -1500,22 +1500,11 @@ wheels = [
 
 [[package]]
 name = "vacask"
-source = { editable = "packages/VACASK" }
-
-[package.optional-dependencies]
-dev = [
-    { name = "matplotlib" },
-    { name = "numpy" },
-    { name = "pytest" },
+version = "0.3.5.dev160+gf29d2b0ea.d20261109"
+source = { registry = "wheelhouse/repaired" }
+wheels = [
+    { path = "vacask-0.3.5.dev160+gf29d2b0ea.d20261109-cp314-cp314-manylinux_2_34_x86_64.whl" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "matplotlib", marker = "extra == 'dev'" },
-    { name = "numpy", marker = "extra == 'dev'" },
-    { name = "pytest", marker = "extra == 'dev'" },
-]
-provides-extras = ["dev"]
 
 [[package]]
 name = "vacask-bin"
