@@ -241,7 +241,7 @@ requires-dist = [
     { name = "myst-parser", marker = "extra == 'dev'", specifier = ">=5.1.0" },
     { name = "rust-just", marker = "extra == 'dev'", specifier = ">=1.59.0" },
     { name = "sphinx", marker = "extra == 'dev'", specifier = ">=9.2.0" },
-    { name = "vacask", index = "file:///home/coding/Compyct_linux/wheelhouse/repaired" },
+    { name = "vacask", index = "file:///C:/Users/Coding/Projects/Compyct_uv/wheelhouse/repaired" },
 ]
 provides-extras = ["dev"]
 
@@ -1500,10 +1500,10 @@ wheels = [
 
 [[package]]
 name = "vacask"
-version = "0.3.5.dev160+gf29d2b0ea.d20261109"
+version = "0.1.dev1+g3b52a4322.d20261110"
 source = { registry = "wheelhouse/repaired" }
 wheels = [
-    { path = "vacask-0.3.5.dev160+gf29d2b0ea.d20261109-cp314-cp314-manylinux_2_34_x86_64.whl" },
+    { path = "vacask-0.1.dev1+g3b52a4322.d20261110-cp314-cp314-win_amd64.whl" },
 ]
 
 [[package]]
